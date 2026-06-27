@@ -1,0 +1,14 @@
+{
+  "name": "forge-ai",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["frontend", "backend", "vscode-extension"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=frontend\" \"npm run dev --workspace=backend\"",
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
+    "install:all": "npm install && npm install --workspace=frontend && npm install --workspace=backend && cd python-service && pip install -r requirements.txt"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}

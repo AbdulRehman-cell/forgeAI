@@ -1,0 +1,56 @@
+{
+  "name": "forgeai-vscode",
+  "displayName": "ForgeAI",
+  "description": "AI-powered code fixing directly in VS Code",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.87.0" },
+  "categories": ["AI", "Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "forgeai.fixWorkspace", "title": "ForgeAI: Fix Workspace" },
+      { "command": "forgeai.fixCurrentFile", "title": "ForgeAI: Fix Current File" },
+      { "command": "forgeai.explainFile", "title": "ForgeAI: Explain This File" },
+      { "command": "forgeai.openDashboard", "title": "ForgeAI: Open Dashboard" }
+    ],
+    "configuration": {
+      "title": "ForgeAI",
+      "properties": {
+        "forgeai.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:4000/api",
+          "description": "ForgeAI backend API URL"
+        },
+        "forgeai.token": {
+          "type": "string",
+          "default": "",
+          "description": "Your ForgeAI authentication token"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "forgeai", "title": "ForgeAI", "icon": "resources/icon.svg" }
+      ]
+    },
+    "views": {
+      "forgeai": [
+        { "id": "forgeai.tasks", "name": "Tasks", "type": "tree" }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "axios": "^1.6.8"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.87.0",
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5"
+  }
+}

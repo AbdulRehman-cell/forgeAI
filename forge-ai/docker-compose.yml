@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: forgeai-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: forgeai-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: forgeai-backend
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/forgeai
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./repos:/app/repos
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+
+  python:
+    build:
+      context: ./python-service
+      dockerfile: Dockerfile
+    container_name: forgeai-python
+    ports:
+      - "5001:5001"
+    env_file:
+      - ./python-service/.env.example
+    volumes:
+      - ./repos:/repos
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: forgeai-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
