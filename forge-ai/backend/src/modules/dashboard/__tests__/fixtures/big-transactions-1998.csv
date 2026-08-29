@@ -1,0 +1,4 @@
+transaction_date,stock_date,product_id,customer_id,store_id,quantity
+1998-01-05,1997-12-30,P1,C1,S1,10
+1998-02-01,1998-01-15,P3,C2,S3,7
+1998-03-01,1998-02-15,P2,C5,S2,3

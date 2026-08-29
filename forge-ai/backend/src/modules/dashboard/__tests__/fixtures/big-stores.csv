@@ -1,0 +1,4 @@
+store_id,store_name,store_type,region_id
+S1,Downtown,Supermarket,R1
+S2,Uptown,Deluxe,R1
+S3,Central,Supermarket,R2

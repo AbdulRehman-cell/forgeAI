@@ -1,7 +1,8 @@
 import { useRef, useEffect } from 'react'
 import type { Task } from '@/types'
-import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { CheckCircle2, XCircle, Loader2, Globe, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
+import Markdown from '@/components/Markdown'
 
 interface Props { task: Task }
 
@@ -46,12 +47,30 @@ export default function TaskPanel({ task }: Props) {
         <div ref={bottomRef} />
       </div>
 
-      {task.summary && (
-        <div className="p-4 border-t border-surface-700 bg-emerald-500/5">
-          <p className="text-xs font-semibold text-emerald-400 mb-1">Summary</p>
-          <p className="text-xs text-zinc-400">{task.summary}</p>
-        </div>
+      {task.metadata?.deploymentUrl && (
+        <a
+          href={task.metadata.deploymentUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2.5 mx-3 mb-3 p-3 rounded-xl bg-gradient-to-r from-emerald-600/20 to-brand-600/15 border border-emerald-500/40 hover:border-emerald-400/70 transition-colors group"
+        >
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center shrink-0">
+            <Globe size={14} className="text-emerald-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-emerald-300">Your site is live</p>
+            <p className="text-[11px] text-zinc-400 truncate">{task.metadata.deploymentUrl}</p>
+          </div>
+          <ExternalLink size={13} className="text-zinc-500 group-hover:text-emerald-400 shrink-0" />
+        </a>
       )}
+
+      {task.summary && (
+  <div className="p-4 border-t border-surface-700 bg-emerald-500/5 max-h-80 overflow-y-auto">
+    <p className="text-xs font-semibold text-emerald-400 mb-2">Summary</p>
+    <Markdown content={task.summary} />
+  </div>
+)}
     </div>
   )
 }

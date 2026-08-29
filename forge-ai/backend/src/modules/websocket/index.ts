@@ -1,6 +1,7 @@
 import { Server as HTTPServer } from 'http'
 import { Server as SocketServer, Socket } from 'socket.io'
 import { verifyToken } from '../../lib/jwt'
+import { attachTerminalHandlers } from '../terminal/terminal'
 
 let io: SocketServer | null = null
 
@@ -36,6 +37,9 @@ export function setupWebSocket(server: HTTPServer) {
     socket.on('unsubscribe:task', (taskId: string) => {
       socket.leave(`task:${taskId}`)
     })
+
+    // Interactive terminal sessions (Claude Code-style)
+    attachTerminalHandlers(socket)
 
     socket.on('disconnect', () => {
       console.log(`[ws] User ${userId} disconnected`)

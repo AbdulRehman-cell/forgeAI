@@ -9,11 +9,19 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "forgeai.fixWorkspace", "title": "ForgeAI: Fix Workspace" },
-      { "command": "forgeai.fixCurrentFile", "title": "ForgeAI: Fix Current File" },
-      { "command": "forgeai.explainFile", "title": "ForgeAI: Explain This File" },
-      { "command": "forgeai.openDashboard", "title": "ForgeAI: Open Dashboard" }
-    ],
+     
+  { "command": "forgeai.fixWorkspace", "title": "ForgeAI: Fix Workspace" },
+  { "command": "forgeai.fixCurrentFile", "title": "ForgeAI: Fix Current File" },
+  { "command": "forgeai.explainFile", "title": "ForgeAI: Explain This File" },
+  { "command": "forgeai.openDashboard", "title": "ForgeAI: Open Dashboard" },
+  { "command": "forgeai.fixLocalFile", "title": "ForgeAI: Fix Current File (Local — no repo needed)" },
+  { "command": "forgeai.explainLocalFile", "title": "ForgeAI: Explain Current File (Local)" },
+  { "command": "forgeai.setToken", "title": "ForgeAI: Set Token" },
+  { "command": "forgeai.scanFolder", "title": "ForgeAI: Scan Folder (Cross-File Analysis)" },
+{ "command": "forgeai.fixFolder", "title": "ForgeAI: Auto-Fix Folder" },
+{ "command": "forgeai.importRepo", "title": "ForgeAI: Import Repo (Clone to VS Code)" }
+]
+    ,
     "configuration": {
       "title": "ForgeAI",
       "properties": {
@@ -35,10 +43,11 @@
       ]
     },
     "views": {
-      "forgeai": [
-        { "id": "forgeai.tasks", "name": "Tasks", "type": "tree" }
-      ]
-    }
+  "forgeai": [
+    { "type": "webview", "id": "forgeai.home", "name": "Buddy" },
+    { "id": "forgeai.tasks", "name": "Tasks" }
+  ]
+}
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

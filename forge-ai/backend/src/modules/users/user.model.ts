@@ -1,14 +1,7 @@
-import { Schema, model, Document } from 'mongoose'
+import { Schema, model, Document, Types } from 'mongoose'
 import bcrypt from 'bcryptjs'
 
-
-const dns = require("dns");
-
-dns.setServers([
-  "8.8.8.8",
-  "8.8.4.4",
-]);
-
+export type Plan = 'free' | 'pro' | 'team'
 
 export interface IUser extends Document {
   name: string
@@ -18,7 +11,66 @@ export interface IUser extends Document {
   githubId?: string
   githubAccessToken?: string
   githubConnected: boolean
-  aiProvider: 'openai' | 'claude' | 'gemini'
+  aiProvider: 'openai' | 'claude' | 'gemini' | 'github'
+  // ── Deploy platform tokens (Blitz Deploy) ──
+  deployTokens?: {
+    vercel?: string
+    railway?: string
+    render?: string
+  }
+  // ── Dashboard source connections (per-user OAuth grants) ──
+  dashboardTokens?: {
+    google?: {
+      accessToken: string
+      refreshToken?: string
+      expiresAt?: number
+      scope?: string
+    }
+    stripe?: {
+      accessToken: string
+      /** stripe_user_id — the connected account id, used as Stripe-Account header on API calls. */
+      stripeUserId: string
+      /** Livemode vs test — Stripe returns this on the OAuth response. */
+      livemode?: boolean
+      scope?: string
+    }
+  }
+  // ── Billing ──
+  plan: Plan
+  stripeCustomerId?: string
+  stripeSubscriptionId?: string
+  planExpiresAt?: Date
+  // ── Usage (resets monthly) ──
+  usage: {
+    fixes: number
+    chats: number
+    reviews: number
+    deploys: number
+    resetAt: Date
+  }
+  // ── Agency white-label (Pro/Team) ──
+  whiteLabel?: {
+    brandName?: string
+    logoUrl?: string
+    primaryColor?: string
+    supportEmail?: string
+  }
+  // ── Team seats ──
+  teamMembers?: Array<{
+    email: string
+    role: 'admin' | 'member'
+    inviteToken?: string
+    accepted: boolean
+    invitedAt: Date
+    userId?: Types.ObjectId
+  }>
+  // ── Gmail OAuth (for cold outreach) ──
+  gmailRefreshToken?: string
+  gmailEmail?: string
+  // ── Lead auto-reply & webhook ──
+  leadAutoReply?: boolean
+  leadAutoReplyTemplate?: string
+  leadWebhookUrl?: string
   createdAt: Date
   updatedAt: Date
   comparePassword(candidate: string): Promise<boolean>
@@ -33,10 +85,66 @@ const userSchema = new Schema<IUser>(
     githubId: { type: String, unique: true, sparse: true },
     githubAccessToken: { type: String, select: false },
     githubConnected: { type: Boolean, default: false },
-    aiProvider: { type: String, enum: ['openai', 'claude', 'gemini'], default: 'claude' },
+    aiProvider: { type: String, enum: ['openai', 'claude', 'gemini', 'github'], default: 'github' },
+    deployTokens: {
+      vercel: { type: String, select: false },
+      railway: { type: String, select: false },
+      render: { type: String, select: false },
+    },
+    dashboardTokens: {
+      google: {
+        accessToken: { type: String, select: false },
+        refreshToken: { type: String, select: false },
+        expiresAt: Number,
+        scope: String,
+      },
+      stripe: {
+        accessToken: { type: String, select: false },
+        stripeUserId: String,
+        livemode: Boolean,
+        scope: String,
+      },
+    },
+    plan: { type: String, enum: ['free', 'pro', 'team'], default: 'free' },
+    stripeCustomerId: String,
+    stripeSubscriptionId: String,
+    planExpiresAt: Date,
+    usage: {
+      fixes: { type: Number, default: 0 },
+      chats: { type: Number, default: 0 },
+      reviews: { type: Number, default: 0 },
+      deploys: { type: Number, default: 0 },
+      resetAt: { type: Date, default: () => nextMonthStart() },
+    },
+    whiteLabel: {
+      brandName: String,
+      logoUrl: String,
+      primaryColor: String,
+      supportEmail: String,
+    },
+    teamMembers: [
+      {
+        email: { type: String, lowercase: true },
+        role: { type: String, enum: ['admin', 'member'], default: 'member' },
+        inviteToken: { type: String, select: false },
+        accepted: { type: Boolean, default: false },
+        invitedAt: { type: Date, default: Date.now },
+        userId: { type: Schema.Types.ObjectId, ref: 'User' },
+      },
+    ],
+    gmailRefreshToken: { type: String, select: false },
+    gmailEmail: String,
+    leadAutoReply: { type: Boolean, default: false },
+    leadAutoReplyTemplate: String,
+    leadWebhookUrl: String,
   },
   { timestamps: true },
 )
+
+export function nextMonthStart(): Date {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth() + 1, 1)
+}
 
 userSchema.pre('save', async function () {
   if (this.isModified('password') && this.password) {

@@ -1,0 +1,8 @@
+transaction_id,transaction_date,product_id,customer_id,store_id,quantity
+T1,2024-01-05,P100,C1,S1,3
+T2,2024-01-06,P101,C2,S1,1
+T3,2024-01-07,P100,C1,S2,5
+T4,2024-01-08,P102,C3,S2,2
+T5,2024-01-09,P101,C2,S3,4
+T6,2024-01-10,P103,C4,S1,1
+T7,2024-01-11,P100,C5,S3,7

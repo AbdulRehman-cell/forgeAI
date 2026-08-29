@@ -12,12 +12,14 @@ export interface IFileChange {
   after: string
   additions: number
   deletions: number
+  /** true when stored content was cut to fit the DB — revert must skip it */
+  truncated?: boolean
 }
 
 export interface ITask extends Document {
   userId: Types.ObjectId
   repositoryId: Types.ObjectId
-  type: 'fix_workspace' | 'fix_file' | 'fix_folder' | 'chat' | 'clone_repo'
+  type: 'fix_workspace' | 'fix_file' | 'fix_folder' | 'chat' | 'clone_repo' | 'review' | 'generate_tests' | 'security_scan' | 'blitz_deploy' | 'agent' | 'build_site' | 'build_dashboard'
   status: 'pending' | 'running' | 'completed' | 'failed'
   progress: number
   logs: ITaskLog[]
@@ -51,6 +53,7 @@ const taskSchema = new Schema<ITask>(
         after: String,
         additions: Number,
         deletions: Number,
+        truncated: Boolean,
       },
     ],
     summary: String,

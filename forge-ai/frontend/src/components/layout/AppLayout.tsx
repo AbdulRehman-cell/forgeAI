@@ -1,16 +1,53 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import {
-  LayoutDashboard, GitBranch, Clock, Settings, LogOut, Zap, ChevronRight,
+  LayoutDashboard,
+  GitBranch,
+  Clock,
+  Settings,
+  LogOut,
+  Zap,
+  CreditCard,
+  Sparkles,
+  BarChart3,
+  Search,
+  Inbox,
+  Users,
+  Send,
 } from 'lucide-react'
 import clsx from 'clsx'
 
+function LeadsUnreadBadge() {
+  const { data } = useQuery({
+    queryKey: ['leads-stats'],
+    queryFn: () => api.get('/leads/stats').then(r => r.data),
+    staleTime: 30_000,
+    retry: false,
+  })
+  const count: number = data?.unreadCount ?? 0
+  if (count === 0) return null
+  return (
+    <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-brand-500 text-white min-w-[18px] text-center">
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
 const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/builder', icon: Sparkles, label: 'AI Builder', badge: 'NEW' },
+  { to: '/dashboards', icon: BarChart3, label: 'Data Dashboards' },
   { to: '/repositories', icon: GitBranch, label: 'Repositories' },
+  { to: '/leads', icon: Inbox, label: 'Leads', dynamicBadge: true },
+  { to: '/outreach', icon: Send, label: 'Cold Outreach', badge: 'NEW' },
+  { to: '/search', icon: Search, label: 'Code Search' },
   { to: '/tasks', icon: Clock, label: 'Task History' },
+  { to: '/team', icon: Users, label: 'Team' },
+  { to: '/pricing', icon: CreditCard, label: 'Pricing' },
   { to: '/settings', icon: Settings, label: 'Settings' },
-]
+] as { to: string; icon: any; label: string; badge?: string; dynamicBadge?: boolean }[]
 
 export default function AppLayout() {
   const { user, clearAuth } = useAuthStore()
@@ -22,62 +59,91 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen w-screen overflow-hidden bg-surface-950">
       {/* Sidebar */}
-      <aside className="w-60 flex flex-col bg-surface-800 border-r border-surface-700 shrink-0">
+      <aside className="w-64 flex flex-col glass border-r border-white/5 shrink-0 relative overflow-hidden">
+        {/* Ambient glow */}
+        <div className="pointer-events-none absolute top-0 left-0 w-full h-40 bg-gradient-to-b from-brand-600/10 to-transparent" />
+
         {/* Logo */}
-        <div className="flex items-center gap-2 px-4 py-5 border-b border-surface-700">
-          <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-            <Zap size={16} className="text-white" />
+        <div className="relative flex items-center gap-2.5 px-5 py-5 border-b border-white/5 shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center shadow-glow-sm">
+            <Zap size={17} className="text-white" />
           </div>
-          <span className="font-semibold text-zinc-100 tracking-tight">ForgeAI</span>
+
+          <span className="font-bold text-lg tracking-tight text-gradient">
+            ForgeAI
+          </span>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-2 py-4 space-y-0.5">
-          {nav.map(({ to, icon: Icon, label }) => (
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-1 relative min-h-0">
+          {nav.map(({ to, icon: Icon, label, badge, dynamicBadge }) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
-                clsx(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-                  isActive
-                    ? 'bg-brand-600/20 text-brand-400 font-medium'
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-surface-700',
-                )
+                clsx('nav-link', isActive && 'active')
               }
             >
-              <Icon size={16} />
+              <Icon size={17} />
               {label}
+              {dynamicBadge && <LeadsUnreadBadge />}
+              {badge && !dynamicBadge && (
+                <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gradient-to-r from-brand-500 to-violet-500 text-white">
+                  {badge}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
 
         {/* User */}
-        <div className="p-3 border-t border-surface-700">
-          <div className="flex items-center gap-2 px-2 py-2">
-            {user?.avatar ? (
-              <img src={user.avatar} alt={user.name} className="w-7 h-7 rounded-full" />
-            ) : (
-              <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
-                {user?.name?.[0]?.toUpperCase()}
+        <div className="p-3 border-t border-white/5 shrink-0 relative">
+          <div className="gradient-border p-[1.5px] rounded-2xl">
+            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-surface-900">
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.name}
+                  className="w-8 h-8 rounded-full ring-2 ring-brand-500/30"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-xs font-bold text-white shadow-glow-sm">
+                  {user?.name?.[0]?.toUpperCase()}
+                </div>
+              )}
+
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-zinc-100 truncate">
+                  {user?.name}
+                </p>
+                <p className="text-[11px] text-zinc-500 truncate">
+                  {user?.email}
+                </p>
               </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-zinc-200 truncate">{user?.name}</p>
-              <p className="text-xs text-zinc-500 truncate">{user?.email}</p>
+
+              <button
+                onClick={handleLogout}
+                title="Log out"
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              >
+                <LogOut size={14} />
+              </button>
             </div>
-            <button onClick={handleLogout} className="text-zinc-500 hover:text-zinc-300 transition-colors">
-              <LogOut size={14} />
-            </button>
           </div>
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden relative">
+        {/* Background glow */}
+        <div className="pointer-events-none absolute top-0 right-0 w-[400px] h-[300px] bg-violet-600/5 rounded-full blur-[100px]" />
+
+        {/* Route Content */}
+        <div className="relative flex-1 min-h-0 overflow-hidden">
+          <Outlet />
+        </div>
       </main>
     </div>
   )
