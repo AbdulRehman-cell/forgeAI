@@ -23,6 +23,7 @@ import Outreach from '@/pages/Outreach'
 import ApprovalPage from '@/pages/ApprovalPage'
 import TeamSettings from '@/pages/TeamSettings'
 import TeamAccept from '@/pages/TeamAccept'
+import AuditPage from '@/pages/AuditPage'
 
 import NotFound from '@/pages/NotFound'
 
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/share/:token" element={<ShareReport />} />
         <Route path="/approve/:token" element={<ApprovalPage />} />
         <Route path="/team/accept" element={<TeamAccept />} />
+        <Route path="/audit" element={<AuditPage />} />
 
         <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
           <Route path="/dashboard" element={<Dashboard />} />

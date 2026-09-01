@@ -64,6 +64,13 @@ export interface IUser extends Document {
     invitedAt: Date
     userId?: Types.ObjectId
   }>
+  // ── WhatsApp Business API credentials ──
+  settings?: {
+    waAccessToken?: string
+    waPhoneNumberId?: string
+    waDisplayPhone?: string
+    waVerifiedName?: string
+  }
   // ── Gmail OAuth (for cold outreach) ──
   gmailRefreshToken?: string
   gmailEmail?: string
@@ -132,6 +139,12 @@ const userSchema = new Schema<IUser>(
         userId: { type: Schema.Types.ObjectId, ref: 'User' },
       },
     ],
+    settings: {
+      waAccessToken: { type: String, select: false },
+      waPhoneNumberId: String,
+      waDisplayPhone: String,
+      waVerifiedName: String,
+    },
     gmailRefreshToken: { type: String, select: false },
     gmailEmail: String,
     leadAutoReply: { type: Boolean, default: false },

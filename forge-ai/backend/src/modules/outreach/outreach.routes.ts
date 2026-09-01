@@ -450,10 +450,12 @@ function scoreProspect(p: Partial<IProspect>): number {
 router.post('/research', upload.single('document'), async (req, res) => {
   try {
   const user = req.user as any
-  const { businessDescription, targetIndustry, targetRole, targetLocation, count = 10, campaignName, websiteUrl } = req.body
+  const { businessDescription, targetIndustry, targetRole, targetLocation, count = 10, campaignName, websiteUrl, socialMode = 'email' } = req.body
   if (!businessDescription?.trim()) return res.status(400).json({ message: 'businessDescription is required' })
 
-  const want = Math.min(Number(count) || 10, 20)
+  // socialMode: 'email' | 'linkedin' | 'instagram' | 'all'
+  const mode: 'email' | 'linkedin' | 'instagram' | 'all' = ['email','linkedin','instagram','all'].includes(socialMode) ? socialMode : 'email'
+  const want = Math.min(Number(count) || 10, 50)  // raise cap to 50 for social modes which need more iterations
   const location = (targetLocation || '').trim()
   const role = (targetRole || '').trim()
 
@@ -640,6 +642,13 @@ Business: ${businessDescription.slice(0, 500)}` }])
       const domain = new URL(base).hostname.replace(/^www\./, '')
       const phones = extractPhones(stripHtml(allHtml).slice(0, 8000))
       const text = stripHtml(homeHtml)
+
+      // Extract social profile URLs from all scraped HTML (footer/about/contact links)
+      const liMatches = allHtml.match(/https?:\/\/(www\.)?linkedin\.com\/(company|in)\/[a-zA-Z0-9_%-]+\/?/g) ?? []
+      const linkedinUrl = liMatches.find(u => !/linkedin\.com\/(company|in)\/(linkedin|company|login|signup|home|feed)\b/.test(u)) ?? ''
+      const igRaw = allHtml.match(/https?:\/\/(www\.)?instagram\.com\/[a-zA-Z0-9_.]+\/?/g) ?? []
+      const instagramUrl = igRaw.find(u => !/(instagram\.com\/(p\/|reel\/|explore\/|tv\/|stories\/|accounts\/|#|instagram))/.test(u)) ?? ''
+
       if (rawEmails.length > 0) {
         const src = [mailtoEmails.length ? `mailto:${mailtoEmails.length}` : '', cfEmails.length ? `CF:${cfEmails.length}` : '', ldEmails.length ? `LD:${ldEmails.length}` : '', regexEmails.length ? `regex:${regexEmails.length}` : ''].filter(Boolean).join(', ')
         console.log(`  ✓ HAS EMAIL    ${base}`)
@@ -648,7 +657,9 @@ Business: ${businessDescription.slice(0, 500)}` }])
       } else {
         console.log(`  ~ NO EMAIL     ${base}`)
       }
-      return { url: base, domain, text, emails: rawEmails, phones, title: result.title, snippet: result.snippet }
+      if (linkedinUrl) console.log(`      linkedin: ${linkedinUrl}`)
+      if (instagramUrl) console.log(`      instagram: ${instagramUrl}`)
+      return { url: base, domain, text, emails: rawEmails, phones, linkedinUrl, instagramUrl, title: result.title, snippet: result.snippet }
     } catch { return null }
   }
 
@@ -657,10 +668,15 @@ Business: ${businessDescription.slice(0, 500)}` }])
     if (!pool.length) return []
     const poolSize = Math.min(pool.length, Math.max(need * 6, 20))
     const summaries = pool.slice(0, poolSize).map((s, i) =>
-      `[${i}] URL: ${s.url}\nPageText: ${s.text.slice(0, 300)}\nEmails: ${s.emails.slice(0, 3).join(', ')}\nPhones: ${s.phones.slice(0, 1).join(', ') || 'none'}`
+      `[${i}] URL: ${s.url}\nPageText: ${s.text.slice(0, 300)}\nEmails: ${s.emails.slice(0, 3).join(', ')}\nLinkedIn: ${s.linkedinUrl || 'none'}\nInstagram: ${s.instagramUrl || 'none'}\nPhones: ${s.phones.slice(0, 1).join(', ') || 'none'}`
     ).join('\n\n---\n\n')
 
-    const prompt = `You are given ${poolSize} real scraped business websites with email addresses. Select exactly ${need} best prospects for this outreach.
+    const channelNote = mode === 'linkedin' ? 'Prioritize sites with a LinkedIn profile URL.'
+      : mode === 'instagram' ? 'Prioritize sites with an Instagram profile URL.'
+      : mode === 'all' ? 'Sites may have email, LinkedIn, Instagram, or any combination.'
+      : 'Prioritize sites with email addresses.'
+
+    const prompt = `You are given ${poolSize} real scraped business websites. Select exactly ${need} best prospects for this outreach. ${channelNote}
 
 MY BUSINESS: ${businessDescription}
 TARGET INDUSTRIES: ${industries.join(', ')}
@@ -756,19 +772,24 @@ Rules:
       if (s) scraped.push(s)
       await new Promise(r => setTimeout(r, 400))
     }
-    const allWithEmail = scraped.filter(s => s.emails.length > 0)
-    // Only apply sport-signal filter when the detected industries are themselves sport-related.
-    // For non-sport businesses (cleaning, coffee, CCTV etc.) every site is potentially valid.
+    // Filter by mode: what counts as a usable prospect
     const SPORT_IND_RE = /hockey|football|cricket|rugby|netball|tennis|golf|swim|gym|sport|athletic|basketball|volleyball|badminton|squash|cycling|running|martial|boxing|wrestling/i
     const needsSportFilter = industries.some(i => SPORT_IND_RE.test(i))
     const SPORT_SIGNAL = /hockey|sport|club|academy|school|college|athletic|leisure|recreation|hc\b|fc\b|gym|pitch|arena|ground|coaching|junior|youth|fitness/i
+    const passesMode = (s: any) => {
+      if (mode === 'email') return s.emails.length > 0
+      if (mode === 'linkedin') return !!s.linkedinUrl
+      if (mode === 'instagram') return !!s.instagramUrl
+      return s.emails.length > 0 || !!s.linkedinUrl || !!s.instagramUrl  // 'all'
+    }
+    const allWithContact = scraped.filter(passesMode)
     const withEmail = needsSportFilter
-      ? allWithEmail.filter(s => SPORT_SIGNAL.test(s.domain) || SPORT_SIGNAL.test(s.text.slice(0, 600)))
-      : allWithEmail
+      ? allWithContact.filter(s => SPORT_SIGNAL.test(s.domain) || SPORT_SIGNAL.test(s.text.slice(0, 600)))
+      : allWithContact
     totalScraped += scraped.length
     totalWithEmail += withEmail.length
-    const dropped = allWithEmail.length - withEmail.length
-    console.log(`  Scraped ${scraped.length} reachable, ${allWithEmail.length} have emails, ${withEmail.length} pass filter${dropped ? ` (${dropped} dropped as irrelevant)` : ''}${needsSportFilter ? ' [sport filter active]' : ''}`)
+    const dropped = allWithContact.length - withEmail.length
+    console.log(`  Scraped ${scraped.length} reachable, ${allWithContact.length} have contact (mode=${mode}), ${withEmail.length} pass filter${dropped ? ` (${dropped} dropped)` : ''}`)
     if (!withEmail.length) {
       noProgressStreak++
       if (noProgressStreak >= MAX_NO_PROGRESS) { console.log('  (too many empty rounds — stopping early)') ; break }
@@ -781,21 +802,31 @@ Rules:
     console.log(`  AI selected ${selected.length} prospect(s)`)
     selected.forEach((p: any, i: number) => console.log(`    [${i + 1}] ${p.companyName}`))
 
-    // Build docs — deduplicate by email AND by domain across all iterations
-    const usedEmails = new Set(finalDocs.map(d => d.contactEmail))
-    const usedDomains = new Set(finalDocs.map(d => { try { return new URL(d.website).hostname.replace(/^www\./, '') } catch { return '' } }))
+    // Build docs — deduplicate by domain across all iterations
+    const usedEmails = new Set(finalDocs.map(d => d.contactEmail).filter(Boolean))
+    const usedDomains = new Set(finalDocs.map(d => { try { return new URL(d.website ?? '').hostname.replace(/^www\./, '') } catch { return '' } }))
+    const usedLinkedIn = new Set(finalDocs.map(d => (d as any).linkedinUrl).filter(Boolean))
+    const usedInstagram = new Set(finalDocs.map(d => (d as any).instagramUrl).filter(Boolean))
     for (const p of selected) {
       if (finalDocs.length >= want) break
       const site = withEmail[p.index]
       if (!site) continue
       const emails: string[] = site.emails ?? []
-      if (!emails.length) continue
+      // In email mode require an email; in social modes a social URL is enough
+      if (mode === 'email' && !emails.length) continue
+      if (mode === 'linkedin' && !site.linkedinUrl) continue
+      if (mode === 'instagram' && !site.instagramUrl) continue
+      if (mode === 'all' && !emails.length && !site.linkedinUrl && !site.instagramUrl) continue
       const personal = emails.find((e: string) => !ROLE_LOCALS.has(e.split('@')[0]))
-      const contactEmail = personal ?? emails[0]
-      // Skip if we already have this exact email or this exact domain
-      if (usedEmails.has(contactEmail)) { console.log(`    (skip duplicate email: ${contactEmail})`); continue }
+      const contactEmail = personal ?? emails[0] ?? ''
+      // Skip if we already have this exact email or domain or social handle
+      if (contactEmail && usedEmails.has(contactEmail)) { console.log(`    (skip duplicate email: ${contactEmail})`); continue }
+      if (site.linkedinUrl && usedLinkedIn.has(site.linkedinUrl)) { console.log(`    (skip duplicate linkedin: ${site.linkedinUrl})`); continue }
+      if (site.instagramUrl && usedInstagram.has(site.instagramUrl)) { console.log(`    (skip duplicate instagram: ${site.instagramUrl})`); continue }
       if (usedDomains.has(site.domain)) { console.log(`    (skip duplicate domain: ${site.domain})`); continue }
-      usedEmails.add(contactEmail)
+      if (contactEmail) usedEmails.add(contactEmail)
+      if (site.linkedinUrl) usedLinkedIn.add(site.linkedinUrl)
+      if (site.instagramUrl) usedInstagram.add(site.instagramUrl)
       usedDomains.add(site.domain)
       // Sanitise AI-returned company name: reject generic page-title phrases and separator-polluted titles
       const GENERIC_NAMES = /^(contact\s*us?|get\s*in\s*touch|home|about\s*us?|welcome|index|untitled|page\s*not\s*found|properties\s*for\s*(sale|rent)|houses\s*for\s*(sale|rent)|flats\s*for\s*(sale|rent)|search\s*results?|listings?|find\s*(a\s*)?property|contact|enquir|reach\s*us)$/i
@@ -816,9 +847,11 @@ Rules:
         companyName: companyName || site.domain || 'Unknown',
         website: normaliseUrl(site.url),
         contactName: p.contactName || '',
-        contactEmail,
+        contactEmail: contactEmail || undefined,
         scrapedEmails: emails.slice(0, 6),
         phone: site.phones[0] || '',
+        linkedinUrl: site.linkedinUrl || undefined,
+        instagramUrl: site.instagramUrl || undefined,
         industry: industries[0] || rawIndustry || '',
         location: p.location || location,
         painPoints: p.painPoints || site.snippet || '',
@@ -831,18 +864,21 @@ Rules:
   }
 
   if (!finalDocs.length) {
+    const channelName = mode === 'linkedin' ? 'LinkedIn profile' : mode === 'instagram' ? 'Instagram profile' : 'public email'
     const msg = totalScraped === 0
       ? `No websites found for "${industries.join(', ')}"${location ? ` in "${location}"` : ''}. Try different search terms.`
-      : `Scraped ${totalScraped} sites across ${totalIterations} search rounds but none had a public email for "${industries.join(', ')}". Try a more specific location or industry.`
+      : `Scraped ${totalScraped} sites across ${totalIterations} search rounds but none had a ${channelName} for "${industries.join(', ')}". Try a more specific location or industry.`
     return res.status(404).json({ message: msg, scrapedTotal: totalScraped, withEmail: totalWithEmail })
   }
 
   const created = await Prospect.insertMany(finalDocs)
   console.log(`\n${'─'.repeat(60)}`)
-  console.log(`[DONE] Created ${created.length}/${want} prospects across ${totalIterations} iteration(s)`)
+  console.log(`[DONE] Created ${created.length}/${want} prospects across ${totalIterations} iteration(s) [mode=${mode}]`)
   created.forEach((p: any, i: number) => {
     console.log(`  [${i + 1}] ${p.companyName}`)
-    console.log(`        email   : ${p.contactEmail}`)
+    console.log(`        email   : ${p.contactEmail || '—'}`)
+    console.log(`        linkedin: ${p.linkedinUrl || '—'}`)
+    console.log(`        instagram:${p.instagramUrl || '—'}`)
     console.log(`        website : ${p.website}`)
     console.log(`        location: ${p.location || '—'}`)
   })
@@ -1678,21 +1714,27 @@ router.post('/:id/generate-sequence', async (req, res) => {
   const igHandle = instagramHandle?.trim() || ''
 
   const ai = getAI()
+  const hasPhone = !!(prospect.phone?.trim())
+  const waStep = hasPhone
+    ? `- Day 2: WhatsApp message (warm intro, conversational tone, ≤ 160 chars — feels like a personal text, not a sales pitch)`
+    : ''
+
   const r = await ai.chat([{
     role: 'user',
-    content: `Generate a 6-step multi-channel cold outreach sequence for this prospect. Return ONLY a valid JSON array, no markdown, no explanation.
+    content: `Generate a ${hasPhone ? '7' : '6'}-step multi-channel cold outreach sequence for this prospect. Return ONLY a valid JSON array, no markdown, no explanation.
 
 Each step must have exactly these fields:
 {
   "day": number,
-  "platform": "linkedin" | "instagram" | "email",
-  "action": "connect" | "message" | "comment" | "dm" | "email" | "follow_up",
+  "platform": "linkedin" | "instagram" | "email" | "whatsapp",
+  "action": "connect" | "message" | "comment" | "dm" | "email" | "follow_up" | "whatsapp",
   "message": "the actual message text — personalised, no placeholders like [Name]",
   "subject": "email subject line (only if platform is email, omit otherwise)"
 }
 
 Sequence structure:
 - Day 1: LinkedIn connection request (≤ 300 chars, personal, reference something specific about them)
+${waStep}
 - Day 3: Instagram comment (casual, value-adding comment they'd want to reply to, ≤ 150 chars)
 - Day 5: LinkedIn message (reference the connection, short, curious hook)
 - Day 7: Email (value-focused, 3 short paragraphs, include subject)
@@ -1703,7 +1745,7 @@ Context:
 ${context}
 
 Their first name: ${nameToUse}
-Rules: Never use [brackets]. Sound human. Each message must stand alone (no "as I mentioned in my email" cross-references across platforms).`,
+Rules: Never use [brackets]. Sound human. Each message must stand alone.`,
   }])
 
   let steps: any[] = []
@@ -1733,6 +1775,33 @@ Rules: Never use [brackets]. Sound human. Each message must stand alone (no "as 
 
   await prospect.save()
   res.json({ sequence: prospect.sequence })
+})
+
+// ─── Enable / disable WhatsApp auto-send for a prospect's sequence ───
+router.post('/:id/autosend', async (req, res) => {
+  const user = req.user as any
+  const { enable } = req.body
+  const prospect = await Prospect.findOne({ _id: req.params.id, userId: user._id })
+  if (!prospect) return res.status(404).json({ message: 'Not found' })
+  if (!prospect.phone) return res.status(400).json({ message: 'Prospect has no phone number — add one first' })
+  if (!prospect.sequence.length) return res.status(400).json({ message: 'Generate a sequence first' })
+
+  // Check user has WA credentials
+  const fullUser = await User.findById(user._id).select('+settings.waAccessToken settings.waPhoneNumberId').lean() as any
+  if (!fullUser?.settings?.waAccessToken) {
+    return res.status(400).json({ message: 'WhatsApp credentials not configured — go to Settings first' })
+  }
+
+  if (enable) {
+    prospect.sequenceStartedAt = new Date()
+    // Reset all pending WA steps so scheduler can fire them
+    prospect.sequence.forEach(s => { if (s.platform === 'whatsapp' && s.status !== 'done') s.status = 'pending' })
+  } else {
+    (prospect as any).sequenceStartedAt = undefined
+  }
+
+  await prospect.save()
+  res.json({ autoSendEnabled: enable, sequenceStartedAt: prospect.sequenceStartedAt })
 })
 
 // ─── Update a single sequence step (mark done / edit message) ───
@@ -1891,7 +1960,7 @@ router.patch('/:id', async (req, res) => {
   const allowed = [
     'status', 'notes', 'contactEmail', 'contactName', 'companyName', 'website',
     'generatedEmail', 'generatedSubject', 'campaignName', 'sentAt', 'repliedAt',
-    'tags', 'followUpAt', 'followUpNote', 'linkedinUrl', 'personalizedOpener',
+    'tags', 'followUpAt', 'followUpNote', 'linkedinUrl', 'instagramUrl', 'personalizedOpener',
     'lastContactedAt', 'emailTone',
   ]
   const update: any = {}
@@ -1928,6 +1997,199 @@ router.delete('/:id', async (req, res) => {
   const deleted = await Prospect.findOneAndDelete({ _id: req.params.id, userId: user._id })
   if (!deleted) return res.status(404).json({ message: 'Not found' })
   res.json({ deleted: true })
+})
+
+// ─── WhatsApp Agent ──────────────────────────────────────────────
+// Accepts a plain-English instruction, runs the full pipeline:
+// parse → research → create prospects → generate WA sequence → enable autosend
+// Streams progress back as Server-Sent Events so the UI updates in real time.
+router.post('/wa-agent', async (req, res) => {
+  const user = req.user as any
+
+  // SSE setup
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+
+  const emit = (type: string, payload: Record<string, any> = {}) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type, ...payload })}\n\n`)
+  }
+
+  try {
+    const { instruction, businessDescription } = req.body
+    if (!instruction?.trim()) { emit('error', { message: 'instruction is required' }); return res.end() }
+
+    // Check WA credentials
+    const fullUser = await User.findById(user._id).select('+settings.waAccessToken settings.waPhoneNumberId settings.waDisplayPhone settings.waVerifiedName').lean() as any
+    const waToken: string = fullUser?.settings?.waAccessToken ?? process.env.WA_ACCESS_TOKEN ?? ''
+    const waPhoneId: string = fullUser?.settings?.waPhoneNumberId ?? process.env.WA_PHONE_NUMBER_ID ?? ''
+    if (!waToken || !waPhoneId) {
+      emit('error', { message: 'WhatsApp not configured. Go to Settings → WhatsApp Business API and paste your credentials first.' })
+      return res.end()
+    }
+
+    emit('step', { icon: '🤖', message: 'Understanding your request…' })
+
+    // Step 1: AI parses the instruction into structured params
+    const ai = getAI()
+    const parseResp = await ai.chat([{ role: 'user', content: `Extract outreach parameters from this instruction. Return ONLY valid JSON, no explanation.
+
+Instruction: "${instruction}"
+
+JSON format:
+{
+  "targetIndustry": "1-2 word phrase describing who to contact",
+  "location": "city or country (empty string if not mentioned)",
+  "count": <number of prospects, default 10, max 20>,
+  "messageTheme": "what the WhatsApp message should be about (inferred from context)"
+}` }])
+
+    let params = { targetIndustry: '', location: '', count: 10, messageTheme: '' }
+    try {
+      const match = parseResp.content.match(/\{[\s\S]*\}/)
+      if (match) params = { ...params, ...JSON.parse(match[0]) }
+    } catch { /* use defaults */ }
+
+    const biz = (businessDescription || instruction).slice(0, 500)
+    const loc = params.location || ''
+    const want = Math.min(Math.max(Number(params.count) || 10, 1), 20)
+    const industry = params.targetIndustry || 'business'
+
+    emit('step', { icon: '🔍', message: `Searching for "${industry}"${loc ? ` in ${loc}` : ''}… (target: ${want} prospects)` })
+
+    // Step 2: Build queries and search
+    const queries = loc
+      ? [`${industry} ${loc} contact email phone`, `${industry} ${loc} "contact us"`, `${industry} ${loc} enquiries`]
+      : [`${industry} contact email phone`, `${industry} "contact us"`, `${industry} enquiries`]
+
+    const allResults: SearchResult[] = []
+    for (const q of queries) {
+      const r = await searchBusinesses(q, 15)
+      allResults.push(...r)
+      await new Promise(r => setTimeout(r, 1200))
+    }
+    // Deduplicate by URL
+    const seen = new Set<string>()
+    const unique = allResults.filter(r => {
+      const key = r.url.replace(/^http:\/\//, 'https://').replace(/\/$/, '')
+      if (seen.has(key)) return false
+      seen.add(key)
+      return !SKIP.test(r.url)
+    })
+
+    emit('step', { icon: '🌐', message: `Found ${unique.length} websites — scraping for phone numbers…` })
+
+    // Step 3: Scrape for phone numbers (agent specifically needs phone for WA)
+    const scrapedUrls = new Set<string>()
+    const scraped: any[] = []
+    for (const result of unique.slice(0, 25)) {
+      const base = result.url.replace(/\/$/, '').replace(/^http:\/\//, 'https://')
+      if (scrapedUrls.has(base)) continue
+      scrapedUrls.add(base)
+      try {
+        const homeHtml = await fetchPage(base)
+        if (!homeHtml) continue
+        const CAP = 80_000
+        const contactHtml = await fetchPage(`${base}/contact`).catch(() => '')
+        const allHtml = [homeHtml, contactHtml].filter(Boolean).map(h => h.slice(0, CAP)).join('\n')
+        const phones = extractPhones(stripHtml(allHtml).slice(0, 8000))
+        const emails = [...new Set([...extractMailtoEmails(allHtml), ...extractEmails(stripHtml(allHtml))])].filter(e => {
+          const d = e.split('@')[1] ?? ''; return !SERVICE_DOMAINS.has(d) && !PLACEHOLDER_DOMAINS.has(d)
+        })
+        const liMatches = allHtml.match(/https?:\/\/(www\.)?linkedin\.com\/(company|in)\/[a-zA-Z0-9_%-]+\/?/g) ?? []
+        const linkedinUrl = liMatches.find(u => !/linkedin\.com\/(company|in)\/(linkedin|login|signup)\b/.test(u)) ?? ''
+        const domain = new URL(base).hostname.replace(/^www\./, '')
+        const text = stripHtml(homeHtml).slice(0, 600)
+        if (phones.length || emails.length) {
+          scraped.push({ url: base, domain, text, phones, emails, linkedinUrl, title: result.title, snippet: result.snippet })
+        }
+      } catch { /* skip */ }
+      await new Promise(r => setTimeout(r, 300))
+    }
+
+    const withPhone = scraped.filter(s => s.phones.length > 0)
+    emit('step', { icon: '📞', message: `${withPhone.length} sites have phone numbers — creating prospects…` })
+
+    if (!withPhone.length) {
+      emit('error', { message: `No phone numbers found for "${industry}"${loc ? ` in ${loc}` : ''}. Try a more specific search or a different location.` })
+      return res.end()
+    }
+
+    // Step 4: AI selects best prospects
+    const pool = withPhone.slice(0, Math.max(want * 3, 15))
+    const summaries = pool.map((s, i) => `[${i}] ${s.domain}\nAbout: ${s.text.slice(0, 200)}\nPhone: ${s.phones[0]}`).join('\n---\n')
+    const selectResp = await ai.chat([{ role: 'user', content: `Select the best ${want} prospects from this list for WhatsApp outreach.
+MY BUSINESS: ${biz}
+LOOKING FOR: ${industry}${loc ? ' in ' + loc : ''}
+
+${summaries}
+
+Return ONLY a JSON array of objects: [{ "index": number, "companyName": string, "contactName": string }]` }])
+
+    let selected: any[] = []
+    try {
+      const match = selectResp.content.match(/\[[\s\S]*\]/)
+      if (match) selected = JSON.parse(match[0])
+    } catch { selected = pool.slice(0, want).map((s, i) => ({ index: i, companyName: s.domain, contactName: '' })) }
+
+    // Step 5: Create prospects + generate WA sequence + enable autosend
+    const created: any[] = []
+    for (const pick of selected.slice(0, want)) {
+      if (res.writableEnded) break
+      const site = pool[pick.index]
+      if (!site) continue
+      emit('step', { icon: '✉️', message: `Setting up ${pick.companyName || site.domain}…` })
+      try {
+        // Generate a short WhatsApp-specific message via AI
+        const msgResp = await ai.chat([{ role: 'user', content: `Write a WhatsApp cold outreach message for this prospect. Max 160 characters. Sound human and personal, not like a template. No placeholders.
+
+My business: ${biz}
+Message theme: ${params.messageTheme || 'intro and value offer'}
+Prospect: ${pick.companyName || site.domain}
+About them: ${site.text.slice(0, 200)}` }])
+        const waMsg = msgResp.content.trim().slice(0, 400)
+
+        // Save prospect
+        const prospect = await Prospect.create({
+          userId: user._id,
+          companyName: pick.companyName || site.domain,
+          website: site.url,
+          contactName: pick.contactName || '',
+          contactEmail: site.emails[0] || undefined,
+          scrapedEmails: site.emails.slice(0, 4),
+          phone: site.phones[0],
+          linkedinUrl: site.linkedinUrl || undefined,
+          industry: industry,
+          location: loc || undefined,
+          painPoints: site.snippet || '',
+          sequence: [{
+            day: 1,
+            platform: 'whatsapp',
+            action: 'whatsapp',
+            message: waMsg,
+            status: 'pending',
+          }],
+          sequenceStartedAt: new Date(),  // auto-send enabled immediately
+          status: 'researched',
+          scrapedAt: new Date(),
+        })
+        created.push(prospect)
+      } catch { /* skip this one */ }
+      await new Promise(r => setTimeout(r, 200))
+    }
+
+    emit('done', {
+      icon: '✅',
+      message: `Done! ${created.length} prospect${created.length !== 1 ? 's' : ''} created with WhatsApp sequences active. First messages will send within the hour.`,
+      count: created.length,
+      prospects: created.map(p => ({ _id: p._id, companyName: p.companyName, phone: p.phone, website: p.website })),
+    })
+  } catch (err: any) {
+    emit('error', { message: err?.message ?? 'Agent failed unexpectedly' })
+  } finally {
+    res.end()
+  }
 })
 
 export default router

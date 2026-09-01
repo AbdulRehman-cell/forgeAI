@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import {
@@ -10,16 +10,17 @@ import {
   Inbox, Bell,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { useAuthStore } from '@/store/authStore'
 
 // ─── Types ─────────────────────────────────────────────────────
 
 type ProspectStatus = 'new' | 'researched' | 'ready' | 'sent' | 'replied' | 'converted' | 'lost'
 type EmailTone = 'professional' | 'friendly' | 'bold' | 'concise'
 type ActivityType = 'note' | 'call' | 'email' | 'meeting' | 'linkedin' | 'status_change'
-type ViewMode = 'prospects' | 'analytics' | 'templates'
+type ViewMode = 'prospects' | 'analytics' | 'templates' | 'wa-agent'
 type DetailTab = 'email' | 'research' | 'timeline' | 'followup' | 'sequence'
-type SequencePlatform = 'linkedin' | 'instagram' | 'email' | 'twitter'
-type SequenceAction = 'connect' | 'message' | 'comment' | 'dm' | 'email' | 'follow_up'
+type SequencePlatform = 'linkedin' | 'instagram' | 'email' | 'twitter' | 'whatsapp'
+type SequenceAction = 'connect' | 'message' | 'comment' | 'dm' | 'email' | 'follow_up' | 'whatsapp'
 type SequenceStepStatus = 'pending' | 'done' | 'skipped'
 
 interface SequenceStep {
@@ -44,6 +45,7 @@ interface Prospect {
   industry?: string
   location?: string
   linkedinUrl?: string
+  instagramUrl?: string
   scrapedSummary?: string
   scrapedEmails: string[]
   phone?: string
@@ -130,11 +132,12 @@ const PLATFORM_CONFIG: Record<SequencePlatform, { icon: string; label: string; c
   instagram: { icon: '📸', label: 'Instagram', color: 'text-pink-400', bg: 'bg-pink-500/10', urlBase: 'https://www.instagram.com/' },
   email: { icon: '📧', label: 'Email', color: 'text-amber-400', bg: 'bg-amber-500/10', urlBase: '' },
   twitter: { icon: '𝕏', label: 'X / Twitter', color: 'text-zinc-300', bg: 'bg-zinc-700/50', urlBase: 'https://x.com/search?q=' },
+  whatsapp: { icon: '💬', label: 'WhatsApp', color: 'text-emerald-400', bg: 'bg-emerald-500/10', urlBase: 'https://wa.me/' },
 }
 
 const ACTION_LABELS: Record<SequenceAction, string> = {
   connect: 'Connection Request', message: 'Message', comment: 'Comment on Post',
-  dm: 'Direct Message', email: 'Email', follow_up: 'Follow-up',
+  dm: 'Direct Message', email: 'Email', follow_up: 'Follow-up', whatsapp: 'WhatsApp Message',
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -160,6 +163,236 @@ function ScoreBadge({ score }: { score: number }) {
     <span className={clsx('text-[10px] font-bold px-1.5 py-0.5 rounded-full', scoreColor(score))}>
       {score}
     </span>
+  )
+}
+
+// ─── WhatsApp Agent View ─────────────────────────────────────────
+
+interface AgentEvent { type: 'step' | 'done' | 'error'; icon?: string; message: string; count?: number; prospects?: any[] }
+
+function WAAgentView({ bizDesc }: { bizDesc: string }) {
+  const { token } = useAuthStore()
+  const [instruction, setInstruction] = useState('')
+
+  // Check if WA is connected
+  const { data: waStatus } = useQuery({
+    queryKey: ['wa-status'],
+    queryFn: () => api.get('/whatsapp/status').then(r => r.data as { connected: boolean; displayPhone: string | null; verifiedName: string | null }),
+    staleTime: 60_000,
+  })
+  const [running, setRunning] = useState(false)
+  const [events, setEvents] = useState<AgentEvent[]>([])
+  const logRef = useRef<HTMLDivElement>(null)
+
+  const run = async () => {
+    if (!instruction.trim() || running) return
+    setRunning(true)
+    setEvents([])
+
+    try {
+      const resp = await fetch(`/api/outreach/wa-agent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token ?? ''}`,
+        },
+        body: JSON.stringify({ instruction, businessDescription: bizDesc }),
+      })
+
+      if (!resp.body) throw new Error('No response body')
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const ev: AgentEvent = JSON.parse(line.slice(6))
+            setEvents(prev => [...prev, ev])
+            if (ev.type === 'done' || ev.type === 'error') setRunning(false)
+          } catch { /* malformed line */ }
+        }
+      }
+    } catch (e: any) {
+      setEvents(prev => [...prev, { type: 'error', message: e.message ?? 'Connection failed' }])
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [events])
+
+  const done = events.find(e => e.type === 'done')
+
+  return (
+    <div className="flex-1 overflow-y-auto px-6 py-6 max-w-2xl mx-auto w-full">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-xl">💬</div>
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-200">WhatsApp Outreach Agent</h2>
+          <p className="text-xs text-zinc-500">Tell the agent what to do — it finds prospects, writes messages, and starts sending automatically.</p>
+        </div>
+      </div>
+
+      {/* Not-connected banner */}
+      {waStatus && !waStatus.connected && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 mb-4 flex items-center justify-between gap-4">
+          <p className="text-xs text-amber-300">Connect your WhatsApp Business account in Settings to start auto-sending.</p>
+          <a href="/settings" className="shrink-0 text-xs font-medium text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/10 transition-colors">
+            Connect →
+          </a>
+        </div>
+      )}
+
+      {/* Connected indicator */}
+      {waStatus?.connected && (
+        <div className="flex items-center gap-2 text-emerald-400 text-xs mb-4 px-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          {waStatus.verifiedName ?? 'WhatsApp'}{waStatus.displayPhone ? ` · ${waStatus.displayPhone}` : ''} connected
+        </div>
+      )}
+
+      {/* Instruction input */}
+      <div className="rounded-xl border border-white/10 bg-surface-900/60 p-4 mb-4">
+        <label className="text-xs text-zinc-400 mb-2 block">What would you like to do?</label>
+        <textarea
+          value={instruction}
+          onChange={e => setInstruction(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run() }}
+          rows={3}
+          placeholder={`e.g. "Find 10 restaurant owners in Dubai and send them a WhatsApp about my catering supplies"\n"Search for 15 hair salons in Manchester and introduce my beauty products"\n"Get me 20 gym owners in London"`}
+          className="input w-full text-sm resize-none"
+          disabled={running}
+        />
+        <div className="flex items-center justify-between mt-3">
+          <p className="text-[10px] text-zinc-600">⌘ Enter to run</p>
+          <button
+            onClick={run}
+            disabled={running || !instruction.trim()}
+            className="btn-primary text-sm px-5 py-2 gap-2 flex items-center"
+          >
+            {running ? <><RefreshCw size={13} className="animate-spin" /> Running…</> : <><Sparkles size={13} /> Run Agent</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Agent log */}
+      {events.length > 0 && (
+        <div ref={logRef} className="rounded-xl border border-white/5 bg-surface-900/40 p-4 space-y-2.5 max-h-80 overflow-y-auto">
+          {events.map((ev, i) => (
+            <div key={i} className={clsx('flex items-start gap-2.5 text-xs', ev.type === 'error' ? 'text-red-400' : ev.type === 'done' ? 'text-emerald-400' : 'text-zinc-300')}>
+              <span className="shrink-0 text-sm leading-none mt-0.5">{ev.icon ?? (ev.type === 'error' ? '✗' : ev.type === 'done' ? '✅' : '›')}</span>
+              <span className="leading-relaxed">{ev.message}</span>
+            </div>
+          ))}
+          {running && (
+            <div className="flex items-center gap-2 text-zinc-500 text-xs">
+              <RefreshCw size={11} className="animate-spin" /> Working…
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Results */}
+      {done?.prospects && done.prospects.length > 0 && (
+        <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+          <p className="text-xs font-semibold text-emerald-400 mb-3">
+            {done.count} prospect{done.count !== 1 ? 's' : ''} created — WhatsApp messages will send automatically within the hour
+          </p>
+          <div className="space-y-2">
+            {done.prospects.map((p: any) => (
+              <div key={p._id} className="flex items-center gap-3 text-xs text-zinc-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span className="font-medium text-zinc-300">{p.companyName}</span>
+                <span className="text-zinc-600">{p.phone}</span>
+                {p.website && <a href={p.website} target="_blank" rel="noreferrer" className="text-zinc-600 hover:text-zinc-400 truncate max-w-[180px]">{p.website.replace(/^https?:\/\//, '')}</a>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tips */}
+      {events.length === 0 && (
+        <div className="mt-2 space-y-2">
+          <p className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">Example instructions</p>
+          {[
+            'Find 10 plumbing companies in Birmingham and send a WhatsApp about my pipe fittings',
+            'Get 15 hair salons in Manchester — introduce my organic shampoo range',
+            'Search for gym owners in London, send them a WhatsApp about my protein supplements',
+            'Find 20 restaurant owners in Dubai for my catering supply business',
+          ].map(tip => (
+            <button
+              key={tip}
+              onClick={() => setInstruction(tip)}
+              className="block w-full text-left text-xs text-zinc-500 hover:text-zinc-300 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
+            >
+              "{tip}"
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── WhatsApp Auto-Send Panel ────────────────────────────────────
+
+function WhatsAppAutoSendPanel({ prospect, onUpdate }: { prospect: Prospect; onUpdate: (p: Prospect) => void }) {
+  const [loading, setLoading] = useState(false)
+  const isEnabled = !!(prospect as any).sequenceStartedAt
+
+  const toggle = async () => {
+    setLoading(true)
+    try {
+      const { data } = await api.post(`/outreach/${prospect._id}/autosend`, { enable: !isEnabled })
+      onUpdate({ ...prospect, ...(data as any) })
+      if (!isEnabled) {
+        // show next fire time
+      }
+    } catch (e: any) {
+      alert(e?.response?.data?.message ?? 'Failed — make sure WhatsApp is configured in Settings')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className={clsx('rounded-xl border p-4 transition-all', isEnabled ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-surface-900/50')}>
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+            <span>💬</span> WhatsApp Auto-Send
+          </h4>
+          <p className="text-[10px] text-zinc-600 mt-0.5">
+            {isEnabled
+              ? `Active — messages fire automatically on schedule. Started ${new Date((prospect as any).sequenceStartedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.`
+              : 'Enable to send WhatsApp steps automatically while you sleep. Requires WhatsApp Business API in Settings.'}
+          </p>
+        </div>
+        <button
+          onClick={toggle}
+          disabled={loading}
+          className={clsx(
+            'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+            isEnabled ? 'bg-emerald-500' : 'bg-zinc-700',
+          )}
+        >
+          <span className={clsx('pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200', isEnabled ? 'translate-x-5' : 'translate-x-0')} />
+        </button>
+      </div>
+      {!prospect.phone && (
+        <p className="text-[10px] text-amber-400 mt-2">⚠ No phone number on this prospect — add one in the Research tab first.</p>
+      )}
+    </div>
   )
 }
 
@@ -209,6 +442,7 @@ export default function Outreach() {
   const [researchForm, setResearchForm] = useState({
     businessDescription: () => localStorage.getItem('outreach_biz_desc') ?? '',
     targetIndustry: '', targetRole: '', targetLocation: '', count: '10', campaignName: '',
+    socialMode: 'email' as 'email' | 'linkedin' | 'instagram' | 'all',
   })
   const [researchDoc, setResearchDoc] = useState<File | null>(null)
 
@@ -228,6 +462,7 @@ export default function Outreach() {
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('outreach_webhook_url') ?? '')
   const [dispatchingStep, setDispatchingStep] = useState<number | null>(null)
   const [copiedStep, setCopiedStep] = useState<number | null>(null)
+  const [launchedStep, setLaunchedStep] = useState<number | null>(null)
   const [editingStepIdx, setEditingStepIdx] = useState<number | null>(null)
   const [editingStepMsg, setEditingStepMsg] = useState('')
 
@@ -446,6 +681,14 @@ export default function Outreach() {
     setTimeout(() => setCopiedStep(null), 2000)
   }
 
+  const handleLaunchStep = (profileUrl: string, msg: string, idx: number) => {
+    // Open the profile in a new tab and copy the message simultaneously
+    window.open(profileUrl, '_blank', 'noopener,noreferrer')
+    navigator.clipboard.writeText(msg)
+    setLaunchedStep(idx)
+    setTimeout(() => setLaunchedStep(null), 3000)
+  }
+
   const buildProfileUrl = (p: Prospect, platform: SequencePlatform): string => {
     if (platform === 'linkedin') {
       if (p.linkedinUrl) return p.linkedinUrl
@@ -592,7 +835,7 @@ export default function Outreach() {
 
         <div className="ml-auto flex items-center gap-2">
           {/* View toggle */}
-          {(['prospects', 'analytics', 'templates'] as ViewMode[]).map(v => (
+          {(['prospects', 'analytics', 'templates', 'wa-agent'] as ViewMode[]).map(v => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -604,7 +847,8 @@ export default function Outreach() {
               {v === 'prospects' && <Inbox size={13} />}
               {v === 'analytics' && <BarChart3 size={13} />}
               {v === 'templates' && <BookTemplate size={13} />}
-              {v.charAt(0).toUpperCase() + v.slice(1)}
+              {v === 'wa-agent' && <span>💬</span>}
+              {v === 'wa-agent' ? 'WA Agent' : v.charAt(0).toUpperCase() + v.slice(1)}
             </button>
           ))}
 
@@ -788,6 +1032,9 @@ export default function Outreach() {
                           </span>
                           {p.campaignName && <span className="text-[10px] text-zinc-500">{p.campaignName}</span>}
                           {p.variants.length > 0 && <span className="text-[10px] text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded-full">{p.variants.length} variants</span>}
+                          {p.contactEmail && <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full">📧 email</span>}
+                          {p.linkedinUrl && <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded-full">💼 LinkedIn</span>}
+                          {p.instagramUrl && <span className="text-[10px] text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded-full">📸 Instagram</span>}
                           {p.followUpAt && (
                             <span className={clsx('text-[10px] px-1.5 py-0.5 rounded-full', overdue ? 'text-amber-400 bg-amber-500/10' : 'text-zinc-500 bg-zinc-800')}>
                               <Clock size={9} className="inline mr-0.5" />{fmtDate(p.followUpAt)}
@@ -830,6 +1077,16 @@ export default function Outreach() {
                       {activeProspect.website && (
                         <a href={activeProspect.website} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-zinc-300">
                           <Globe size={11} />{activeProspect.website.replace(/^https?:\/\//, '')}
+                        </a>
+                      )}
+                      {activeProspect.linkedinUrl && (
+                        <a href={activeProspect.linkedinUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-400 hover:text-blue-300">
+                          <Linkedin size={11} />LinkedIn
+                        </a>
+                      )}
+                      {activeProspect.instagramUrl && (
+                        <a href={activeProspect.instagramUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-pink-400 hover:text-pink-300">
+                          <Instagram size={11} />Instagram
                         </a>
                       )}
                     </div>
@@ -1102,7 +1359,7 @@ export default function Outreach() {
                       <div>
                         <label className="text-[10px] text-zinc-500 mb-1 block">📸 Instagram handle</label>
                         <input
-                          value={igHandle}
+                          value={igHandle || activeProspect.instagramUrl || ''}
                           onChange={e => setIgHandle(e.target.value)}
                           placeholder="@handle or username"
                           className="input w-full text-xs h-8"
@@ -1196,22 +1453,35 @@ export default function Outreach() {
                                   {copiedStep === idx ? 'Copied!' : 'Copy'}
                                 </button>
 
-                                {/* Open profile */}
-                                {step.platform !== 'email' && (
-                                  <a
-                                    href={profileUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1 text-[10px] px-2.5 py-1.5 rounded-lg border border-white/10 text-zinc-400 hover:text-zinc-200 transition-colors"
+                                {/* Launch: open profile + copy message in one click (LinkedIn / Instagram / Twitter) */}
+                                {step.platform !== 'email' && !isDone && (
+                                  <button
+                                    onClick={() => handleLaunchStep(profileUrl, step.message, idx)}
+                                    className={clsx(
+                                      'flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-lg border font-medium transition-all',
+                                      launchedStep === idx
+                                        ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                                        : step.platform === 'linkedin'
+                                          ? 'border-blue-500/30 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
+                                          : step.platform === 'instagram'
+                                            ? 'border-pink-500/30 text-pink-400 bg-pink-500/10 hover:bg-pink-500/20'
+                                            : 'border-white/10 text-zinc-300 hover:bg-white/5',
+                                    )}
+                                    title="Opens the profile in a new tab and copies your message to clipboard — just paste and send"
                                   >
-                                    <span className="text-xs">{pc.icon}</span>
-                                    Open {pc.label} ↗
-                                  </a>
+                                    {launchedStep === idx ? (
+                                      <><CheckCircle size={10} />Paste &amp; Send ✓</>
+                                    ) : (
+                                      <><span>{pc.icon}</span>Launch on {pc.label}</>
+                                    )}
+                                  </button>
                                 )}
+
+                                {/* Email: open in mail client with pre-filled subject + body */}
                                 {step.platform === 'email' && activeProspect.contactEmail && (
                                   <a
                                     href={`mailto:${activeProspect.contactEmail}?subject=${encodeURIComponent(step.subject ?? '')}&body=${encodeURIComponent(step.message)}`}
-                                    className="flex items-center gap-1 text-[10px] px-2.5 py-1.5 rounded-lg border border-white/10 text-zinc-400 hover:text-zinc-200 transition-colors"
+                                    className="flex items-center gap-1 text-[10px] px-2.5 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
                                   >
                                     📧 Open in Mail ↗
                                   </a>
@@ -1224,7 +1494,7 @@ export default function Outreach() {
                                   </button>
                                 )}
 
-                                {/* Webhook dispatch */}
+                                {/* Webhook dispatch (optional — for power users with Zapier/n8n) */}
                                 {webhookUrl && !isDone && (
                                   <button
                                     onClick={() => handleDispatchStep(activeProspect._id, idx)}
@@ -1233,7 +1503,7 @@ export default function Outreach() {
                                     title="Send to Zapier/Make webhook"
                                   >
                                     {dispatchingStep === idx ? <RefreshCw size={10} className="animate-spin" /> : <Zap size={10} />}
-                                    Dispatch
+                                    Webhook
                                   </button>
                                 )}
 
@@ -1271,12 +1541,17 @@ export default function Outreach() {
                       </div>
                     )}
 
+                    {/* WhatsApp Auto-Send */}
+                    {activeProspect.sequence.some(s => s.platform === 'whatsapp') && (
+                      <WhatsAppAutoSendPanel prospect={activeProspect} onUpdate={p => { setActiveProspect(p); invalidateAll() }} />
+                    )}
+
                     {/* Webhook integration */}
                     <div className="rounded-xl bg-surface-900/50 border border-white/5 p-4">
                       <h4 className="text-xs font-semibold text-zinc-300 mb-1 flex items-center gap-1.5">
                         <Zap size={12} className="text-violet-400" /> Automation Webhook
                       </h4>
-                      <p className="text-[10px] text-zinc-600 mb-3">Paste a Zapier, Make (Integromat), or n8n webhook URL. Clicking "Dispatch" on any step will POST the prospect + message to your automation tool, which can then use Waalaxy, Expandi, or LinkedIn's own app to send it.</p>
+                      <p className="text-[10px] text-zinc-600 mb-3">Optional. Paste a Zapier, Make, or n8n webhook URL to also trigger external automations. For LinkedIn and Instagram, use the <strong className="text-zinc-400">Launch</strong> button instead — it opens the profile and copies your message in one click, no third-party tools needed.</p>
                       <div className="flex gap-2">
                         <input
                           value={webhookUrl}
@@ -1682,6 +1957,11 @@ export default function Outreach() {
         </div>
       )}
 
+      {/* ── View: WA Agent ── */}
+      {view === 'wa-agent' && (
+        <WAAgentView bizDesc={bizDesc} />
+      )}
+
       {/* ── View: Templates ── */}
       {view === 'templates' && (
         <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -1803,11 +2083,40 @@ export default function Outreach() {
                     defaultValue={researchForm.count}
                     onChange={e => setResearchForm(f => ({ ...f, count: e.target.value }))}
                     min={1}
-                    max={20}
+                    max={50}
                     className="input w-full text-sm h-9"
                   />
                 </div>
               </div>
+
+              {/* Channel / Social Mode */}
+              <div>
+                <label className="text-xs text-zinc-400 mb-1.5 block">Find prospects via</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { value: 'email',     label: '📧 Email',     desc: 'Public contact email' },
+                    { value: 'linkedin',  label: '💼 LinkedIn',  desc: 'Company LinkedIn page' },
+                    { value: 'instagram', label: '📸 Instagram', desc: 'Business Instagram' },
+                    { value: 'all',       label: '⚡ All',       desc: 'Any channel found' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setResearchForm(f => ({ ...f, socialMode: opt.value }))}
+                      className={clsx(
+                        'flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center transition-all text-xs',
+                        researchForm.socialMode === opt.value
+                          ? 'border-brand-500 bg-brand-500/10 text-brand-300'
+                          : 'border-white/10 text-zinc-400 hover:border-white/20 hover:text-zinc-300',
+                      )}
+                    >
+                      <span className="font-medium">{opt.label}</span>
+                      <span className="text-[10px] opacity-70">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs text-zinc-400 mb-1.5 block">Campaign name</label>
                 <input
@@ -1838,6 +2147,7 @@ export default function Outreach() {
                   fd.append('targetLocation', researchForm.targetLocation)
                   fd.append('count', researchForm.count)
                   fd.append('campaignName', researchForm.campaignName)
+                  fd.append('socialMode', researchForm.socialMode)
                   if (researchDoc) fd.append('document', researchDoc)
                   researchMutation.mutate(fd)
                 }}

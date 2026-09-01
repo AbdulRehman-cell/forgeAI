@@ -3586,12 +3586,10 @@ async function buildSite(job: Job) {
   if (!repo) throw new Error('Repository not found')
 
   const fail = async (message: string) => {
-    repo.status = 'error'
-    repo.errorMessage = message
-    await repo.save()
+    await Repository.findByIdAndUpdate(repo._id, { status: 'error', errorMessage: message })
+    await Task.findByIdAndUpdate(task._id, { status: 'failed', error: message })
     task.status = 'failed'
     task.error = message
-    await task.save()
     emitTaskUpdate(taskId, task.toObject())
   }
 
@@ -3895,6 +3893,7 @@ async function buildSite(job: Job) {
       await updateTask(task, { progress: 70 }, '🐙 Creating GitHub repository…')
       const headers = { Authorization: `token ${fullUser.githubAccessToken}`, Accept: 'application/vnd.github+json' }
       let ghRepo: any
+      let githubAuthFailed = false
       for (let attempt = 0; attempt < 3 && !ghRepo; attempt++) {
         const name = attempt === 0 ? siteName : `${siteName}-${Math.random().toString(36).slice(2, 5)}`
         try {
@@ -3906,35 +3905,40 @@ async function buildSite(job: Job) {
           }, { headers })
           ghRepo = data
         } catch (err: any) {
-          const nameTaken = err.response?.status === 422
-          if (!nameTaken) throw err
+          const status = err.response?.status
+          if (status === 401 || status === 403) {
+            githubAuthFailed = true
+            break
+          }
+          if (status !== 422) throw err
           await updateTask(task, {}, `Repository name "${name}" is taken — trying another…`, 'warn')
         }
       }
-      if (!ghRepo) return await fail('Could not create a GitHub repository (name conflicts). Try a different site name.')
 
-      await updateTask(task, { progress: 82 }, `⬆️ Pushing code to ${ghRepo.full_name}…`)
-      const authRemote = `https://${fullUser.githubAccessToken}@github.com/${ghRepo.full_name}.git`
-      await git.push([authRemote, 'main:main'])
-      // Register origin (same token-URL pattern as cloned repos) so later
-      // flows that push to 'origin' — Blitz Deploy configs, agent
-      // auto-redeploy — work on builder-created repos too
-      await git.addRemote('origin', authRemote).catch(() => {})
-      pushedFullName = ghRepo.full_name
+      if (githubAuthFailed) {
+        await updateTask(task, {}, 'GitHub credentials expired — site generated locally. Reconnect GitHub in Settings → GitHub to push it.', 'warn')
+      } else if (!ghRepo) {
+        return await fail('Could not create a GitHub repository (name conflicts). Try a different site name.')
+      } else {
+        await updateTask(task, { progress: 82 }, `⬆️ Pushing code to ${ghRepo.full_name}…`)
+        const authRemote = `https://${fullUser.githubAccessToken}@github.com/${ghRepo.full_name}.git`
+        await git.push([authRemote, 'main:main'])
+        await git.addRemote('origin', authRemote).catch(() => {})
+        pushedFullName = ghRepo.full_name
 
-      repo.githubId = ghRepo.id
-      repo.fullName = ghRepo.full_name
-      repo.name = ghRepo.name
-      repo.cloneUrl = ghRepo.clone_url
-      repo.private = false
-      await repo.save()
-      await updateTask(task, {}, `✅ Live on GitHub: https://github.com/${ghRepo.full_name}`)
+        repo.githubId = ghRepo.id
+        repo.fullName = ghRepo.full_name
+        repo.name = ghRepo.name
+        repo.cloneUrl = ghRepo.clone_url
+        repo.private = false
+        await repo.save()
+        await updateTask(task, {}, `✅ Live on GitHub: https://github.com/${ghRepo.full_name}`)
+      }
     } else {
       await updateTask(task, {}, 'GitHub token missing — site generated locally but not pushed. Sign in with GitHub to enable pushing.', 'warn')
     }
 
-    repo.status = 'ready'
-    await repo.save()
+    await Repository.findByIdAndUpdate(repo._id, { status: 'ready' })
 
     task.changes = allChanges
     task.status = 'completed'

@@ -20,10 +20,13 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes'
 import leadsRoutes from './modules/leads/leads.routes'
 import outreachRoutes from './modules/outreach/outreach.routes'
 import gmailRoutes from './modules/outreach/gmail.routes'
+import whatsappRoutes from './modules/outreach/whatsapp.routes'
+import auditRoutes from './modules/audit/audit.routes'
 import teamsRoutes from './modules/teams/teams.routes'
 import whiteLabelRoutes from './modules/settings/whitelabel.routes'
 import { Repository } from './modules/repository/repository.model'
 import { Task } from './modules/tasks/task.model'
+import { startWAScheduler } from './lib/waScheduler'
 
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
 
@@ -84,6 +87,8 @@ app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/leads', leadsRoutes)
 app.use('/api/outreach', outreachRoutes)
 app.use('/api/gmail', gmailRoutes)
+app.use('/api/whatsapp', whatsappRoutes)
+app.use('/api/audit', auditRoutes)  // public — no auth
 app.use('/api/whitelabel', whiteLabelRoutes)
 
 // Public team invite accept — must be registered BEFORE the auth-gated /api/teams mount
@@ -194,5 +199,8 @@ app.get('/health', (_, res) => res.json({ status: 'ok' }))
 
 // 404
 app.use((_, res) => res.status(404).json({ message: 'Route not found' }))
+
+// Start WhatsApp auto-send scheduler (fires pending WA sequence steps on their scheduled day)
+startWAScheduler()
 
 export default app

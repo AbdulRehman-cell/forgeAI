@@ -3,12 +3,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import toast from 'react-hot-toast'
-import { Github, Palette, Globe, Mail, Loader2, ShieldCheck, Unlink } from 'lucide-react'
+import { Github, Palette, Globe, Mail, Loader2, ShieldCheck, Unlink, MessageCircle } from 'lucide-react'
 
 export default function Settings() {
   const { user } = useAuthStore()
   const qc = useQueryClient()
   const [provider, setProvider] = useState<'openai' | 'claude' | 'gemini'>('claude')
+
+  // WhatsApp state
+  const [waExpanded, setWaExpanded] = useState(false)
+  const [waToken, setWaToken] = useState('')
+  const [waPhoneId, setWaPhoneId] = useState('')
+  const [waTestTo, setWaTestTo] = useState('')
+  const [waTestResult, setWaTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
   // White-label state
   const [wlBrandName, setWlBrandName] = useState('')
@@ -50,6 +57,47 @@ export default function Settings() {
     mutationFn: () => api.put('/settings/ai-provider', { provider }),
     onSuccess: () => toast.success('AI provider saved'),
   })
+
+  const { data: waStatus } = useQuery({
+    queryKey: ['wa-status'],
+    queryFn: () => api.get('/whatsapp/status').then(r => r.data as { connected: boolean; displayPhone: string | null; verifiedName: string | null; phoneNumberId: string | null }),
+    staleTime: 30_000,
+  })
+
+  const waDisconnect = useMutation({
+    mutationFn: () => api.delete('/whatsapp/disconnect'),
+    onSuccess: () => { toast.success('WhatsApp disconnected'); qc.invalidateQueries({ queryKey: ['wa-status'] }) },
+    onError: () => toast.error('Could not disconnect'),
+  })
+
+  const sendWATest = useMutation({
+    mutationFn: () => api.post('/settings/whatsapp/send-test', { to: waTestTo }),
+    onSuccess: () => setWaTestResult({ ok: true, msg: 'Message sent! Check your WhatsApp.' }),
+    onError: (e: any) => setWaTestResult({ ok: false, msg: e.response?.data?.error ?? e.response?.data?.message ?? 'Send failed' }),
+  })
+
+  const saveWA = useMutation({
+    mutationFn: () => api.put('/settings/whatsapp', { accessToken: waToken, phoneNumberId: waPhoneId }),
+    onSuccess: () => { toast.success('WhatsApp credentials saved'); qc.invalidateQueries({ queryKey: ['wa-status'] }); setWaToken(''); setWaPhoneId('') },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Could not save'),
+  })
+
+  // Handle OAuth callback query params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const waResult = params.get('wa')
+    if (waResult === 'connected') {
+      const phone = params.get('phone')
+      const name = params.get('name')
+      toast.success(`WhatsApp connected${name ? `: ${name}` : ''}${phone ? ` (${phone})` : ''}`)
+      qc.invalidateQueries({ queryKey: ['wa-status'] })
+      window.history.replaceState({}, '', '/settings')
+    } else if (waResult === 'error') {
+      const reason = params.get('reason')
+      toast.error(`WhatsApp connection failed${reason ? `: ${reason}` : ''}`)
+      window.history.replaceState({}, '', '/settings')
+    }
+  }, [])
 
   const saveWhiteLabel = useMutation({
     mutationFn: () => api.put('/whitelabel', {
@@ -95,6 +143,124 @@ export default function Settings() {
                 <Mail size={15} /> Connect Gmail
               </button>
               <p className="text-xs text-zinc-600">You'll be redirected to Google to authorize ForgeAI to send emails on your behalf. We only request send permission — we never read your inbox.</p>
+            </div>
+          )}
+        </section>
+
+        {/* WhatsApp Business */}
+        <section className="card p-6">
+          <h2 className="text-sm font-semibold text-zinc-300 mb-1 flex items-center gap-2">
+            <MessageCircle size={14} className="text-emerald-400" /> WhatsApp Business
+          </h2>
+          <p className="text-xs text-zinc-600 mb-4">
+            Connect your WhatsApp Business account to auto-send messages while you sleep — just like Gmail.
+          </p>
+
+          {waStatus?.connected ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                  <ShieldCheck size={15} />
+                  <span>{waStatus.verifiedName ?? 'Connected'}</span>
+                  {waStatus.displayPhone && <span className="text-zinc-400 text-xs">{waStatus.displayPhone}</span>}
+                </div>
+                <button
+                  onClick={() => waDisconnect.mutate()}
+                  disabled={waDisconnect.isPending}
+                  className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 px-3 py-1.5 rounded-lg border border-red-500/20 hover:bg-red-500/10 transition-colors"
+                >
+                  <Unlink size={12} /> Disconnect
+                </button>
+              </div>
+              <p className="text-xs text-zinc-600">
+                Messages will auto-send on schedule from your WhatsApp Business number. Enable auto-send on any prospect sequence in Outreach.
+              </p>
+              <div className="border-t border-white/5 pt-3 space-y-2">
+                <p className="text-xs text-zinc-500 font-medium">Send a test message</p>
+                <div className="flex gap-2">
+                  <input
+                    value={waTestTo}
+                    onChange={e => { setWaTestTo(e.target.value); setWaTestResult(null) }}
+                    placeholder="+44 7404 891578"
+                    className="input flex-1 text-sm h-9"
+                  />
+                  <button
+                    onClick={() => sendWATest.mutate()}
+                    disabled={sendWATest.isPending || !waTestTo.trim()}
+                    className="btn-secondary text-sm px-4 h-9 flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    {sendWATest.isPending ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} />}
+                    Send
+                  </button>
+                </div>
+                {waTestResult && (
+                  <p className={`text-xs ${waTestResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {waTestResult.ok ? '✓' : '✗'} {waTestResult.msg}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <button
+                onClick={() =>
+                  api.get('/whatsapp/connect')
+                    .then(r => { window.location.href = r.data.url })
+                    .catch(e => toast.error(e.response?.data?.message ?? 'Could not start WhatsApp connect'))
+                }
+                className="btn-secondary flex items-center gap-2"
+              >
+                <MessageCircle size={15} className="text-emerald-400" /> Connect WhatsApp Business
+              </button>
+              <p className="text-xs text-zinc-600">
+                You'll be redirected to Meta to authorize ForgeAI. We only get permission to send messages from your number — we never read your chats.
+              </p>
+
+              {/* Advanced / manual setup toggle */}
+              <button
+                onClick={() => setWaExpanded(v => !v)}
+                className="text-xs text-zinc-500 hover:text-zinc-300 underline-offset-2 hover:underline transition-colors"
+              >
+                {waExpanded ? '▾ Hide manual setup' : '▸ Advanced: paste credentials manually'}
+              </button>
+
+              {waExpanded && (
+                <div className="space-y-3 pt-1 border-t border-white/5">
+                  <p className="text-xs text-zinc-500">
+                    Get your credentials from{' '}
+                    <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="text-brand-400 hover:underline">Meta Developers</a>
+                    {' '}→ your app → WhatsApp → API Setup.
+                  </p>
+                  <div>
+                    <label className="text-xs text-zinc-400 mb-1 block">Access Token</label>
+                    <input
+                      type="password"
+                      value={waToken}
+                      onChange={e => setWaToken(e.target.value)}
+                      placeholder="Paste your permanent access token"
+                      className="input w-full text-sm h-9"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-400 mb-1 block">Phone Number ID</label>
+                    <input
+                      value={waPhoneId}
+                      onChange={e => setWaPhoneId(e.target.value)}
+                      placeholder="e.g. 123456789012345"
+                      className="input w-full text-sm h-9"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => saveWA.mutate()}
+                      disabled={saveWA.isPending || !waToken || !waPhoneId}
+                      className="btn-primary text-sm px-4 py-2"
+                    >
+                      {saveWA.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>

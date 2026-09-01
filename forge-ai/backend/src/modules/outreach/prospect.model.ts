@@ -3,8 +3,8 @@ import { Schema, model, Document, Types } from 'mongoose'
 export type ProspectStatus = 'new' | 'researched' | 'ready' | 'sent' | 'replied' | 'converted' | 'lost'
 export type EmailTone = 'professional' | 'friendly' | 'bold' | 'concise'
 export type ActivityType = 'note' | 'call' | 'email' | 'meeting' | 'linkedin' | 'instagram' | 'status_change'
-export type SequencePlatform = 'linkedin' | 'instagram' | 'email' | 'twitter'
-export type SequenceAction = 'connect' | 'message' | 'comment' | 'email' | 'follow_up' | 'dm'
+export type SequencePlatform = 'linkedin' | 'instagram' | 'email' | 'twitter' | 'whatsapp'
+export type SequenceAction = 'connect' | 'message' | 'comment' | 'email' | 'follow_up' | 'dm' | 'whatsapp'
 export type SequenceStatus = 'pending' | 'done' | 'skipped'
 
 export interface ISequenceStep {
@@ -40,6 +40,7 @@ export interface IProspect extends Document {
   industry?: string
   location?: string
   linkedinUrl?: string
+  instagramUrl?: string
   // Scraped intelligence
   scrapedSummary?: string
   scrapedEmails: string[]
@@ -65,6 +66,7 @@ export interface IProspect extends Document {
   activities: IProspectActivity[]
   // Multi-channel outreach sequence
   sequence: ISequenceStep[]
+  sequenceStartedAt?: Date   // set when auto-send is enabled; scheduler uses this to fire steps on the right day
   // Workflow
   status: ProspectStatus
   notes?: string
@@ -88,8 +90,8 @@ const activitySchema = new Schema<IProspectActivity>(
 const sequenceStepSchema = new Schema<ISequenceStep>(
   {
     day: { type: Number, required: true },
-    platform: { type: String, enum: ['linkedin', 'instagram', 'email', 'twitter'], required: true },
-    action: { type: String, enum: ['connect', 'message', 'comment', 'email', 'follow_up', 'dm'], required: true },
+    platform: { type: String, enum: ['linkedin', 'instagram', 'email', 'twitter', 'whatsapp'], required: true },
+    action: { type: String, enum: ['connect', 'message', 'comment', 'email', 'follow_up', 'dm', 'whatsapp'], required: true },
     message: { type: String, required: true },
     subject: String,
     status: { type: String, enum: ['pending', 'done', 'skipped'], default: 'pending' },
@@ -118,6 +120,7 @@ const prospectSchema = new Schema<IProspect>(
     industry: String,
     location: String,
     linkedinUrl: String,
+    instagramUrl: String,
     scrapedSummary: String,
     scrapedEmails: { type: [String], default: [] },
     phone: String,
@@ -135,6 +138,7 @@ const prospectSchema = new Schema<IProspect>(
     lastContactedAt: Date,
     activities: { type: [activitySchema], default: [] },
     sequence: { type: [sequenceStepSchema], default: [] },
+    sequenceStartedAt: Date,
     status: { type: String, enum: ['new', 'researched', 'ready', 'sent', 'replied', 'converted', 'lost'], default: 'new' },
     notes: String,
     scrapedAt: Date,
@@ -150,5 +154,6 @@ prospectSchema.index({ userId: 1, status: 1 })
 prospectSchema.index({ userId: 1, campaignName: 1 })
 prospectSchema.index({ userId: 1, score: -1 })
 prospectSchema.index({ userId: 1, followUpAt: 1 })
+prospectSchema.index({ sequenceStartedAt: 1, 'sequence.platform': 1, 'sequence.status': 1 })
 
 export const Prospect = model<IProspect>('Prospect', prospectSchema)
