@@ -13,13 +13,6 @@ import fs from 'fs'
 import path from 'path'
 import https from 'https'
 
-// Ambient declaration so ts-node's per-file compile doesn't fail with TS2307
-// when puppeteer isn't hoisted where its resolver expects. The runtime import
-// still uses Node's normal module resolution — and if puppeteer is genuinely
-// missing at runtime, `SpaRenderer.start()` catches it and falls back to the
-// static-fetch path.
-declare module 'puppeteer'
-
 // Plenty of small-business sites have an expired or mismatched certificate. That
 // must not stop us reading their PUBLIC marketing pages — we send no credentials
 // and only read markup — so a certificate failure falls back to an unverified
@@ -160,9 +153,11 @@ export class SpaRenderer {
   static async start(): Promise<SpaRenderer | null> {
     let puppeteer: any
     try {
-      // Dynamic import so a missing package (or a failed Chromium download)
-      // does not crash the whole backend at import time.
-      puppeteer = (await import('puppeteer')).default ?? (await import('puppeteer'))
+      // require() so TypeScript doesn't check types for an optional package.
+      // A missing puppeteer (or failed Chromium download) is caught below.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('puppeteer')
+      puppeteer = mod.default ?? mod
     } catch (err: any) {
       console.warn('[siteImport] puppeteer not available — cannot render SPA content:', err?.message ?? err)
       return null
