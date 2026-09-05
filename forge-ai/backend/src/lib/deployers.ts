@@ -428,6 +428,95 @@ async function deployToRailway({ token, repoFullName, name, existing }: DeployIn
 
 const RENDER_API = 'https://api.render.com/v1'
 
+/** Final Render deploy states — anything not in these lists means still building. */
+const RENDER_SUCCESS_STATES = new Set(['live', 'update_in_progress'])
+const RENDER_FAILURE_STATES = new Set(['build_failed', 'update_failed', 'canceled', 'pre_deploy_failed', 'deactivated'])
+
+/**
+ * Get the most recent deploy ID for a Render service.
+ * Used as a fallback when the create/redeploy response doesn't include deployId.
+ */
+export async function getLatestRenderDeployId(
+  serviceId: string,
+  token: string,
+): Promise<string | undefined> {
+  try {
+    const { data } = await axios.get(
+      `${RENDER_API}/services/${serviceId}/deploys?limit=1`,
+      { headers: renderHeaders(token) },
+    )
+    const items: any[] = Array.isArray(data) ? data : (data?.deploys ?? [])
+    const deploy = items[0]?.deploy ?? items[0]
+    return deploy?.id
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Poll a specific Render deploy until it reaches a terminal state.
+ * Returns success=true when the service goes live, false on any failure.
+ */
+export async function waitForRenderDeploy(
+  serviceId: string,
+  deployId: string,
+  token: string,
+  log: DeployLog,
+  timeoutMs = 18 * 60_000,
+): Promise<{ status: string; success: boolean }> {
+  const headers = renderHeaders(token)
+  const deadline = Date.now() + timeoutMs
+  let lastStatus = ''
+
+  while (Date.now() < deadline) {
+    try {
+      const { data } = await axios.get(
+        `${RENDER_API}/services/${serviceId}/deploys/${deployId}`,
+        { headers },
+      )
+      const deploy = data?.deploy ?? data
+      const status: string = deploy?.status ?? 'unknown'
+
+      if (status !== lastStatus) {
+        await log(`Render build status: ${status}`)
+        lastStatus = status
+      }
+
+      if (RENDER_SUCCESS_STATES.has(status)) return { status, success: true }
+      if (RENDER_FAILURE_STATES.has(status)) return { status, success: false }
+    } catch { /* transient — keep polling */ }
+
+    await sleep(15_000)
+  }
+
+  return { status: 'timeout', success: false }
+}
+
+/**
+ * Fetch build logs for a Render deploy. Returns the log text (up to 8 000 chars)
+ * so the AI can diagnose build failures.
+ */
+export async function fetchRenderLogs(
+  serviceId: string,
+  deployId: string,
+  token: string,
+): Promise<string> {
+  const headers = renderHeaders(token)
+  try {
+    const { data } = await axios.get(
+      `${RENDER_API}/services/${serviceId}/deploys/${deployId}/logs`,
+      { headers },
+    )
+    const items: any[] = Array.isArray(data) ? data : (data?.logs ?? data?.items ?? [])
+    const text = items
+      .map((l: any) => l.message ?? l.text ?? (typeof l === 'string' ? l : JSON.stringify(l)))
+      .join('\n')
+    return text.slice(-8000) // tail — failures are at the end
+  } catch (err: any) {
+    return `(Could not fetch Render logs: ${err.message})`
+  }
+}
+
 async function deployToRender({ localPath, token, repoFullName, branch, name, remoteHasDockerfile, existing, envVars }: DeployInput, log: DeployLog): Promise<DeployResult> {
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
 
@@ -471,21 +560,55 @@ async function deployToRender({ localPath, token, repoFullName, branch, name, re
     }
   }
 
+  // Monorepo detection: if nothing recognizable at root, look one level deep.
+  // Handles repos where the deployable project lives in a subdirectory
+  // (e.g. forge-ai/ → forge-ai/backend/).
+  // Must run before the service-reuse block so rootDir is known for patch payloads.
+  let effectiveLocalPath = localPath
+  let rootDir: string | undefined
+  if (
+    !remoteHasDockerfile &&
+    !fs.existsSync(path.join(localPath, 'package.json')) &&
+    !fs.existsSync(path.join(localPath, 'index.html'))
+  ) {
+    const entries = fs.readdirSync(localPath, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue
+      const sub = path.join(localPath, entry.name)
+      // Prefer explicit backend/ sub-subdirectory (monorepo pattern)
+      const backendPkg = path.join(sub, 'backend', 'package.json')
+      const subPkg = path.join(sub, 'package.json')
+      if (fs.existsSync(backendPkg)) {
+        effectiveLocalPath = path.join(sub, 'backend')
+        rootDir = `${entry.name}/backend`
+        break
+      } else if (fs.existsSync(subPkg)) {
+        effectiveLocalPath = sub
+        rootDir = entry.name
+        break
+      }
+    }
+  }
+
   if (service) {
     await log(`Found existing Render service "${service.name}" — redeploying…`)
-    // Point it at the branch with the freshly generated configs (best effort)
-    if (service.branch !== branch) {
-      await axios.patch(`${RENDER_API}/services/${service.id}`, { branch }, { headers }).catch(() => {})
+    // Patch branch and rootDir if they need updating (best effort — don't fail if patch is rejected)
+    const patchPayload: Record<string, any> = {}
+    if (service.branch !== branch) patchPayload.branch = branch
+    if (rootDir && service.rootDir !== rootDir) patchPayload.rootDir = rootDir
+    if (Object.keys(patchPayload).length) {
+      await axios.patch(`${RENDER_API}/services/${service.id}`, patchPayload, { headers }).catch(() => {})
     }
     await applyEnvVars(service.id)
-    await axios.post(`${RENDER_API}/services/${service.id}/deploys`, {}, { headers }).catch(rethrowApiError('Render'))
+    const { data: redeployData } = await axios.post(`${RENDER_API}/services/${service.id}/deploys`, {}, { headers }).catch(rethrowApiError('Render'))
+    const redeployId: string | undefined = redeployData?.deploy?.id ?? redeployData?.id
     const url = service.serviceDetails?.url
     if (!url) throw new Error('Render redeploy started but the service has no URL — check your Render dashboard')
     await log('Render is rebuilding your app — the URL updates when the build finishes')
     return {
       url,
       dashboardUrl: `https://dashboard.render.com/${service.type === 'static_site' ? 'static' : 'web'}/${service.id}`,
-      state: { serviceId: service.id, url },
+      state: { serviceId: service.id, url, deployId: redeployId },
     }
   }
 
@@ -502,31 +625,39 @@ async function deployToRender({ localPath, token, repoFullName, branch, name, re
   // Docker Hub / Railway / other targets — cannot force us onto a paid path
   // for what Render already serves for free.
   const isPlainStatic =
-    fs.existsSync(path.join(localPath, 'index.html')) &&
-    !fs.existsSync(path.join(localPath, 'package.json')) &&
-    !fs.existsSync(path.join(localPath, 'server', 'index.js'))
+    fs.existsSync(path.join(effectiveLocalPath, 'index.html')) &&
+    !fs.existsSync(path.join(effectiveLocalPath, 'package.json')) &&
+    !fs.existsSync(path.join(effectiveLocalPath, 'server', 'index.js'))
 
   let type = 'web_service'
   let serviceDetails: Record<string, any>
   let runtimeLabel: string
   if (isPlainStatic) {
     type = 'static_site'
-    serviceDetails = { publishPath: '.' }
+    serviceDetails = { publishPath: rootDir ?? '.' }
     runtimeLabel = 'static site (free, no hour cap)'
   } else if (remoteHasDockerfile) {
     serviceDetails = { plan: 'free', runtime: 'docker' }
     runtimeLabel = 'Docker'
-  } else if (fs.existsSync(path.join(localPath, 'package.json'))) {
-    const pkg = JSON.parse(fs.readFileSync(path.join(localPath, 'package.json'), 'utf-8'))
+  } else if (fs.existsSync(path.join(effectiveLocalPath, 'package.json'))) {
+    const pkg = JSON.parse(fs.readFileSync(path.join(effectiveLocalPath, 'package.json'), 'utf-8'))
+    // TypeScript projects: `start` often points to ts-node which isn't available after build.
+    // Use `node dist/index.js` when tsconfig exists or start script uses ts-node/nodemon.
+    // Also use --include=dev so tsc is installed even when NODE_ENV=production.
+    const isTypeScript = fs.existsSync(path.join(effectiveLocalPath, 'tsconfig.json'))
+    const rawStart: string = pkg.scripts?.start ?? ''
+    const installCmd = isTypeScript ? 'npm install --include=dev' : 'npm install'
+    const buildCmd = pkg.scripts?.build ? `${installCmd} && npm run build` : installCmd
+    const startCmd = isTypeScript || /ts-node|nodemon/.test(rawStart)
+      ? 'node dist/index.js'
+      : (rawStart || `node ${pkg.main ?? 'index.js'}`)
     serviceDetails = {
       plan: 'free',
       runtime: 'node',
-      envSpecificDetails: {
-        buildCommand: pkg.scripts?.build ? 'npm install && npm run build' : 'npm install',
-        startCommand: pkg.scripts?.start ? 'npm start' : `node ${pkg.main ?? 'index.js'}`,
-      },
+      ...(rootDir ? { rootDir } : {}),
+      envSpecificDetails: { buildCommand: buildCmd, startCommand: startCmd },
     }
-    runtimeLabel = 'Node'
+    runtimeLabel = `Node${rootDir ? ` (rootDir: ${rootDir})` : ''}`
   } else {
     throw new Error('Render deploy needs a Dockerfile, a Node project, or a static site — try Railway for other stacks')
   }
@@ -536,6 +667,8 @@ async function deployToRender({ localPath, token, repoFullName, branch, name, re
   // the search-by-name reuse logic above should have caught this, but if it
   // misses (stale DB state, race, Render pagination), the create call
   // itself must not hard-fail — auto-suffix and try again.
+  // Remove rootDir from serviceDetails — Render expects it as a top-level field
+  const { rootDir: _rootDir, ...serviceDetailsWithoutRootDir } = serviceDetails as any
   const tryCreate = async (attemptName: string) => axios.post(
     `${RENDER_API}/services`,
     {
@@ -545,7 +678,8 @@ async function deployToRender({ localPath, token, repoFullName, branch, name, re
       repo: `https://github.com/${repoFullName}`,
       branch,
       autoDeploy: 'yes',
-      serviceDetails,
+      ...(rootDir ? { rootDir } : {}),
+      serviceDetails: serviceDetailsWithoutRootDir,
       ...(envVars?.length && type !== 'static_site' ? { envVars } : {}),
     },
     { headers },
@@ -574,11 +708,14 @@ async function deployToRender({ localPath, token, repoFullName, branch, name, re
   const url = data?.service?.serviceDetails?.url
   if (!url) throw new Error('Render created the service but returned no URL — check your Render dashboard')
 
+  // Render returns the initial deploy alongside the service on creation
+  const initialDeployId: string | undefined = data?.deployId ?? data?.deploy?.id
+
   await log('Render is building your app — it will be live at the URL in a few minutes')
   return {
     url,
     dashboardUrl: `https://dashboard.render.com/${type === 'static_site' ? 'static' : 'web'}/${data.service.id}`,
-    state: { serviceId: data.service.id, url },
+    state: { serviceId: data.service.id, url, deployId: initialDeployId },
   }
 }
 

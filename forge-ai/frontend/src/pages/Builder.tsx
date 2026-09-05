@@ -11,7 +11,7 @@ import clsx from 'clsx'
 import {
   Sparkles, Loader2, Github, FolderOpen, Rocket, Globe, CheckCircle2, XCircle, Wand2, FileText,
   Monitor, Tablet, Smartphone, Send, BarChart2, Construction, UserCheck, CalendarClock,
-  Zap, TrendingUp, ArrowLeftRight,
+  Zap, TrendingUp, ArrowLeftRight, KeyRound,
 } from 'lucide-react'
 import type { Task } from '@/types'
 
@@ -84,6 +84,8 @@ export default function Builder() {
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [approvalData, setApprovalData] = useState<any>(null)
   const [maintenancePlanActive, setMaintenancePlanActive] = useState(false)
+  const [envVarsRaw, setEnvVarsRaw] = useState('')
+  const [savedEnvKeys, setSavedEnvKeys] = useState<string[]>([])
   const logEndRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
@@ -243,6 +245,15 @@ export default function Builder() {
       setMaintenancePlanActive(data.maintenancePlan?.active ?? false)
       toast.success(data.maintenancePlan?.active ? 'Monthly maintenance plan activated' : 'Maintenance plan cancelled')
     },
+  })
+
+  const envVarsMutation = useMutation({
+    mutationFn: () => api.put(`/repositories/${repoId}/env-vars`, { raw: envVarsRaw }),
+    onSuccess: ({ data }) => {
+      setSavedEnvKeys(data.savedKeys)
+      toast.success(`${data.savedKeys.length} env var${data.savedKeys.length !== 1 ? 's' : ''} saved — applied on next deploy`)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Could not save env vars'),
   })
 
   const repoFullName = buildDone || deployDone || isDeploying
@@ -850,6 +861,44 @@ export default function Builder() {
                       'absolute top-1 w-4 h-4 rounded-full bg-white transition-transform shadow',
                       maintenanceMode ? 'translate-x-6' : 'translate-x-1',
                     )} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Environment Variables ── */}
+            {(buildDone || deployDone) && repoId && (
+              <div className="border border-surface-600 rounded-xl p-4 mb-4">
+                <p className="text-xs font-semibold text-zinc-200 mb-1 flex items-center gap-1.5">
+                  <KeyRound size={13} className="text-brand-400" /> Environment Variables
+                  <span className="text-zinc-600 font-normal">— applied to Render on every deploy</span>
+                </p>
+                <p className="text-[11px] text-zinc-500 mb-3">
+                  Paste your <code className="text-zinc-400">KEY=VALUE</code> pairs, one per line. For MERN sites, <code className="text-zinc-400">MONGODB_URI</code> is added automatically — you can override it here.
+                </p>
+                <textarea
+                  className="input resize-none font-mono text-xs leading-relaxed mb-3 w-full"
+                  rows={5}
+                  placeholder={'DATABASE_URL=postgresql://...\nSTRIPE_SECRET_KEY=sk_live_...\nJWT_SECRET=changeme'}
+                  value={envVarsRaw}
+                  onChange={(e) => setEnvVarsRaw(e.target.value)}
+                  spellCheck={false}
+                />
+                <div className="flex items-center justify-between">
+                  <div>
+                    {savedEnvKeys.length > 0 && (
+                      <p className="text-[11px] text-emerald-400">
+                        {savedEnvKeys.length} var{savedEnvKeys.length !== 1 ? 's' : ''} saved: {savedEnvKeys.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => envVarsMutation.mutate()}
+                    disabled={!envVarsRaw.trim() || envVarsMutation.isPending}
+                    className="px-4 py-2 rounded-xl border border-brand-500/40 text-xs font-medium text-brand-300 hover:bg-brand-500/10 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {envVarsMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />}
+                    Save vars
                   </button>
                 </div>
               </div>

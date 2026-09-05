@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middleware/auth.middleware'
+import { resolveTeamOwner, getEffectiveUserId } from '../../middleware/teamContext.middleware'
 import { Repository } from './repository.model'
 import { Task } from '../tasks/task.model'
 import { enqueueJob } from '../../lib/workers'
@@ -9,6 +10,7 @@ import fs from 'fs'
 
 const router = Router()
 router.use(requireAuth)
+router.use(resolveTeamOwner)
 
 
 // ─── Import ───────────────────────────────────────────────
@@ -16,17 +18,17 @@ router.post('/import', async (req, res) => {
   const user = req.user as any
   const { githubId, fullName, name, description, language, private: isPrivate, defaultBranch, cloneUrl } = req.body
 
-  const existing = await Repository.findOne({ userId: user._id, githubId })
+  const existing = await Repository.findOne({ userId: getEffectiveUserId(req), githubId })
   if (existing) return res.status(409).json({ message: 'Repository already imported' })
 
   const repo = await Repository.create({
-    userId: user._id, githubId, fullName, name, description,
+    userId: getEffectiveUserId(req), githubId, fullName, name, description,
     language, private: isPrivate, defaultBranch, cloneUrl, status: 'cloning',
   })
 
   await enqueueJob('clone-repo', {
     repositoryId: repo._id.toString(),
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     cloneUrl,
     type: 'clone_repo',
   })
@@ -40,24 +42,23 @@ const IGNORE_DIRS = new Set(['node_modules', '.git', '__pycache__', 'dist', 'bui
 
 // ─── List ─────────────────────────────────────────────────
 router.get('/', async (req, res) => {
-  const user = req.user as any
-  console.log('[repository] List repositories for user:', user._id)
-  const repositories = await Repository.find({ userId: user._id }).sort({ updatedAt: -1 })
+  const ownerId = getEffectiveUserId(req)
+  console.log('[repository] List repositories for user:', ownerId)
+  const repositories = await Repository.find({ userId: ownerId }).sort({ updatedAt: -1 })
   res.json({ repositories })
 })
 
 // ─── Get one ──────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
-  const user = req.user as any
-  const repository = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const ownerId = getEffectiveUserId(req)
+  const repository = await Repository.findOne({ _id: req.params.id, userId: ownerId })
   if (!repository) return res.status(404).json({ message: 'Not found' })
   res.json({ repository })
 })
 
 // ─── File tree — Python service with local fs fallback ────
 router.get('/:id/tree', async (req, res) => {
-  const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found or not cloned' })
 
   // Try Python service first
@@ -109,7 +110,7 @@ router.get('/:id/tree', async (req, res) => {
 // ─── File content ─────────────────────────────────────────
 router.get('/:id/file', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found' })
 
   const requestedPath = (req.query.path as string) ?? ''
@@ -138,7 +139,7 @@ router.get('/:id/file', async (req, res) => {
 // ─── Dependency graph ─────────────────────────────────────
 router.get('/:id/graph', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found or not cloned' })
   try {
     const { data } = await axios.post(`${process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'}/repo/dependencies`, {
@@ -153,7 +154,7 @@ router.get('/:id/graph', async (req, res) => {
 // ─── Impact analysis ──────────────────────────────────────
 router.get('/:id/impact', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found or not cloned' })
   const targetFile = req.query.file as string
   if (!targetFile) return res.status(400).json({ message: 'file query param required' })
@@ -174,7 +175,7 @@ router.get('/search/code', async (req, res) => {
   const query = (req.query.q as string ?? '').trim()
   if (!query || query.length < 2) return res.status(400).json({ message: 'q must be >= 2 chars' })
 
-  const repos = await Repository.find({ userId: user._id, status: 'ready' }).lean()
+  const repos = await Repository.find({ userId: getEffectiveUserId(req), status: 'ready' }).lean()
   const allResults: any[] = []
 
   await Promise.all(
@@ -198,7 +199,7 @@ router.get('/search/code', async (req, res) => {
 // ─── Generate / get shareable report token ───────────────
 router.post('/:id/share', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Not found' })
 
   if (!repo.shareToken) {
@@ -214,7 +215,7 @@ router.post('/:id/share', async (req, res) => {
 /** Generate (or re-send) an approval link for the client */
 router.post('/:id/approval', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Not found' })
 
   if (!repo.approvalToken) {
@@ -230,7 +231,7 @@ router.post('/:id/approval', async (req, res) => {
 /** Get approval status */
 router.get('/:id/approval', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Not found' })
   res.json({
     status: repo.approvalStatus ?? null,
@@ -246,7 +247,7 @@ router.get('/:id/approval', async (req, res) => {
 // ─── Maintenance Mode Toggle ──────────────────────────────
 router.post('/:id/maintenance', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Not found' })
 
   const { enabled } = req.body
@@ -298,7 +299,7 @@ router.post('/:id/maintenance', async (req, res) => {
 // ─── Page Speed Score (Google PageSpeed Insights) ─────────
 router.get('/:id/speed-score', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Not found' })
 
   const deployUrl = (repo as any).deployState?.render?.url
@@ -333,7 +334,7 @@ router.get('/:id/speed-score', async (req, res) => {
 // ─── Maintenance Plan ─────────────────────────────────────
 router.post('/:id/maintenance-plan', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Not found' })
   if (!['pro', 'team'].includes((await import('../users/user.model')).User.prototype.plan)) {
     // re-fetch user plan
@@ -354,10 +355,33 @@ router.post('/:id/maintenance-plan', async (req, res) => {
   res.json({ maintenancePlan: repo.maintenancePlan })
 })
 
+// ─── Env vars (saved to builderEnv, applied on next Blitz Deploy) ────────────
+router.put('/:id/env-vars', async (req, res) => {
+  const { raw } = req.body
+  if (typeof raw !== 'string') return res.status(400).json({ message: 'raw (string) is required' })
+
+  const parsed: Record<string, string> = {}
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eq = trimmed.indexOf('=')
+    if (eq < 1) continue
+    const key = trimmed.slice(0, eq).trim()
+    const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
+    if (key) parsed[key] = val
+  }
+
+  const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
+  if (!repo) return res.status(404).json({ message: 'Repository not found' })
+
+  await Repository.findByIdAndUpdate(repo._id, { builderEnv: parsed })
+  res.json({ savedKeys: Object.keys(parsed) })
+})
+
 // ─── Delete ───────────────────────────────────────────────
 router.delete('/:id', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOneAndDelete({ _id: req.params.id, userId: user._id })
+  const repo = await Repository.findOneAndDelete({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Not found' })
 
   // Clean up local clone — NEVER for local workspaces: localPath is the
@@ -367,7 +391,7 @@ router.delete('/:id', async (req, res) => {
   }
 
   // Drop the repo's task history so it doesn't show up orphaned
-  await Task.deleteMany({ repositoryId: repo._id, userId: user._id }).catch(() => {})
+  await Task.deleteMany({ repositoryId: repo._id, userId: getEffectiveUserId(req) }).catch(() => {})
 
   res.json({ message: 'Deleted' })
 })
