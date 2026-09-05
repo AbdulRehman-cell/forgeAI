@@ -16,7 +16,6 @@ router.get('/repos', async (req, res) => {
     return res.status(400).json({ message: 'GitHub not connected' })
   }
 
-  console.log('[github] token present:', !!fullUser.githubAccessToken, '| prefix:', fullUser.githubAccessToken?.slice(0, 8))
   try {
     const { data } = await axios.get('https://api.github.com/user/repos', {
       headers: { Authorization: `token ${fullUser.githubAccessToken}` },
