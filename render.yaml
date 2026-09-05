@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: forgeai
+    env: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: "cd forge-ai/backend && npm install --production=false && npm run build"
+    startCommand: "node forge-ai/backend/dist/index.js"
+    healthCheckPath: /health
+    autoDeploy: true
