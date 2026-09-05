@@ -98,6 +98,19 @@ export default function AppLayout() {
           ))}
         </nav>
 
+        {/* Team membership badge */}
+        {user?.teamOwnerId && (
+          <div className="px-3 pb-2 shrink-0">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-500/10 border border-brand-500/15">
+              <Users size={12} className="text-brand-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-brand-300 truncate">Team workspace</p>
+                <p className="text-[9px] text-brand-400/60 truncate capitalize">{user.teamRole ?? 'member'}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* User */}
         <div className="p-3 border-t border-white/5 shrink-0 relative">
           <div className="gradient-border p-[1.5px] rounded-2xl">
@@ -119,6 +132,14 @@ export default function AppLayout() {
                   {user?.name}
                 </p>
                 <p className="text-[11px] text-zinc-500 truncate">
+                  {user?.plan && (
+                    <span className={clsx(
+                      'mr-1 font-semibold',
+                      user.plan === 'team' ? 'text-violet-400' : user.plan === 'pro' ? 'text-brand-400' : 'text-zinc-600',
+                    )}>
+                      {user.plan}
+                    </span>
+                  )}
                   {user?.email}
                 </p>
               </div>

@@ -5,6 +5,7 @@ import fs from 'fs'
 import axios from 'axios'
 import simpleGit from 'simple-git'
 import { requireAuth } from '../../middleware/auth.middleware'
+import { resolveTeamOwner, getEffectiveUserId } from '../../middleware/teamContext.middleware'
 import { Task } from './task.model'
 import { Repository } from '../repository/repository.model'
 import { User } from '../users/user.model'
@@ -22,17 +23,18 @@ import { resolveAttachments } from '../../lib/imageAttachments'
 
 const router = Router()
 router.use(requireAuth)
+router.use(resolveTeamOwner)
 
 // Fix single file
 router.post('/fix-file', async (req, res) => {
   const user = req.user as any
   const { repositoryId, filePath } = req.body
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId,
     type: 'fix_file',
     metadata: { filePath },
@@ -41,7 +43,7 @@ router.post('/fix-file', async (req, res) => {
   await enqueueJob('fix-file', {
     taskId: task._id.toString(),
     repositoryId,
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     localPath: repo.localPath,
     filePath,
     aiProvider: user.aiProvider,
@@ -54,9 +56,8 @@ router.post('/fix-file', async (req, res) => {
 
 // List tasks
 router.get('/', async (req, res) => {
-  const user = req.user as any
   const { repositoryId, limit = 50 } = req.query
-  const filter: any = { userId: user._id }
+  const filter: any = { userId: getEffectiveUserId(req) }
   if (repositoryId) filter.repositoryId = repositoryId
   const tasks = await Task.find(filter)
     .sort({ createdAt: -1 })
@@ -68,7 +69,7 @@ router.get('/', async (req, res) => {
 // Get single task (returns full changes array)
 router.get('/:id', async (req, res) => {
   const user = req.user as any
-  const task = await Task.findOne({ _id: req.params.id, userId: user._id })
+  const task = await Task.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!task) return res.status(404).json({ message: 'Not found' })
   res.json({ task })
 })
@@ -78,12 +79,12 @@ router.get('/:id', async (req, res) => {
 router.post('/rebuild-proposal', checkQuota('reviews'), async (req, res) => {
   const user = req.user as any
   const { repositoryId } = req.body
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
   if (!repo.localPath) return res.status(400).json({ message: 'Repository not cloned yet' })
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId,
     type: 'rebuild_proposal',
     metadata: {},
@@ -92,7 +93,7 @@ router.post('/rebuild-proposal', checkQuota('reviews'), async (req, res) => {
   await enqueueJob('rebuild-proposal', {
     taskId: task._id.toString(),
     repositoryId,
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     localPath: repo.localPath,
     repoName: repo.fullName,
     aiProvider: user.aiProvider,
@@ -116,7 +117,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
   // checkQuota already counted this deploy; give it back if we bail out early
   const refundDeploy = () => User.updateOne({ _id: user._id }, { $inc: { 'usage.deploys': -1 } })
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) { await refundDeploy(); return res.status(404).json({ message: 'Repository not found' }) }
   if (repo.status !== 'ready' || !repo.localPath) { await refundDeploy(); return res.status(400).json({ message: 'Repository is not ready' }) }
 
@@ -189,7 +190,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
   }
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId,
     type: 'blitz_deploy',
     status: 'pending',
@@ -199,7 +200,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
   await enqueueJob('blitz-deploy', {
     taskId: task._id.toString(),
     repositoryId,
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     localPath: repo.localPath,
     platform: resolvedPlatform,
     deployToken,
@@ -284,7 +285,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     || `forgeai-site-${Date.now().toString(36)}`
 
   const repo = await Repository.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     githubId: -Date.now(), // synthetic until the real GitHub repo is created
     name: siteName,
     fullName: siteName,
@@ -298,7 +299,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   })
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId: repo._id,
     type: 'build_site',
     status: 'pending',
@@ -316,7 +317,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   await enqueueJob('build-site', {
     taskId: task._id.toString(),
     repositoryId: repo._id.toString(),
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     prompt: prompt.trim(),
     siteName,
     stack: siteStack,
@@ -343,7 +344,7 @@ router.post('/agent', checkQuota('fixes'), async (req, res) => {
 
   if (!instruction?.trim() && !images?.length) return res.status(400).json({ message: 'instruction is required' })
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
   if (repo.status !== 'ready' || !repo.localPath) {
     return res.status(400).json({ message: 'Workspace is not ready' })
@@ -355,7 +356,7 @@ router.post('/agent', checkQuota('fixes'), async (req, res) => {
   const fullInstruction = `${(instruction ?? '').trim()}${ocrText}`.trim()
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId,
     type: 'agent',
     status: 'pending',
@@ -365,7 +366,7 @@ router.post('/agent', checkQuota('fixes'), async (req, res) => {
   await enqueueJob('agent', {
     taskId: task._id.toString(),
     repositoryId,
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     localPath: repo.localPath,
     instruction: fullInstruction,
     imageDataUrls: dataUrls,
@@ -382,7 +383,7 @@ router.post('/agent', checkQuota('fixes'), async (req, res) => {
 // agent sessions.
 router.post('/:id/revert', async (req, res) => {
   const user = req.user as any
-  const task = await Task.findOne({ _id: req.params.id, userId: user._id })
+  const task = await Task.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!task) return res.status(404).json({ message: 'Not found' })
   if (!task.changes?.length) return res.status(400).json({ message: 'This task has no file changes to revert' })
   if (task.status === 'running' || task.status === 'pending') {
@@ -432,7 +433,7 @@ router.post('/:id/revert', async (req, res) => {
 // Stop a running agent session
 router.post('/:id/stop', async (req, res) => {
   const user = req.user as any
-  const task = await Task.findOne({ _id: req.params.id, userId: user._id })
+  const task = await Task.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!task) return res.status(404).json({ message: 'Not found' })
   if (task.status !== 'running' && task.status !== 'pending') {
     return res.status(400).json({ message: 'Task is not running' })
@@ -447,12 +448,12 @@ router.post('/fix-workspace', async (req, res) => {
   const user = req.user as any
   const { repositoryId } = req.body
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
   if (repo.status !== 'ready') return res.status(400).json({ message: 'Repository is not ready' })
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId,
     type: 'fix_workspace',
     status: 'pending',
@@ -461,7 +462,7 @@ router.post('/fix-workspace', async (req, res) => {
   const job = await enqueueJob('fix-workspace', {
     taskId: task._id.toString(),
     repositoryId,
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     localPath: repo.localPath,
     aiProvider: user.aiProvider,
     type: 'fix_workspace',
@@ -480,11 +481,11 @@ router.post('/test-fix', async (req, res) => {
   const user = req.user as any
   const { repositoryId, errors } = req.body
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId,
     type: 'fix_workspace',
     status: 'pending',
@@ -493,7 +494,7 @@ router.post('/test-fix', async (req, res) => {
   await enqueueJob('fix-workspace', {
     taskId: task._id.toString(),
     repositoryId,
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     localPath: repo.localPath,
     aiProvider: user.aiProvider,
     type: 'fix_workspace',
@@ -506,7 +507,7 @@ router.post('/test-fix', async (req, res) => {
 // Create PR — pushes local branch then opens PR
 router.post('/:id/create-pr', async (req, res) => {
   const user = req.user as any
-  const task = await Task.findOne({ _id: req.params.id, userId: user._id })
+  const task = await Task.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!task || task.status !== 'completed') {
     return res.status(400).json({ message: 'Task not complete' })
   }
@@ -587,7 +588,7 @@ router.post('/:id/create-pr', async (req, res) => {
 // Download changes as zip
 router.get('/:id/download', async (req, res) => {
   const user = req.user as any
-  const task = await Task.findOne({ _id: req.params.id, userId: user._id })
+  const task = await Task.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!task || !task.changes.length) return res.status(404).json({ message: 'No changes' })
 
   res.setHeader('Content-Type', 'application/zip')
@@ -606,16 +607,16 @@ router.post('/review', checkQuota('reviews'), async (req, res) => {
   const user = req.user as any
   const { repositoryId } = req.body
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
 
   const task = await Task.create({
-    userId: user._id, repositoryId, type: 'review', status: 'pending',
+    userId: getEffectiveUserId(req), repositoryId, type: 'review', status: 'pending',
   })
 
   await enqueueJob('review', {
     taskId: task._id.toString(), repositoryId,
-    userId: user._id.toString(), localPath: repo.localPath,
+    userId: getEffectiveUserId(req).toString(), localPath: repo.localPath,
     aiProvider: user.aiProvider, type: 'review',
   })
 
@@ -627,17 +628,17 @@ router.post('/generate-tests', checkQuota('fixes'), async (req, res) => {
   const user = req.user as any
   const { repositoryId, filePath } = req.body
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
 
   const task = await Task.create({
-    userId: user._id, repositoryId, type: 'generate_tests',
+    userId: getEffectiveUserId(req), repositoryId, type: 'generate_tests',
     status: 'pending', metadata: { filePath },
   })
 
   await enqueueJob('generate-tests', {
     taskId: task._id.toString(), repositoryId,
-    userId: user._id.toString(), localPath: repo.localPath,
+    userId: getEffectiveUserId(req).toString(), localPath: repo.localPath,
     filePath, aiProvider: user.aiProvider, type: 'generate_tests',
   })
 
@@ -649,16 +650,16 @@ router.post('/security-scan', checkQuota('reviews'), async (req, res) => {
   const user = req.user as any
   const { repositoryId } = req.body
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
 
   const task = await Task.create({
-    userId: user._id, repositoryId, type: 'security_scan', status: 'pending',
+    userId: getEffectiveUserId(req), repositoryId, type: 'security_scan', status: 'pending',
   })
 
   await enqueueJob('security-scan', {
     taskId: task._id.toString(), repositoryId,
-    userId: user._id.toString(), localPath: repo.localPath,
+    userId: getEffectiveUserId(req).toString(), localPath: repo.localPath,
     aiProvider: user.aiProvider, type: 'security_scan',
   })
 
@@ -674,12 +675,12 @@ router.post('/patch-site', checkQuota('fixes'), async (req, res) => {
 
   if (!instruction?.trim()) return res.status(400).json({ message: 'instruction is required' })
 
-  const repo = await Repository.findOne({ _id: repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
   if (!repo.localPath) return res.status(400).json({ message: 'Site not built yet' })
 
   const task = await Task.create({
-    userId: user._id,
+    userId: getEffectiveUserId(req),
     repositoryId,
     type: 'agent',
     status: 'pending',
@@ -689,7 +690,7 @@ router.post('/patch-site', checkQuota('fixes'), async (req, res) => {
   await enqueueJob('agent', {
     taskId: task._id.toString(),
     repositoryId,
-    userId: user._id.toString(),
+    userId: getEffectiveUserId(req).toString(),
     localPath: repo.localPath,
     instruction: `You are editing a website that was already built. Make only the changes the user asks for — do NOT rewrite the whole site.\n\nUser request: ${instruction.trim()}`,
     aiProvider: user.aiProvider,
@@ -727,11 +728,11 @@ router.post('/audit', async (req, res) => {
 /** Downloadable PDF for a client: what their old site scored and what changed. */
 router.get('/report/:repositoryId', async (req, res) => {
   const user = req.user as any
-  const repo = await Repository.findOne({ _id: req.params.repositoryId, userId: user._id })
+  const repo = await Repository.findOne({ _id: req.params.repositoryId, userId: getEffectiveUserId(req) })
   if (!repo) return res.status(404).json({ message: 'Repository not found' })
 
   const task = await Task.findOne({
-    repositoryId: repo._id, userId: user._id, type: 'build_site',
+    repositoryId: repo._id, userId: getEffectiveUserId(req), type: 'build_site',
     'metadata.enhancements': { $exists: true, $ne: [] },
   }).sort({ createdAt: -1 })
   if (!task) {
@@ -761,7 +762,7 @@ async function renderDomainContext(req: any, res: any) {
   const user = req.user as any
   const { repositoryId, token } = req.body ?? {}
   const id = repositoryId ?? req.params.repositoryId
-  const repo = await Repository.findOne({ _id: id, userId: user._id })
+  const repo = await Repository.findOne({ _id: id, userId: getEffectiveUserId(req) })
   if (!repo) { res.status(404).json({ message: 'Repository not found' }); return null }
 
   const state = (repo as any).deployState?.render
