@@ -1,0 +1,4 @@
+Order ID,order_date,customer,Total,Qty,Region
+3001,2024-01-05,Acme,$1000,4,us-east
+3002,2024-01-10,BetaCo,$500,2,eu-west
+3003,2024-01-15,Gamma,$2000,8,APAC

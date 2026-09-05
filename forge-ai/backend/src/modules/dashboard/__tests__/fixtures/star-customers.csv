@@ -1,0 +1,6 @@
+customer_id,customer_name,customer_country,customer_tier
+C1,Acme Corp,US,pro
+C2,BetaCo,DE,starter
+C3,Gamma LLC,US,enterprise
+C4,Delta Inc,UK,pro
+C5,Epsilon,JP,enterprise

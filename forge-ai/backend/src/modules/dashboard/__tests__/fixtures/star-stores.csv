@@ -1,0 +1,4 @@
+store_id,store_name,store_city,region_id
+S1,Downtown,New York,R1
+S2,Uptown,New York,R1
+S3,Central,Tokyo,R2

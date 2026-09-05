@@ -1,0 +1,3 @@
+Order ID,order_date,customer,Total,Qty,Region
+3010,2024-04-05,Delta,$1500,6,us-east
+3011,2024-04-10,Epsilon,$800,3,eu-west

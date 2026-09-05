@@ -1,0 +1,4 @@
+product_id,product_brand,product_name,product_retail_price,product_cost
+P1,Acme,Blue Widget,19.99,7.50
+P2,Acme,Red Widget,24.99,9.00
+P3,Beta,Deluxe Gadget,89.00,32.00

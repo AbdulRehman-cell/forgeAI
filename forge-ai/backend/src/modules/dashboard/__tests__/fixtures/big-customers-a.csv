@@ -1,0 +1,4 @@
+customer_id,first_name,customer_country,gender,yearly_income
+C1,Alice,US,F,$50K - $70K
+C2,Bob,US,M,$30K - $50K
+C3,Chen,CN,F,$70K - $90K

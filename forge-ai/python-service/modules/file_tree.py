@@ -12,7 +12,11 @@ IGNORE_EXTENSIONS = {
 MAX_DEPTH = 8
 
 
-def get_file_tree(root: str, depth: int = 0) -> list:
+def get_file_tree(root: str, depth: int = 0, base: str = None) -> list:
+    # `base` is the repository root — paths must always be relative to it,
+    # not to the directory currently being scanned
+    if base is None:
+        base = root
     if depth > MAX_DEPTH:
         return []
 
@@ -31,10 +35,10 @@ def get_file_tree(root: str, depth: int = 0) -> list:
         if ext in IGNORE_EXTENSIONS:
             continue
 
-        rel_path = os.path.relpath(item.path, root)
+        rel_path = os.path.relpath(item.path, base).replace(os.sep, "/")
 
         if item.is_dir():
-            children = get_file_tree(item.path, depth + 1)
+            children = get_file_tree(item.path, depth + 1, base)
             entries.append({
                 "name": item.name,
                 "path": rel_path,

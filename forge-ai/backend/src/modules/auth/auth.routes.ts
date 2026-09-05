@@ -69,6 +69,14 @@ router.get(
   },
 )
 
+// Long-lived token for the VS Code extension (90 days).
+// Requires a currently-valid token — the extension exchanges the short
+// web token for this right after the user pastes it.
+router.get('/extension-token', requireAuth, (req, res) => {
+  const user = req.user as any
+  res.json({ token: signToken(user._id.toString(), '90d'), expiresIn: '90d' })
+})
+
 // Me
 router.get('/me', requireAuth, (req, res) => {
   const u = req.user as any

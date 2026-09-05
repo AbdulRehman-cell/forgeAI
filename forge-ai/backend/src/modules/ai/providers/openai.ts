@@ -10,11 +10,23 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async chat(messages: AIMessage[], systemPrompt?: string): Promise<AIResponse> {
+    const apiMessages = messages.map((m) =>
+      m.images?.length
+        ? {
+            role: m.role,
+            content: [
+              { type: 'text', text: m.content },
+              ...m.images.map((url) => ({ type: 'image_url', image_url: { url } })),
+            ],
+          }
+        : { role: m.role, content: m.content },
+    )
+
     const payload = {
-      model: 'gpt-4-turbo',
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o',
       messages: [
         ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-        ...messages,
+        ...apiMessages,
       ],
       max_tokens: 8000,
     }
