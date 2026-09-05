@@ -168,8 +168,16 @@ export function pickDefaultMetrics(
     // Multi-series line when multiple compatible numeric columns exist (e.g.
     // Revenue + Cost + Profit) — much richer than a single line. Uses safe-to-
     // sum numeric/currency columns other than the primary value one.
+    // Exclude ID columns (product_id, customer_id) and pre-computed scalars (_scalar suffix)
+    // — these don't vary meaningfully over time and make revenue appear completely flat.
+    const idColSet = new Set(schema.idCandidates.map((id) => id.column))
     const additional = schema.columns
-      .filter((c) => (c.detectedType === 'currency' || c.detectedType === 'number') && c.name !== timeseriesValueCol && columnIsSafeToSum(cleaning, c.name))
+      .filter((c) =>
+        (c.detectedType === 'currency' || c.detectedType === 'number') &&
+        c.name !== timeseriesValueCol &&
+        columnIsSafeToSum(cleaning, c.name) &&
+        !idColSet.has(c.name) &&
+        !/_scalar$/i.test(c.name))
       .map((c) => c.name)
       .slice(0, 2)
     if (additional.length) {
@@ -207,7 +215,9 @@ export function pickDefaultMetrics(
 
   // Category breakdowns. First category → donut (most eye-catching); the rest
   // → horizontal bar. Both use the same fallback-safe value column.
-  schema.categoryCandidates.forEach((cat, i) => {
+  // Exclude _source_file — it's an internal merge marker, not a real business dimension.
+  const usableCats = schema.categoryCandidates.filter((c) => c.column !== '_source_file')
+  usableCats.forEach((cat, i) => {
     if (!timeseriesValueCol) return
     picked.push({
       id: `${i === 0 ? 'donut' : 'top'}_${cat.column}_by_${timeseriesValueCol}`,
@@ -223,8 +233,8 @@ export function pickDefaultMetrics(
 
   // Grouped bar (2-dim breakdown) — Category × Split like Power BI's
   // "Category × Gender". Only emit when there are ≥2 category candidates.
-  if (schema.categoryCandidates.length >= 2 && timeseriesValueCol) {
-    const [cat1, cat2] = schema.categoryCandidates
+  if (usableCats.length >= 2 && timeseriesValueCol) {
+    const [cat1, cat2] = usableCats
     picked.push({
       id: `grouped_${cat1.column}_by_${cat2.column}`,
       kind: 'grouped_bar',
@@ -310,8 +320,8 @@ export function pickDefaultMetrics(
   }
 
   // A data table showing per-category totals + row-counts — the "product
-  // details" pattern from Power BI. Uses the first category if available.
-  const primaryCat = schema.categoryCandidates[0]
+  // details" pattern from Power BI. Uses the first usable category (never _source_file).
+  const primaryCat = usableCats[0]
   if (primaryCat && timeseriesValueCol) {
     picked.push({
       id: `table_${primaryCat.column}`,

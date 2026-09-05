@@ -103,9 +103,16 @@ app.post('/api/teams/accept', async (req, res) => {
   member.accepted = true
   member.inviteToken = undefined
   const invitedUser = await (User as any).findOne({ email: member.email })
-  if (invitedUser) member.userId = invitedUser._id
+  if (invitedUser) {
+    member.userId = invitedUser._id
+    // Set team context on the member's account so they can access the owner's workspace
+    await (User as any).findByIdAndUpdate(invitedUser._id, {
+      teamOwnerId: owner._id,
+      teamRole: member.role,
+    })
+  }
   await owner.save()
-  res.json({ message: 'Invitation accepted', ownerName: owner.name })
+  res.json({ message: 'Invitation accepted', ownerName: owner.name, ownerEmail: owner.email })
 })
 
 app.use('/api/teams', teamsRoutes)

@@ -7,6 +7,9 @@ interface User {
   email: string
   avatar?: string
   githubConnected: boolean
+  plan?: 'free' | 'pro' | 'team'
+  teamOwnerId?: string
+  teamRole?: 'admin' | 'member'
 }
 
 interface AuthState {

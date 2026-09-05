@@ -64,6 +64,9 @@ export interface IUser extends Document {
     invitedAt: Date
     userId?: Types.ObjectId
   }>
+  // ── Team membership (set when this user accepted someone else's invite) ──
+  teamOwnerId?: Types.ObjectId
+  teamRole?: 'admin' | 'member'
   // ── WhatsApp Business API credentials ──
   settings?: {
     waAccessToken?: string
@@ -139,6 +142,8 @@ const userSchema = new Schema<IUser>(
         userId: { type: Schema.Types.ObjectId, ref: 'User' },
       },
     ],
+    teamOwnerId: { type: Schema.Types.ObjectId, ref: 'User' },
+    teamRole: { type: String, enum: ['admin', 'member'] },
     settings: {
       waAccessToken: { type: String, select: false },
       waPhoneNumberId: String,

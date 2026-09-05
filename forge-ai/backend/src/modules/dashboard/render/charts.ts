@@ -149,6 +149,9 @@ export const CHARTS_JS = `
         Object.keys(per).forEach(function (v) { if (allowed.has(v)) val += per[v] || 0; });
         return Object.assign({}, metric.value, { value: val });
       }
+      // distinct_count slices store sums of the column (not partial distinct counts),
+      // so date-range filtering gives a meaningless number — always return the base value.
+      if (kind === 'distinct_count') return metric.value;
       var dateDim = firstActiveDateDim(slices);
       if (dateDim) {
         var per2 = slices[dateDim];
@@ -876,13 +879,13 @@ export const CHARTS_JS = `
       if (kind === 'top_n') {
         chartInstances[canvasId] = new Chart(el.getContext('2d'), {
           type: 'bar',
-          plugins: [barGradPlugin, barLabelsPlugin],
+          plugins: [barLabelsPlugin],
           data: {
             labels:   entries.map(function (e) { return e.label; }),
             datasets: [{
               label:           m.label,
               data:            entries.map(function (e) { return e.value; }),
-              backgroundColor: ACCENT,
+              backgroundColor: entries.map(function (_e, i) { return PALETTE[i % PALETTE.length]; }),
               borderWidth:     0,
               borderRadius:    4,
               _pctTotal:       entries.reduce(function (s, e) { return s + e.value; }, 0)
@@ -1034,7 +1037,7 @@ export const CHARTS_JS = `
             };
           })
         },
-        plugins: [barLabelsPlugin],
+        plugins: [],
         options: {
           responsive:          true,
           maintainAspectRatio: false,

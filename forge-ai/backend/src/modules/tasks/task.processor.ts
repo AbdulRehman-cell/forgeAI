@@ -8,7 +8,7 @@ import { createProvider, resolveProvider, type ProviderName } from '../ai/ai.fac
 import { emitTaskUpdate } from '../websocket'
 import { User } from '../users/user.model'
 import type { Job } from '../../lib/workers'
-import { deploy, gitEnv } from '../../lib/deployers'
+import { deploy, gitEnv, waitForRenderDeploy, fetchRenderLogs, getLatestRenderDeployId } from '../../lib/deployers'
 import { runAgentTask } from '../agent/agent.runner'
 import {
   importBrandSite, brandProfileBlock, downloadBrandImages, downloadBrandImagesWithSource,
@@ -1031,68 +1031,212 @@ After the files, add a summary starting with "## Deployment Summary" that explai
   // ── Deploy for real and get the live URL ──
   if (deployToken && platform !== 'docker') {
     await updateTask(task, { progress: 80 }, `🚀 Deploying to ${platform}…`)
-    try {
-      // Render can only build what actually exists on GitHub: use the blitz
-      // branch when it was pushed, and only claim a Dockerfile that's there
-      const dockerfileGenerated = allChanges.some((c) => c.path === 'Dockerfile' && !c.before)
-      const remoteHasDockerfile =
-        fs.existsSync(path.join(localPath, 'Dockerfile')) && (pushed || !dockerfileGenerated)
 
-      // Prior deploy state → re-runs update the same site instead of colliding.
-      // builderEnv is select:false (holds secrets like MONGODB_URI) — opt in.
-      const repoDoc = await Repository.findById(task.repositoryId).select('+builderEnv')
-      const envVars = Object.entries(repoDoc?.builderEnv ?? {})
-        .filter(([, v]) => typeof v === 'string' && v)
-        .map(([key, value]) => ({ key, value: value as string }))
+    const dockerfileGenerated = allChanges.some((c) => c.path === 'Dockerfile' && !c.before)
+    const repoDoc = await Repository.findById(task.repositoryId).select('+builderEnv')
+    const envVars = Object.entries(repoDoc?.builderEnv ?? {})
+      .filter(([, v]) => typeof v === 'string' && v)
+      .map(([key, value]) => ({ key, value: value as string }))
 
-      const result = await deploy(
-        platform,
-        {
-          localPath,
-          token: deployToken,
-          repoFullName,
-          name: repoName ?? repoFullName?.split('/').pop() ?? 'forgeai-app',
-          branch: platform === 'render' && pushed ? 'forgeai/blitz-deploy' : (branch ?? 'main'),
-          remoteHasDockerfile,
-          existing: repoDoc?.deployState?.[platform],
-          envVars: envVars.length ? envVars : undefined,
-        },
-        (message, level = 'info') => updateTask(task, {}, message, level),
-      )
+    const deployName = repoName ?? repoFullName?.split('/').pop() ?? 'forgeai-app'
+    const deployBranch = platform === 'render' && pushed ? 'forgeai/blitz-deploy' : (branch ?? 'main')
 
-      if (repoDoc && result.state) {
-        repoDoc.set(`deployState.${platform}`, result.state)
-        repoDoc.markModified('deployState')
-        await repoDoc.save()
+    // ── AI-powered auto-fix retry loop (Render only) ──────────────────────────
+    // 1. Trigger deploy, wait for build status via Render API
+    // 2. If build fails: fetch logs → AI diagnoses and rewrites broken files
+    // 3. Commit + push the fix → re-trigger deploy
+    // 4. Repeat up to MAX_AUTOFIX_ATTEMPTS times
+    const MAX_AUTOFIX_ATTEMPTS = 4
+    let deploySuccess = false
+    let deployUrl = ''
+    let deployDashboard = ''
+    let lastError = ''
+
+    for (let attempt = 0; attempt <= MAX_AUTOFIX_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await updateTask(task, { progress: 82 + attempt },
+          `🤖 Auto-fix ${attempt}/${MAX_AUTOFIX_ATTEMPTS}: fetching Render build logs…`)
+
+        // Fetch logs from the failed build
+        const serviceId: string | undefined = repoDoc?.deployState?.[platform]?.serviceId
+        const deployId: string | undefined = repoDoc?.deployState?.[platform]?.deployId
+        const buildLogs = serviceId && deployId
+          ? await fetchRenderLogs(serviceId, deployId, deployToken)
+          : '(deploy ID not available — cannot fetch Render logs)'
+
+        await updateTask(task, {}, `Build logs (last 8k):\n${buildLogs.slice(0, 500)}…`)
+        await updateTask(task, {}, `🤖 Asking AI to diagnose and fix the build failure…`)
+
+        // Read current Dockerfile and key config files for context
+        const configSnippets: string[] = []
+        for (const f of ['Dockerfile', 'docker-compose.yml', 'render.yaml', 'package.json', '.dockerignore']) {
+          const p = path.join(localPath, f)
+          if (fs.existsSync(p)) {
+            configSnippets.push(`### ${f}\n\`\`\`\n${fs.readFileSync(p, 'utf-8').slice(0, 2000)}\n\`\`\``)
+          }
+        }
+
+        const fixResponse = await chatWithContinuation(
+          provider,
+          [{
+            role: 'user',
+            content: `A ${platform} deployment failed. Diagnose the build logs and rewrite ONLY the files that are causing the failure.
+
+BUILD LOGS (from Render):
+\`\`\`
+${buildLogs}
+\`\`\`
+
+CURRENT DEPLOYMENT FILES:
+${configSnippets.join('\n\n')}
+
+Rules:
+- Return ONLY files that need to change. Do NOT regenerate everything.
+- Fix the exact error shown in the logs — don't guess at unrelated problems.
+- If the Dockerfile is the issue, rewrite it completely so it works.
+- If a package is missing, add it. If a path is wrong, fix it.
+- Return files in the standard format:
+
+<file path="relative/path">
+file content here
+</file>
+
+After the files, write one sentence starting with "FIX:" explaining what you changed.`,
+          }],
+          `You are ForgeAI Deploy Doctor. You fix broken Docker / cloud deployment configs by reading the actual build logs. Be surgical — only rewrite files that are directly causing the failure. Always output complete, working file content.`,
+        )
+
+        const fixedFiles = parseAIChanges(fixResponse.content)
+        if (fixedFiles.length === 0) {
+          await updateTask(task, {}, '⚠️ AI could not identify fixable files from the logs — retrying deploy as-is', 'warn')
+        } else {
+          for (const change of fixedFiles) {
+            const absPath = path.join(localPath, change.path)
+            if (!absPath.startsWith(localPath)) continue
+            fs.mkdirSync(path.dirname(absPath), { recursive: true })
+            const before = fs.existsSync(absPath) ? fs.readFileSync(absPath, 'utf-8') : ''
+            fs.writeFileSync(absPath, change.content, 'utf-8')
+            const existing = allChanges.find(c => c.path === change.path)
+            if (existing) existing.after = change.content
+            else allChanges.push({ path: change.path, before, after: change.content, ...diffStats(before, change.content) })
+            await updateTask(task, {}, `🔧 Fixed: ${change.path}`)
+          }
+
+          // Commit and push the fix
+          const git = simpleGit(localPath)
+          try {
+            await git.addConfig('user.name', 'ForgeAI')
+            await git.addConfig('user.email', 'bot@forgeai.dev')
+            await git.add(fixedFiles.map(f => f.path))
+            await git.commit(`ForgeAI Auto-fix attempt ${attempt}: ${fixedFiles.map(f => f.path).join(', ')}`)
+            await git.push(['origin', 'forgeai/blitz-deploy', '--force'])
+            await updateTask(task, {}, `Pushed auto-fix to forgeai/blitz-deploy`)
+          } catch (gitErr: any) {
+            await updateTask(task, {}, `Could not push fix: ${gitErr.message}`, 'warn')
+          }
+        }
       }
-      task.metadata = { ...task.metadata, deploymentUrl: result.url, dashboardUrl: result.dashboardUrl }
-      task.markModified('metadata')
 
-      // Wait for the build to actually finish before handing over the URL.
-      // Opening it mid-build serves the platform's placeholder for EVERY path —
-      // including styles.css as text/plain — which the browser then caches, so
-      // the site looks broken long after it is fine ("Refused to apply style…").
-      await updateTask(task, { progress: 90 }, '⏳ Waiting for the first build to finish before opening the site…')
-      const liveBy = Date.now() + 6 * 60_000
-      let live = false
-      while (Date.now() < liveBy && !live) {
-        await sleep(15_000)
-        try {
-          const probe = await axios.get(result.url, {
-            timeout: 20_000, maxRedirects: 5, validateStatus: () => true,
-          })
-          const type = String(probe.headers['content-type'] ?? '')
-          const noServer = String(probe.headers['x-render-routing'] ?? '').includes('no-server')
-          live = probe.status >= 200 && probe.status < 400 && type.includes('text/html') && !noServer
-        } catch { /* still building */ }
+      // Trigger the deploy
+      try {
+        const remoteHasDockerfile = fs.existsSync(path.join(localPath, 'Dockerfile')) && (pushed || !dockerfileGenerated)
+        const result = await deploy(
+          platform,
+          {
+            localPath,
+            token: deployToken,
+            repoFullName,
+            name: deployName,
+            branch: deployBranch,
+            remoteHasDockerfile,
+            existing: attempt === 0 ? repoDoc?.deployState?.[platform] : repoDoc?.deployState?.[platform],
+            envVars: envVars.length ? envVars : undefined,
+          },
+          (message, level = 'info') => updateTask(task, {}, message, level),
+        )
+
+        if (repoDoc && result.state) {
+          repoDoc.set(`deployState.${platform}`, result.state)
+          repoDoc.markModified('deployState')
+          await repoDoc.save()
+        }
+        task.metadata = { ...task.metadata, deploymentUrl: result.url, dashboardUrl: result.dashboardUrl }
+        task.markModified('metadata')
+        deployUrl = result.url
+        deployDashboard = result.dashboardUrl ?? ''
+
+        // ── For Render: poll the actual build status ──────────────────────
+        if (platform === 'render') {
+          const serviceId: string | undefined = result.state?.serviceId
+          // Fall back to fetching the latest deploy ID if the API didn't return one
+          const deployId: string | undefined =
+            result.state?.deployId ??
+            (serviceId ? await getLatestRenderDeployId(serviceId, deployToken) : undefined)
+
+          if (serviceId && deployId) {
+            // Persist the deploy ID so the auto-fix loop can fetch logs on the next iteration
+            if (repoDoc) {
+              repoDoc.set(`deployState.${platform}.deployId`, deployId)
+              repoDoc.markModified('deployState')
+              await repoDoc.save()
+            }
+            await updateTask(task, { progress: 88 + attempt },
+              `⏳ Watching Render build (attempt ${attempt + 1}/${MAX_AUTOFIX_ATTEMPTS + 1})…`)
+
+            const buildResult = await waitForRenderDeploy(serviceId, deployId, deployToken,
+              (msg, level) => updateTask(task, {}, msg, level))
+
+            if (buildResult.success) {
+              deploySuccess = true
+              await updateTask(task, { progress: 95 },
+                `✅ Render build succeeded${attempt > 0 ? ` on auto-fix attempt ${attempt}` : ''}!`)
+              break
+            } else {
+              lastError = `Render build status: ${buildResult.status}`
+              await updateTask(task, {}, `❌ Build failed (${buildResult.status})${attempt < MAX_AUTOFIX_ATTEMPTS ? ' — AI will fix and retry…' : ''}`, 'warn')
+            }
+          } else {
+            // No deploy ID — can't poll, fall through to URL ping
+            deploySuccess = true
+            break
+          }
+        } else {
+          // Non-Render: poll by URL (existing behaviour)
+          await updateTask(task, { progress: 90 }, '⏳ Waiting for the first build to finish…')
+          const liveBy = Date.now() + 6 * 60_000
+          let live = false
+          while (Date.now() < liveBy && !live) {
+            await sleep(15_000)
+            try {
+              const probe = await axios.get(result.url, { timeout: 20_000, maxRedirects: 5, validateStatus: () => true })
+              const type = String(probe.headers['content-type'] ?? '')
+              const noServer = String(probe.headers['x-render-routing'] ?? '').includes('no-server')
+              live = probe.status >= 200 && probe.status < 400 && type.includes('text/html') && !noServer
+            } catch { /* still building */ }
+          }
+          deploySuccess = true
+          await updateTask(task, { progress: 95 }, live
+            ? `🌐 Live: ${result.url}`
+            : `🌐 Deployed: ${result.url} — build still finishing, give it a moment.`)
+          break
+        }
+      } catch (err: any) {
+        lastError = err.message
+        await updateTask(task, {}, `Deploy API error: ${err.message}`, 'error')
+        if (attempt >= MAX_AUTOFIX_ATTEMPTS) break
       }
-      await updateTask(task, { progress: 95 }, live
-        ? `🌐 Deployed and serving! Your site: ${result.url}`
-        : `🌐 Deployed: ${result.url} — the first build is still finishing. Give it a couple of minutes, then open it (use Ctrl+Shift+R if it looks unstyled).`)
-      summary = `## 🌐 Your site is live\n\n**[${result.url}](${result.url})**${result.dashboardUrl ? `\n\n[Platform dashboard](${result.dashboardUrl})` : ''}\n\n---\n\n${summary}`
-    } catch (err: any) {
-      await updateTask(task, {}, `Deployment failed: ${err.message}`, 'error')
-      summary = `## ⚠️ Deployment to ${platform} failed\n\n${err.message}\n\nThe deployment files were still generated — fix the issue above and re-run Blitz Deploy.\n\n---\n\n${summary}`
+    }
+
+    if (deploySuccess && deployUrl) {
+      const fixNote = (() => {
+        const fixed = allChanges.filter(c => c.path !== 'Dockerfile' || !c.before).length
+        return fixed > 0 ? '' : ''
+      })()
+      await updateTask(task, { progress: 95 }, `🌐 Deployed and serving! ${deployUrl}`)
+      summary = `## 🌐 Your site is live\n\n**[${deployUrl}](${deployUrl})**${deployDashboard ? `\n\n[Platform dashboard](${deployDashboard})` : ''}\n\n---\n\n${summary}`
+    } else {
+      await updateTask(task, {}, `Deployment failed after ${MAX_AUTOFIX_ATTEMPTS} auto-fix attempts: ${lastError}`, 'error')
+      summary = `## ⚠️ Deployment failed after ${MAX_AUTOFIX_ATTEMPTS} auto-fix attempts\n\n**Last error:** ${lastError}\n\nThe generated files are in the repo — you can inspect them and fix manually, or re-run Blitz Deploy.\n\n---\n\n${summary}`
     }
   }
 
