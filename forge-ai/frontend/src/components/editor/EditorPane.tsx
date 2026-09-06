@@ -1,8 +1,8 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import Editor, { OnMount, OnChange } from '@monaco-editor/react'
 import { useEditorStore } from '@/store/editorStore'
 import { api } from '@/lib/api'
-import { Save, RotateCcw, SplitSquareHorizontal, X } from 'lucide-react'
+import { Save, RotateCcw, SplitSquareHorizontal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { editor } from 'monaco-editor'
 
@@ -46,7 +46,7 @@ const MONACO_THEME = {
 }
 
 export default function EditorPane({ tabId, repositoryId, isSplit }: Props) {
-  const { tabs, updateContent, markSaved, openSplit, closeSplit, splitEnabled, closeTab } = useEditorStore()
+  const { tabs, updateContent, markSaved, openSplit, closeSplit, splitEnabled } = useEditorStore()
   const tab = tabs.find((t) => t.id === tabId)
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const [saving, setSaving] = useState(false)

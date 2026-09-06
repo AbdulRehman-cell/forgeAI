@@ -23,7 +23,6 @@ function renderMarkdown(text: string): string {
       const rows = block.trim().split('\n').filter((r) => r.trim().startsWith('|'))
       if (rows.length < 2) return block
       const cells = (row: string) => row.split('|').slice(1, -1).map((c) => c.trim())
-      const isDivider = (row: string) => /^\|[\s:-]+\|/.test(row.replace(/\|/g, '|'))
       let html = '<table class="mdx-table">'
       rows.forEach((row, i) => {
         if (/^[\s|:-]+$/.test(row)) return // divider row
