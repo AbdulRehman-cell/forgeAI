@@ -3,7 +3,6 @@ import { useEditorStore } from '@/store/editorStore'
 import { api } from '@/lib/api'
 import { Search, X, Loader2, FileCode2, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
-import debounce from 'lodash/debounce'
 
 interface Props {
   repositoryId: string
@@ -16,22 +15,26 @@ export default function SearchPanel({ repositoryId, onResultClick }: Props) {
   const [wholeWord, setWholeWord] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const inputRef = useRef<HTMLInputElement>(null)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const doSearch = useCallback(
-    debounce(async (query: string) => {
-      if (!query.trim()) { setSearchResults([]); setSearchLoading(false); return }
-      setSearchLoading(true)
-      try {
-        const { data } = await api.post(`/repositories/${repositoryId}/search`, {
-          query, caseSensitive, wholeWord,
-        })
-        setSearchResults(data.results ?? [])
-      } catch {
-        setSearchResults([])
-      } finally {
-        setSearchLoading(false)
-      }
-    }, 400),
+    (query: string) => {
+      clearTimeout(debounceTimer.current)
+      debounceTimer.current = setTimeout(async () => {
+        if (!query.trim()) { setSearchResults([]); setSearchLoading(false); return }
+        setSearchLoading(true)
+        try {
+          const { data } = await api.post(`/repositories/${repositoryId}/search`, {
+            query, caseSensitive, wholeWord,
+          })
+          setSearchResults(data.results ?? [])
+        } catch {
+          setSearchResults([])
+        } finally {
+          setSearchLoading(false)
+        }
+      }, 400)
+    },
     [repositoryId, caseSensitive, wholeWord],
   )
 
