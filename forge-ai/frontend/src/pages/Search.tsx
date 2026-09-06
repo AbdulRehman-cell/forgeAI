@@ -42,7 +42,7 @@ export default function Search() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="px-8 pt-8 pb-6 border-b border-surface-700 shrink-0">
+      <div className="px-4 sm:px-8 pt-4 sm:pt-8 pb-6 border-b border-surface-700 shrink-0">
         <h1 className="text-xl font-bold text-zinc-100 mb-1">Code Search</h1>
         <p className="text-sm text-zinc-500">Search across all your repositories simultaneously</p>
 

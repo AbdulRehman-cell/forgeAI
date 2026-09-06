@@ -69,21 +69,21 @@ export default function Repositories() {
   )
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 md:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Repositories</h1>
           <p className="text-zinc-400 text-sm mt-1">Manage your connected repositories.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setShowFolderPicker(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-surface-600 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:border-brand-500/50 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-surface-600 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:border-brand-500/50 transition-colors"
           >
-            <FolderOpen size={15} /> Open Local Folder
+            <FolderOpen size={15} /> <span className="hidden sm:inline">Open Local Folder</span><span className="sm:hidden">Local</span>
           </button>
           <button onClick={() => setShowImport(true)} className="btn-primary flex items-center gap-2">
-            <Plus size={15} /> Import Repository
+            <Plus size={15} /> <span className="hidden sm:inline">Import Repository</span><span className="sm:hidden">Import</span>
           </button>
         </div>
       </div>

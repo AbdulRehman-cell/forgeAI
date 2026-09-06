@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useQuery } from '@tanstack/react-query'
@@ -16,6 +17,8 @@ import {
   Inbox,
   Users,
   Send,
+  Menu,
+  X,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -52,16 +55,32 @@ const nav = [
 export default function AppLayout() {
   const { user, clearAuth } = useAuthStore()
   const navigate = useNavigate()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const handleLogout = () => {
     clearAuth()
     navigate('/login')
   }
 
+  const closeSidebar = () => setSidebarOpen(false)
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface-950">
+
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={closeSidebar}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 flex flex-col glass border-r border-white/5 shrink-0 relative overflow-hidden">
+      <aside className={clsx(
+        'fixed inset-y-0 left-0 z-50 w-64 flex flex-col glass border-r border-white/5 overflow-hidden transition-transform duration-300',
+        'lg:relative lg:z-auto lg:translate-x-0 lg:shrink-0',
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+      )}>
         {/* Ambient glow */}
         <div className="pointer-events-none absolute top-0 left-0 w-full h-40 bg-gradient-to-b from-brand-600/10 to-transparent" />
 
@@ -70,10 +89,13 @@ export default function AppLayout() {
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center shadow-glow-sm">
             <Zap size={17} className="text-white" />
           </div>
-
-          <span className="font-bold text-lg tracking-tight text-gradient">
-            ForgeAI
-          </span>
+          <span className="font-bold text-lg tracking-tight text-gradient">ForgeAI</span>
+          <button
+            onClick={closeSidebar}
+            className="ml-auto lg:hidden p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Navigation */}
@@ -82,6 +104,7 @@ export default function AppLayout() {
             <NavLink
               key={to}
               to={to}
+              onClick={closeSidebar}
               className={({ isActive }) =>
                 clsx('nav-link', isActive && 'active')
               }
@@ -158,6 +181,22 @@ export default function AppLayout() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden relative">
+        {/* Mobile top bar */}
+        <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-white/5 bg-surface-950/80 backdrop-blur-sm shrink-0 z-10">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+          >
+            <Menu size={20} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center">
+              <Zap size={12} className="text-white" />
+            </div>
+            <span className="font-bold text-sm text-gradient">ForgeAI</span>
+          </div>
+        </div>
+
         {/* Background glow */}
         <div className="pointer-events-none absolute top-0 right-0 w-[400px] h-[300px] bg-violet-600/5 rounded-full blur-[100px]" />
 

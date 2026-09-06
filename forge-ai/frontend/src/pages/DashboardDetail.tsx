@@ -131,7 +131,7 @@ export default function DashboardDetail() {
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold">{dash?.name ?? 'Loading…'}</h1>

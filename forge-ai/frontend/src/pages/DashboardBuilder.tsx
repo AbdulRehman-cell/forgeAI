@@ -101,7 +101,7 @@ export default function DashboardBuilder() {
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold">New dashboard</h1>
         <p className="text-sm text-neutral-400 mt-1">Pick a data source. We'll profile it, clean it, and render a hosted dashboard.</p>

@@ -111,7 +111,7 @@ export default function Settings() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-8 max-w-2xl space-y-4">
+      <div className="p-4 sm:p-6 md:p-8 max-w-2xl space-y-4">
         <h1 className="text-2xl font-bold text-zinc-100 mb-8">Settings</h1>
 
         {/* Gmail — cold outreach */}

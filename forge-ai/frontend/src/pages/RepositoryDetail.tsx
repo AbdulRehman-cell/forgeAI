@@ -45,11 +45,11 @@ export default function RepositoryDetail() {
   }
 
   if (isLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-zinc-500" /></div>
-  if (!repo) return <div className="p-8 text-zinc-500">Repository not found.</div>
+  if (!repo) return <div className="p-4 md:p-8 text-zinc-500">Repository not found.</div>
 
   return (
-    <div className="p-8">
-      <div className="flex items-start justify-between mb-8">
+    <div className="p-4 sm:p-6 md:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-8 gap-4">
         <div>
           <div className="flex items-center gap-2 text-zinc-500 text-sm mb-1">
             <button onClick={() => navigate('/repositories')} className="hover:text-zinc-300">Repositories</button>
