@@ -68,7 +68,7 @@ export function configurePassport() {
           if (!user.teamOwnerId) {
             const owner = await User.findOne({
               teamMembers: { $elemMatch: { email, accepted: true, userId: { $exists: false } } },
-            })
+            }).select('+teamMembers.inviteToken')
             if (owner) {
               const member = (owner.teamMembers ?? []).find(
                 (m: any) => m.email === email && m.accepted && !m.userId,
