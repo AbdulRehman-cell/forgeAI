@@ -58,8 +58,20 @@ router.get('/', async (req, res) => {
   const seatLimit = owner.plan === 'team' ? null : PRO_SEAT_LIMIT
   const seatUsed = (owner.teamMembers ?? []).length
 
+  // Include inviteUrl for pending members so the owner can share links manually
+  const members = (owner.teamMembers ?? []).map((m: any) => ({
+    email: m.email,
+    role: m.role,
+    accepted: m.accepted,
+    invitedAt: m.invitedAt,
+    userId: m.userId,
+    inviteUrl: !m.accepted && m.inviteToken
+      ? `${process.env.FRONTEND_URL}/team/accept?token=${m.inviteToken}`
+      : undefined,
+  }))
+
   res.json({
-    members: owner.teamMembers ?? [],
+    members,
     plan: owner.plan,
     seatLimit,
     seatUsed,
@@ -67,6 +79,7 @@ router.get('/', async (req, res) => {
     myRole: isOwner ? 'owner' : authed.teamRole,
     ownerName: isOwner ? undefined : owner.name,
     ownerEmail: isOwner ? undefined : owner.email,
+    smtpConfigured: !!process.env.SMTP_HOST && !!process.env.SMTP_FROM,
   })
 })
 

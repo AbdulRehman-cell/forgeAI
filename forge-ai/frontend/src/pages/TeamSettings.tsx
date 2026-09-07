@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/authStore'
 import {
   Users, UserPlus, Trash2, Mail, Check, Clock, Loader2,
   Shield, Crown, RefreshCw, LogOut, ChevronDown, Zap, Star,
-  AlertCircle,
+  AlertCircle, Copy, Link as LinkIcon, ExternalLink,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -16,6 +16,7 @@ interface TeamMember {
   accepted: boolean
   invitedAt: string
   userId?: string
+  inviteUrl?: string
 }
 
 interface TeamData {
@@ -27,6 +28,61 @@ interface TeamData {
   myRole: 'owner' | 'admin' | 'member'
   ownerName?: string
   ownerEmail?: string
+  smtpConfigured?: boolean
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard?.writeText(text).catch(() => {
+    const el = document.createElement('textarea')
+    el.value = text
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  })
+}
+
+function InviteLinkBox({ url, onDismiss }: { url: string; onDismiss: () => void }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    copyToClipboard(url)
+    setCopied(true)
+    toast.success('Invite link copied!')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="mt-4 bg-brand-500/10 border border-brand-500/30 rounded-xl p-4">
+      <div className="flex items-start gap-2 mb-3">
+        <LinkIcon size={14} className="text-brand-400 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-brand-300">Invite link ready</p>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Email sending is not configured — share this link directly with your invitee.
+          </p>
+        </div>
+        <button onClick={onDismiss} className="ml-auto text-zinc-600 hover:text-zinc-400 text-xs px-1">✕</button>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 bg-surface-900 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-zinc-300 truncate">
+          {url}
+        </div>
+        <button
+          onClick={handleCopy}
+          className={clsx(
+            'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap',
+            copied
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+              : 'bg-brand-500 text-white hover:bg-brand-600',
+          )}
+        >
+          <Copy size={11} />
+          {copied ? 'Copied!' : 'Copy link'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function SeatMeter({ used, limit }: { used: number; limit: number | null }) {
@@ -84,6 +140,57 @@ function RoleBadge({ role }: { role: 'owner' | 'admin' | 'member' }) {
   )
 }
 
+function PendingInviteLink({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    copyToClipboard(url)
+    setCopied(true)
+    toast.success('Invite link copied!')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="text-[10px] text-brand-400 hover:text-brand-300 flex items-center gap-1 mt-1"
+      >
+        <LinkIcon size={9} /> Show invite link
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2 max-w-xs">
+      <div className="flex-1 bg-surface-900 border border-white/10 rounded px-2 py-1 text-[10px] font-mono text-zinc-400 truncate">
+        {url}
+      </div>
+      <button
+        onClick={handleCopy}
+        className={clsx(
+          'shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all',
+          copied ? 'text-emerald-400' : 'text-brand-400 hover:text-brand-300',
+        )}
+      >
+        <Copy size={9} />
+        {copied ? 'Copied!' : 'Copy'}
+      </button>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 text-zinc-600 hover:text-zinc-400"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <ExternalLink size={9} />
+      </a>
+    </div>
+  )
+}
+
 function MemberRow({
   member,
   canManage,
@@ -106,8 +213,8 @@ function MemberRow({
   const [showRoleMenu, setShowRoleMenu] = useState(false)
 
   return (
-    <div className="flex items-center gap-4 px-6 py-4 hover:bg-white/[0.02] transition-colors group">
-      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-sm font-bold text-white shrink-0">
+    <div className="flex items-start gap-4 px-6 py-4 hover:bg-white/[0.02] transition-colors group">
+      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-sm font-bold text-white shrink-0 mt-0.5">
         {member.email[0]?.toUpperCase()}
       </div>
 
@@ -126,10 +233,14 @@ function MemberRow({
             <><Clock size={10} /> Invited {new Date(member.invitedAt).toLocaleDateString()}</>
           )}
         </p>
+        {/* Show invite link for pending members */}
+        {!member.accepted && member.inviteUrl && (
+          <PendingInviteLink url={member.inviteUrl} />
+        )}
       </div>
 
       {canManage && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">
           {/* Role change — owner only */}
           {isOwner && (
             <div className="relative">
@@ -194,6 +305,8 @@ export default function TeamSettings() {
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
   const [removingEmail, setRemovingEmail] = useState<string | null>(null)
   const [resendingEmail, setResendingEmail] = useState<string | null>(null)
+  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null)
+  const [lastResendUrl, setLastResendUrl] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['team'],
@@ -204,12 +317,13 @@ export default function TeamSettings() {
     mutationFn: ({ email, role }: { email: string; role: string }) =>
       api.post('/teams/invite', { email, role }),
     onSuccess: ({ data: d }) => {
-      toast.success('Invitation sent!')
-      if (d.inviteUrl) {
-        navigator.clipboard?.writeText(d.inviteUrl).catch(() => {})
-        toast('Invite link copied to clipboard', { icon: '🔗' })
-      }
+      toast.success('Invitation created!')
       setInviteEmail('')
+      if (d.inviteUrl) {
+        setLastInviteUrl(d.inviteUrl)
+        // Also try clipboard silently
+        copyToClipboard(d.inviteUrl)
+      }
       qc.invalidateQueries({ queryKey: ['team'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.message ?? 'Could not send invite'),
@@ -231,9 +345,12 @@ export default function TeamSettings() {
   const resendMutation = useMutation({
     mutationFn: (email: string) => api.post(`/teams/${encodeURIComponent(email)}/resend`),
     onSuccess: ({ data: d }) => {
-      toast.success('Invite resent')
-      if (d.inviteUrl) navigator.clipboard?.writeText(d.inviteUrl).catch(() => {})
+      toast.success('Invite regenerated')
       setResendingEmail(null)
+      if (d.inviteUrl) {
+        setLastResendUrl(d.inviteUrl)
+        copyToClipboard(d.inviteUrl)
+      }
       qc.invalidateQueries({ queryKey: ['team'] })
     },
     onError: (e: any) => {
@@ -280,14 +397,15 @@ export default function TeamSettings() {
   const members = team?.members ?? []
   const active = members.filter(m => m.accepted)
   const pending = members.filter(m => !m.accepted)
-  const canInvite = team?.myRole === 'owner' || team?.myRole === 'admin'
+  const canInvite = (team?.myRole === 'owner' || team?.myRole === 'admin') && team?.plan !== 'free'
   const canManage = team?.myRole === 'owner' || team?.myRole === 'admin'
   const isOwner = team?.isOwner ?? true
   const atLimit = team?.seatLimit != null && (team?.seatUsed ?? 0) >= team.seatLimit
+  const isFreePlan = team?.plan === 'free'
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
 
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -350,7 +468,7 @@ export default function TeamSettings() {
                   Upgrade for unlimited →
                 </a>
               )}
-              {team?.plan === 'free' && (
+              {isFreePlan && (
                 <a
                   href="/pricing"
                   className="text-[11px] font-semibold text-brand-400 hover:text-brand-300 transition-colors"
@@ -363,12 +481,40 @@ export default function TeamSettings() {
           </div>
         )}
 
+        {/* Free plan upgrade notice */}
+        {isOwner && isFreePlan && (
+          <div className="glass rounded-2xl border border-amber-500/20 p-5 flex items-start gap-3">
+            <AlertCircle size={16} className="text-amber-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-300">Team seats require Pro or Team plan</p>
+              <p className="text-xs text-zinc-400 mt-1">
+                Upgrade your plan to invite team members and collaborate on repos. You're on the free plan.
+              </p>
+              <a
+                href="/pricing"
+                className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-brand-400 hover:text-brand-300"
+              >
+                View pricing <ExternalLink size={10} />
+              </a>
+            </div>
+          </div>
+        )}
+
         {/* Invite form */}
-        {canInvite && (
+        {(canInvite || (isOwner && !isFreePlan)) && (
           <div className="glass rounded-2xl border border-white/5 p-6">
             <h2 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
               <UserPlus size={15} /> Invite a member
             </h2>
+
+            {/* SMTP notice */}
+            {!data?.smtpConfigured && (
+              <div className="mb-4 flex items-start gap-2 text-xs text-zinc-500 bg-white/[0.03] border border-white/5 rounded-xl px-3 py-2.5">
+                <AlertCircle size={12} className="text-amber-500 mt-0.5 shrink-0" />
+                <span>Email sending is not configured — after inviting, you'll get a link to share manually.</span>
+              </div>
+            )}
+
             {atLimit ? (
               <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
                 <AlertCircle size={14} />
@@ -376,32 +522,46 @@ export default function TeamSettings() {
                 <a href="/pricing" className="underline hover:text-amber-300">Upgrade to Team plan</a> for unlimited seats.
               </div>
             ) : (
-              <div className="flex gap-3">
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && inviteEmail.trim() && inviteMutation.mutate({ email: inviteEmail, role: inviteRole })}
-                  placeholder="colleague@company.com"
-                  className="flex-1 bg-surface-800 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-brand-500/50"
-                />
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member')}
-                  className="bg-surface-800 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-zinc-300 focus:outline-none focus:border-brand-500/50"
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button
-                  onClick={() => inviteMutation.mutate({ email: inviteEmail, role: inviteRole })}
-                  disabled={!inviteEmail.trim() || inviteMutation.isPending}
-                  className="gradient-btn px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
-                >
-                  {inviteMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
-                  Send invite
-                </button>
-              </div>
+              <>
+                <div className="flex gap-3 flex-col sm:flex-row">
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => { setInviteEmail(e.target.value); setLastInviteUrl(null) }}
+                    onKeyDown={(e) => e.key === 'Enter' && inviteEmail.trim() && inviteMutation.mutate({ email: inviteEmail, role: inviteRole })}
+                    placeholder="colleague@company.com"
+                    className="flex-1 bg-surface-800 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-brand-500/50"
+                  />
+                  <div className="flex gap-2">
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member')}
+                      className="bg-surface-800 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-zinc-300 focus:outline-none focus:border-brand-500/50"
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button
+                      onClick={() => inviteMutation.mutate({ email: inviteEmail, role: inviteRole })}
+                      disabled={!inviteEmail.trim() || inviteMutation.isPending}
+                      className="gradient-btn px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {inviteMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+                      Invite
+                    </button>
+                  </div>
+                </div>
+
+                {/* Show invite link prominently after success */}
+                {lastInviteUrl && (
+                  <InviteLinkBox url={lastInviteUrl} onDismiss={() => setLastInviteUrl(null)} />
+                )}
+
+                {/* Show resend result link */}
+                {lastResendUrl && (
+                  <InviteLinkBox url={lastResendUrl} onDismiss={() => setLastResendUrl(null)} />
+                )}
+              </>
             )}
             <p className="text-xs text-zinc-600 mt-3">
               <Crown size={10} className="inline mr-1 text-amber-500" />Admin — can invite members and manage the workspace.{' '}
@@ -480,7 +640,7 @@ export default function TeamSettings() {
         {/* Role legend */}
         <div className="glass rounded-2xl border border-white/5 p-5 space-y-2">
           <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Role permissions</h3>
-          <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
             <div className="space-y-1">
               <RoleBadge role="owner" />
               <p className="text-zinc-600">Full control, billing, can transfer ownership</p>
