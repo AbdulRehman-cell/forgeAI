@@ -18,25 +18,34 @@ export async function connectDB() {
  * longer matches the current schema, so Mongoose recreates them fresh.
  */
 async function runStartupMigrations() {
-  try {
-    const coll = mongoose.connection.db?.collection('repositories')
-    if (!coll) return
-    const indexes = await coll.indexes()
-    const stale = indexes.find(
-      (i) =>
-        i.name === 'userId_1_githubId_1' &&
-        // The current schema uses partialFilterExpression; anything without it
-        // (sparse, or nothing) is from a previous schema version.
-        !i.partialFilterExpression,
-    )
-    if (stale) {
-      await coll.dropIndex('userId_1_githubId_1')
-      console.log('[db] Dropped stale index repositories.userId_1_githubId_1 — Mongoose will rebuild it with the current definition.')
+  const db = mongoose.connection.db
+  if (!db) return
+
+  // Drop stale indexes that block inserts. Mongoose only adds indexes, never
+  // removes old ones when the schema changes, so we do it here at boot.
+  const drops: Array<{ collection: string; index: string; reason: string }> = [
+    {
+      collection: 'repositories',
+      index: 'userId_1_githubId_1',
+      reason: 'replaced by partialFilterExpression version',
+    },
+    {
+      collection: 'users',
+      index: 'referralCode_1',
+      reason: 'referralCode field removed from schema; unique null constraint blocks new users',
+    },
+  ]
+
+  for (const { collection, index, reason } of drops) {
+    try {
+      const coll = db.collection(collection)
+      const indexes = await coll.indexes()
+      if (indexes.find((i) => i.name === index)) {
+        await coll.dropIndex(index)
+        console.log(`[db] Dropped stale index ${collection}.${index} — ${reason}`)
+      }
+    } catch (err: any) {
+      console.warn(`[db] startup migration warning (${collection}.${index}):`, err?.message ?? err)
     }
-  } catch (err: any) {
-    // Non-fatal — a missing index or a race with another instance shouldn't
-    // block boot. Mongoose's own createIndexes step will report the real error
-    // if the current definition also fails.
-    console.warn('[db] startup migration warning:', err?.message ?? err)
   }
 }
