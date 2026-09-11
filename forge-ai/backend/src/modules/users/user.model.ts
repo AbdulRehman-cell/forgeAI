@@ -140,6 +140,7 @@ const userSchema = new Schema<IUser>(
         accepted: { type: Boolean, default: false },
         invitedAt: { type: Date, default: Date.now },
         userId: { type: Schema.Types.ObjectId, ref: 'User' },
+        monthlyTaskLimit: { type: Number, default: null }, // null = use plan default
       },
     ],
     teamOwnerId: { type: Schema.Types.ObjectId, ref: 'User' },

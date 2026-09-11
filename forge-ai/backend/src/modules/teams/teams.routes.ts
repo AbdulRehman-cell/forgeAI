@@ -2,6 +2,8 @@ import { Router } from 'express'
 import crypto from 'crypto'
 import { requireAuth } from '../../middleware/auth.middleware'
 import { User } from '../users/user.model'
+import { Task } from '../tasks/task.model'
+import { Repository } from '../repository/repository.model'
 import nodemailer from 'nodemailer'
 
 const router = Router()
@@ -222,6 +224,114 @@ router.delete('/:email', async (req, res) => {
   }
 
   res.json({ removed: true })
+})
+
+/** Team activity feed — last 50 AI tasks by any team member */
+router.get('/activity', async (req, res) => {
+  const authed = req.user as any
+  const ownerId = authed.teamOwnerId ?? authed._id
+  const owner = await User.findById(ownerId)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+
+  // Collect all user IDs: owner + accepted members
+  const memberIds = (owner.teamMembers ?? [])
+    .filter((m: any) => m.accepted && m.userId)
+    .map((m: any) => m.userId)
+  const allIds = [owner._id, ...memberIds]
+
+  const tasks = await Task.find({ userId: { $in: allIds } })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean()
+
+  // Attach repo name and user email
+  const repoIds = [...new Set(tasks.map(t => t.repositoryId?.toString()).filter(Boolean))]
+  const repos = await Repository.find({ _id: { $in: repoIds } }).select('name fullName').lean()
+  const repoMap = Object.fromEntries(repos.map((r: any) => [r._id.toString(), r.name || r.fullName]))
+
+  const memberEmailMap: Record<string, string> = { [owner._id.toString()]: owner.email }
+  for (const m of (owner.teamMembers ?? []) as any[]) {
+    if (m.userId) memberEmailMap[m.userId.toString()] = m.email
+  }
+
+  const feed = tasks.map(t => ({
+    id: t._id,
+    type: t.type,
+    status: t.status,
+    summary: t.summary ?? null,
+    repoName: repoMap[t.repositoryId?.toString()] ?? 'Unknown repo',
+    userEmail: memberEmailMap[t.userId?.toString()] ?? 'Unknown',
+    createdAt: t.createdAt,
+  }))
+
+  res.json(feed)
+})
+
+/** Per-member usage stats for the current calendar month */
+router.get('/stats', async (req, res) => {
+  const authed = req.user as any
+  const isOwner = !authed.teamOwnerId
+  if (!isOwner) return res.status(403).json({ message: 'Owner only' })
+
+  const owner = await User.findById(authed._id)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  const acceptedMembers = (owner.teamMembers ?? []).filter((m: any) => m.accepted && m.userId)
+  const allIds = [owner._id, ...acceptedMembers.map((m: any) => m.userId)]
+
+  // Count tasks this month per user
+  const counts = await Task.aggregate([
+    { $match: { userId: { $in: allIds }, createdAt: { $gte: monthStart } } },
+    { $group: { _id: '$userId', count: { $sum: 1 }, lastAt: { $max: '$createdAt' } } },
+  ])
+  const countMap = Object.fromEntries(counts.map(c => [c._id.toString(), { count: c.count, lastAt: c.lastAt }]))
+
+  const rows = [
+    {
+      email: owner.email,
+      userId: owner._id,
+      role: 'owner' as const,
+      monthlyLimit: null,
+      taskCount: countMap[owner._id.toString()]?.count ?? 0,
+      lastActiveAt: countMap[owner._id.toString()]?.lastAt ?? null,
+    },
+    ...acceptedMembers.map((m: any) => ({
+      email: m.email,
+      userId: m.userId,
+      role: m.role as string,
+      monthlyLimit: m.monthlyTaskLimit ?? null,
+      taskCount: countMap[m.userId.toString()]?.count ?? 0,
+      lastActiveAt: countMap[m.userId.toString()]?.lastAt ?? null,
+    })),
+  ]
+
+  res.json(rows)
+})
+
+/** Set monthly AI task limit for a member — owner only */
+router.patch('/:email/limit', async (req, res) => {
+  const authed = req.user as any
+  if (authed.teamOwnerId) return res.status(403).json({ message: 'Owner only' })
+
+  const { limit } = req.body
+  if (limit !== null && (typeof limit !== 'number' || limit < 1 || limit > 10000)) {
+    return res.status(400).json({ message: 'limit must be a positive integer or null (unlimited)' })
+  }
+
+  const owner = await User.findById(authed._id)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+
+  const email = decodeURIComponent(req.params.email).toLowerCase()
+  const member = (owner.teamMembers ?? []).find((m: any) => m.email === email)
+  if (!member) return res.status(404).json({ message: 'Member not found' })
+
+  member.monthlyTaskLimit = limit ?? undefined
+  await owner.save()
+
+  res.json({ email, monthlyLimit: limit ?? null })
 })
 
 /** Leave a team — for members only */
