@@ -2,13 +2,11 @@ import os
 import subprocess
 from typing import Dict, List
 
-
 def analyze_repository(repo_path: str) -> Dict:
     """
     Universal multi-language analyzer:
     JS / TS / HTML / CSS / Python (MERN ready)
     """
-
     results = {
         "errors": [],
         "warnings": [],
@@ -70,7 +68,6 @@ def _get_all_files(repo_path: str) -> List[str]:
 
 def _get_ext(file: str) -> str:
     return file.split(".")[-1].lower()
-
 
 # -----------------------------
 # JS / TS (REAL ERROR CATCHING)
