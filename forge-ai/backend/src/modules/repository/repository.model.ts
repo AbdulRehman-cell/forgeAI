@@ -68,6 +68,8 @@ export interface IRepository extends Document {
     nextRunAt?: Date
     lastRunAt?: Date
   }
+  /** Granular team permissions — null/empty = all team members can access */
+  allowedMemberIds?: Types.ObjectId[]
   createdAt: Date
   updatedAt: Date
 }
@@ -98,6 +100,7 @@ const repositorySchema = new Schema<IRepository>(
     approvalNote: String,
     approvedAt: Date,
     maintenanceMode: { type: Boolean, default: false },
+    allowedMemberIds: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     analyticsProvider: { type: String, enum: ['ga', 'plausible', null] },
     analyticsId: String,
     maintenancePlan: {

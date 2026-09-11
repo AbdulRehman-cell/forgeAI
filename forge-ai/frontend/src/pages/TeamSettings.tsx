@@ -8,7 +8,8 @@ import {
   AlertCircle, Copy, Link as LinkIcon, ExternalLink,
   Activity, BarChart3, Wrench, Eye, TestTube, Lock,
   Rocket, Bot, Globe, LayoutDashboard, CheckCircle2, XCircle,
-  SlidersHorizontal,
+  SlidersHorizontal, Code2, ClipboardCheck, Settings2, FolderLock,
+  ThumbsUp, ThumbsDown, ToggleLeft, ToggleRight, Mail as MailIcon,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -397,12 +398,341 @@ function LimitSetter({ currentLimit, onSave, saving }: { currentLimit: number | 
   )
 }
 
+// ── Standards tab ─────────────────────────────────────────────────────────────
+
+function StandardsTab({ canEdit }: { canEdit: boolean }) {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery<{ standards: string }>({
+    queryKey: ['team-standards'],
+    queryFn: () => api.get('/teams/standards').then(r => r.data),
+  })
+  const [text, setText] = useState<string | null>(null)
+  const current = text ?? data?.standards ?? ''
+
+  const saveMutation = useMutation({
+    mutationFn: (standards: string) => api.patch('/teams/standards', { standards }),
+    onSuccess: () => { toast.success('Coding standards saved'); qc.invalidateQueries({ queryKey: ['team-standards'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Failed to save'),
+  })
+
+  if (isLoading) return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-brand-500" size={24} /></div>
+
+  return (
+    <div className="px-6 py-5 space-y-4">
+      <div className="flex items-start gap-3 text-sm text-zinc-400 bg-brand-500/5 border border-brand-500/20 rounded-xl px-4 py-3">
+        <Code2 size={14} className="text-brand-400 mt-0.5 shrink-0" />
+        <span>Rules written here are automatically injected into every AI task run by your team members — they apply to <strong className="text-zinc-300">Fix Workspace</strong> and <strong className="text-zinc-300">Fix File</strong>. Use plain English or bullet points.</span>
+      </div>
+      <textarea
+        value={current}
+        onChange={e => setText(e.target.value)}
+        disabled={!canEdit}
+        placeholder={`Examples:\n- Always use TypeScript strict mode\n- Prefer functional components, no class components\n- All functions must have JSDoc comments\n- Max line length: 100 chars\n- Use named exports, not default exports`}
+        className="w-full h-48 bg-surface-800 border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-brand-500/50 resize-none font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+      />
+      {canEdit && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-zinc-600">{current.length} chars · changes apply to new AI tasks only</p>
+          <button
+            onClick={() => saveMutation.mutate(current)}
+            disabled={saveMutation.isPending}
+            className="gradient-btn px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+          >
+            {saveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            Save Standards
+          </button>
+        </div>
+      )}
+      {!canEdit && <p className="text-xs text-zinc-600">Only the owner or admins can edit coding standards.</p>}
+    </div>
+  )
+}
+
+// ── Approvals tab ─────────────────────────────────────────────────────────────
+
+interface ApprovalTask {
+  id: string
+  type: string
+  status: string
+  approvalStatus: string
+  summary: string | null
+  repoName: string
+  userEmail: string
+  changes: { path: string; additions: number; deletions: number }[]
+  createdAt: string
+}
+
+function ApprovalsTab() {
+  const qc = useQueryClient()
+  const [note, setNote] = useState<Record<string, string>>({})
+  const { data, isLoading } = useQuery<ApprovalTask[]>({
+    queryKey: ['team-approvals'],
+    queryFn: () => api.get('/teams/approvals').then(r => r.data),
+    refetchInterval: 20000,
+  })
+
+  const approveMutation = useMutation({
+    mutationFn: ({ taskId, n }: { taskId: string; n: string }) =>
+      api.post(`/teams/approvals/${taskId}/approve`, { note: n }),
+    onSuccess: () => { toast.success('Task approved'); qc.invalidateQueries({ queryKey: ['team-approvals'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Failed'),
+  })
+  const rejectMutation = useMutation({
+    mutationFn: ({ taskId, n }: { taskId: string; n: string }) =>
+      api.post(`/teams/approvals/${taskId}/reject`, { note: n }),
+    onSuccess: () => { toast.success('Task rejected — files reverted'); qc.invalidateQueries({ queryKey: ['team-approvals'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Failed'),
+  })
+
+  if (isLoading) return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-brand-500" size={24} /></div>
+  if (!data?.length) return (
+    <div className="flex flex-col items-center justify-center py-16 text-zinc-600">
+      <ClipboardCheck size={32} className="mb-3 opacity-30" />
+      <p className="text-sm">No tasks awaiting approval</p>
+      <p className="text-xs text-zinc-700 mt-1">When members run AI tasks with approval mode on, they'll show up here.</p>
+    </div>
+  )
+
+  return (
+    <div className="divide-y divide-white/5">
+      {data.map(task => {
+        const meta = TASK_META[task.type] ?? { label: task.type, icon: Bot, color: 'text-zinc-400' }
+        const Icon = meta.icon
+        return (
+          <div key={task.id} className="px-6 py-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className={clsx('mt-0.5 shrink-0', meta.color)}><Icon size={15} /></div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-zinc-200">{meta.label}</span>
+                  <span className="text-xs text-zinc-600">{task.userEmail}</span>
+                  <span className="text-xs text-zinc-600">· {task.repoName}</span>
+                  <span className="text-xs text-zinc-700 ml-auto">{relativeTime(task.createdAt)}</span>
+                </div>
+                {task.summary && <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{task.summary}</p>}
+                {task.changes.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {task.changes.slice(0, 5).map(c => (
+                      <span key={c.path} className="text-[10px] bg-white/5 border border-white/5 rounded px-1.5 py-0.5 text-zinc-500 font-mono">
+                        {c.path.split('/').pop()} <span className="text-emerald-500">+{c.additions}</span> <span className="text-red-400">-{c.deletions}</span>
+                      </span>
+                    ))}
+                    {task.changes.length > 5 && <span className="text-[10px] text-zinc-600">+{task.changes.length - 5} more</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pl-6">
+              <input
+                value={note[task.id] ?? ''}
+                onChange={e => setNote(p => ({ ...p, [task.id]: e.target.value }))}
+                placeholder="Optional note…"
+                className="flex-1 bg-surface-800 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-brand-500/50"
+              />
+              <button
+                onClick={() => approveMutation.mutate({ taskId: task.id, n: note[task.id] ?? '' })}
+                disabled={approveMutation.isPending}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+              >
+                {approveMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <ThumbsUp size={11} />}
+                Approve
+              </button>
+              <button
+                onClick={() => rejectMutation.mutate({ taskId: task.id, n: note[task.id] ?? '' })}
+                disabled={rejectMutation.isPending}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-semibold hover:bg-red-500/20 transition-colors disabled:opacity-50"
+              >
+                {rejectMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <ThumbsDown size={11} />}
+                Reject
+              </button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Settings tab ──────────────────────────────────────────────────────────────
+
+function SettingsTab() {
+  const qc = useQueryClient()
+  const [requireApproval, setRequireApproval] = useState<boolean | null>(null)
+  const [digestEnabled, setDigestEnabled] = useState<boolean | null>(null)
+
+  const ra = requireApproval ?? false
+  const de = digestEnabled ?? false
+
+  const settingsMutation = useMutation({
+    mutationFn: (body: any) => api.patch('/teams/settings', body),
+    onSuccess: (_, vars) => {
+      toast.success('Settings updated')
+      qc.invalidateQueries({ queryKey: ['team'] })
+      if ('requireApproval' in vars) setRequireApproval(vars.requireApproval)
+      if ('digestEnabled' in vars) setDigestEnabled(vars.digestEnabled)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Failed'),
+  })
+
+  const toggleApproval = () => {
+    const next = !ra
+    setRequireApproval(next)
+    settingsMutation.mutate({ requireApproval: next })
+  }
+  const toggleDigest = () => {
+    const next = !de
+    setDigestEnabled(next)
+    settingsMutation.mutate({ digestEnabled: next })
+  }
+
+  return (
+    <div className="px-6 py-5 space-y-4">
+      {/* Approval toggle */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-zinc-200 flex items-center gap-2"><ClipboardCheck size={14} className="text-brand-400" />AI Task Approval</p>
+          <p className="text-xs text-zinc-500 mt-1">When on, all AI fix tasks by team members will be <strong className="text-zinc-300">held for your approval</strong> before being marked complete. Files are written but you can reject to revert.</p>
+        </div>
+        <button onClick={toggleApproval} disabled={settingsMutation.isPending} className="shrink-0 mt-1">
+          {ra
+            ? <ToggleRight size={28} className="text-brand-400" />
+            : <ToggleLeft size={28} className="text-zinc-600" />}
+        </button>
+      </div>
+
+      <div className="h-px bg-white/5" />
+
+      {/* Digest toggle */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-zinc-200 flex items-center gap-2"><MailIcon size={14} className="text-violet-400" />Weekly Digest Email</p>
+          <p className="text-xs text-zinc-500 mt-1">Sends you a summary email every week with how many AI tasks your team completed, failed, or left awaiting approval. Requires SMTP to be configured.</p>
+        </div>
+        <button onClick={toggleDigest} disabled={settingsMutation.isPending} className="shrink-0 mt-1">
+          {de
+            ? <ToggleRight size={28} className="text-violet-400" />
+            : <ToggleLeft size={28} className="text-zinc-600" />}
+        </button>
+      </div>
+
+      <div className="h-px bg-white/5" />
+
+      <div className="text-xs text-zinc-600 flex items-start gap-2">
+        <Settings2 size={12} className="shrink-0 mt-0.5 text-zinc-500" />
+        Changes take effect on the next AI task run by a team member.
+      </div>
+    </div>
+  )
+}
+
+// ── Repo Permissions tab ──────────────────────────────────────────────────────
+
+interface RepoPerm {
+  repoId: string
+  name: string
+  allowedMemberIds: string[]
+  restricted: boolean
+}
+
+function RepoPermissionsTab() {
+  const qc = useQueryClient()
+  const { data: raw, isLoading } = useQuery<any[]>({
+    queryKey: ['team-repo-permissions'],
+    queryFn: () => api.get('/teams/repo-permissions').then(r => r.data),
+  })
+
+  // Last entry in the array is the members list
+  const members: { email: string; userId: string; role: string }[] = (raw ?? []).find((r: any) => r.members)?.members ?? []
+  const repos: RepoPerm[] = (raw ?? []).filter((r: any) => !r.members)
+
+  const updateMutation = useMutation({
+    mutationFn: ({ repoId, allowedMemberIds }: { repoId: string; allowedMemberIds: string[] }) =>
+      api.patch(`/teams/repos/${repoId}/permissions`, { allowedMemberIds }),
+    onSuccess: () => { toast.success('Permissions updated'); qc.invalidateQueries({ queryKey: ['team-repo-permissions'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Failed'),
+  })
+
+  if (isLoading) return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-brand-500" size={24} /></div>
+  if (!repos.length) return (
+    <div className="flex flex-col items-center justify-center py-16 text-zinc-600">
+      <FolderLock size={32} className="mb-3 opacity-30" />
+      <p className="text-sm">No repositories yet</p>
+      <p className="text-xs text-zinc-700 mt-1">Import repos to manage per-member access.</p>
+    </div>
+  )
+
+  return (
+    <div className="px-6 py-5 space-y-4">
+      <div className="flex items-start gap-3 text-sm text-zinc-400 bg-white/[0.02] border border-white/5 rounded-xl px-4 py-3">
+        <FolderLock size={14} className="text-violet-400 mt-0.5 shrink-0" />
+        <span>By default all team members can access every repo. Restrict a repo by selecting which members are allowed. Removing all selections restores open access.</span>
+      </div>
+      {repos.map(repo => (
+        <RepoPerm key={repo.repoId} repo={repo} members={members} onSave={(ids) => updateMutation.mutate({ repoId: repo.repoId, allowedMemberIds: ids })} saving={updateMutation.isPending} />
+      ))}
+    </div>
+  )
+}
+
+function RepoPerm({ repo, members, onSave, saving }: {
+  repo: RepoPerm
+  members: { email: string; userId: string; role: string }[]
+  onSave: (ids: string[]) => void
+  saving: boolean
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(repo.allowedMemberIds))
+  const dirty = JSON.stringify([...selected].sort()) !== JSON.stringify([...repo.allowedMemberIds].sort())
+
+  const toggle = (id: string) => setSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  return (
+    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <FolderLock size={13} className={repo.restricted ? 'text-amber-400' : 'text-zinc-500'} />
+        <span className="text-sm font-medium text-zinc-200">{repo.name}</span>
+        <span className={clsx('ml-auto text-[10px] px-2 py-0.5 rounded-full border font-semibold',
+          repo.restricted ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20')}>
+          {repo.restricted ? `Restricted to ${repo.allowedMemberIds.length}` : 'Open to all'}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {members.filter(m => m.role !== 'owner').map(m => (
+          <button key={m.userId} onClick={() => toggle(m.userId)}
+            className={clsx('flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all',
+              selected.has(m.userId)
+                ? 'bg-brand-500/20 border-brand-500/40 text-brand-300'
+                : 'bg-white/[0.02] border-white/5 text-zinc-500 hover:text-zinc-300')}>
+            {selected.has(m.userId) ? <Check size={10} /> : null}
+            {m.email}
+          </button>
+        ))}
+        {members.filter(m => m.role !== 'owner').length === 0 && (
+          <p className="text-xs text-zinc-600">No active team members yet</p>
+        )}
+      </div>
+      {dirty && (
+        <div className="flex items-center gap-2">
+          <button onClick={() => onSave(Array.from(selected))} disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-xs font-semibold hover:bg-brand-600 disabled:opacity-50">
+            {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+            Save
+          </button>
+          <button onClick={() => { onSave([]); setSelected(new Set()) }}
+            className="text-xs text-zinc-500 hover:text-zinc-300">
+            Remove all restrictions
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function TeamSettings() {
   const qc = useQueryClient()
   const { updateUser } = useAuthStore()
-  const [tab, setTab] = useState<'members' | 'activity' | 'usage'>('members')
+  const [tab, setTab] = useState<'members' | 'activity' | 'usage' | 'standards' | 'approvals' | 'settings' | 'repos'>('members')
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
   const [removingEmail, setRemovingEmail] = useState<string | null>(null)
@@ -468,10 +798,17 @@ export default function TeamSettings() {
   const atLimit = team?.seatLimit != null && (team?.seatUsed ?? 0) >= team.seatLimit
   const isFreePlan = team?.plan === 'free'
 
+  const canEditStandards = isOwner || team?.myRole === 'admin'
   const TABS = [
-    { id: 'members', label: 'Members', icon: Users },
-    { id: 'activity', label: 'Activity', icon: Activity },
-    ...(isOwner ? [{ id: 'usage', label: 'Usage & Budget', icon: BarChart3 }] : []),
+    { id: 'members',   label: 'Members',    icon: Users },
+    { id: 'activity',  label: 'Activity',   icon: Activity },
+    ...(canEditStandards ? [{ id: 'standards', label: 'Standards', icon: Code2 }] : []),
+    ...(isOwner ? [
+      { id: 'approvals', label: 'Approvals',  icon: ClipboardCheck },
+      { id: 'usage',     label: 'Usage',      icon: BarChart3 },
+      { id: 'repos',     label: 'Repo Access',icon: FolderLock },
+      { id: 'settings',  label: 'Settings',   icon: Settings2 },
+    ] : []),
   ] as const
 
   return (
@@ -540,17 +877,19 @@ export default function TeamSettings() {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-white/[0.03] border border-white/5 rounded-xl p-1">
-          {TABS.map(t => {
-            const Icon = t.icon
-            return (
-              <button key={t.id} onClick={() => setTab(t.id as any)}
-                className={clsx('flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                  tab === t.id ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300')}>
-                <Icon size={14} />{t.label}
-              </button>
-            )
-          })}
+        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+          <div className="flex gap-1 bg-white/[0.03] border border-white/5 rounded-xl p-1 min-w-max sm:min-w-0">
+            {TABS.map(t => {
+              const Icon = t.icon
+              return (
+                <button key={t.id} onClick={() => setTab(t.id as any)}
+                  className={clsx('flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+                    tab === t.id ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300')}>
+                  <Icon size={13} />{t.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {/* Tab content */}
@@ -678,6 +1017,43 @@ export default function TeamSettings() {
               <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2"><BarChart3 size={14} className="text-brand-400" />Usage &amp; Budget</h2>
             </div>
             <UsageTab isOwner={isOwner} />
+          </div>
+        )}
+
+        {tab === 'standards' && (
+          <div className="glass rounded-2xl border border-white/5 overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5">
+              <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2"><Code2 size={14} className="text-brand-400" />AI Coding Standards</h2>
+            </div>
+            <StandardsTab canEdit={!!canEditStandards} />
+          </div>
+        )}
+
+        {tab === 'approvals' && (
+          <div className="glass rounded-2xl border border-white/5 overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2"><ClipboardCheck size={14} className="text-brand-400" />Awaiting Approval</h2>
+              <span className="text-xs text-zinc-600">refreshes every 20s</span>
+            </div>
+            <ApprovalsTab />
+          </div>
+        )}
+
+        {tab === 'repos' && (
+          <div className="glass rounded-2xl border border-white/5 overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5">
+              <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2"><FolderLock size={14} className="text-violet-400" />Repo Permissions</h2>
+            </div>
+            <RepoPermissionsTab />
+          </div>
+        )}
+
+        {tab === 'settings' && (
+          <div className="glass rounded-2xl border border-white/5 overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5">
+              <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2"><Settings2 size={14} className="text-zinc-400" />Team Settings</h2>
+            </div>
+            <SettingsTab />
           </div>
         )}
       </div>

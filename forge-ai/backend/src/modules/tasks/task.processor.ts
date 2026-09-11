@@ -171,6 +171,7 @@ async function fixWorkspace(job: Job) {
   await updateTask(task, { status: 'running', progress: 5 }, 'Starting Fix Workspace…')
 
   const provider = createProvider(resolveProvider(aiProvider))
+  const systemPrompt = await buildSystemPrompt(task.userId.toString())
   const allChanges: IFileChange[] = []
   let iteration = 0
 
@@ -210,7 +211,7 @@ async function fixWorkspace(job: Job) {
 
     // Ask AI
     const prompt = buildFixPrompt(errors, context)
-    const response = await chatWithContinuation(provider, [{ role: 'user', content: prompt }], FIX_SYSTEM_PROMPT)
+    const response = await chatWithContinuation(provider, [{ role: 'user', content: prompt }], systemPrompt)
 
     // Parse and apply changes
     const parsed = parseAIChanges(response.content)
@@ -251,10 +252,13 @@ async function fixWorkspace(job: Job) {
     ? `Fixed ${allChanges.length} file(s) across ${iteration} iteration(s): ${allChanges.map((c) => c.path).join(', ')}`
     : 'No changes were needed.'
 
+  const needsApproval = allChanges.length > 0 && await requiresApproval(task.userId.toString())
+
   task.changes = allChanges
-  task.status = 'completed'
+  task.status = needsApproval ? 'awaiting_approval' : 'completed'
+  task.approvalStatus = needsApproval ? 'pending' : undefined
   task.progress = 100
-  task.summary = summary
+  task.summary = needsApproval ? `${summary} — awaiting team owner approval` : summary
   await task.save()
   emitTaskUpdate(taskId, task.toObject())
 }
@@ -272,6 +276,7 @@ async function fixFile(job: Job) {
 
   const before = fs.readFileSync(absPath, 'utf-8')
   const provider = createProvider(resolveProvider(aiProvider))
+  const systemPrompt = await buildSystemPrompt(task.userId.toString())
 
   const prompt = `Fix all bugs, lint errors, and code quality issues in this file.
 Return ONLY the complete fixed file content, no explanations.
@@ -281,16 +286,20 @@ File: ${filePath}
 ${before}
 \`\`\``
 
-  const response = await provider.chat([{ role: 'user', content: prompt }], FIX_SYSTEM_PROMPT)
+  const response = await provider.chat([{ role: 'user', content: prompt }], systemPrompt)
   const after = extractCodeBlock(response.content) ?? response.content
 
   fs.writeFileSync(absPath, after, 'utf-8')
   const { additions, deletions } = diffStats(before, after)
 
+  const needsApproval = await requiresApproval(task.userId.toString())
+  const summary = `Fixed ${filePath} (+${additions}/-${deletions})`
+
   task.changes = [{ path: filePath, before, after, additions, deletions }]
-  task.status = 'completed'
+  task.status = needsApproval ? 'awaiting_approval' : 'completed'
+  task.approvalStatus = needsApproval ? 'pending' : undefined
   task.progress = 100
-  task.summary = `Fixed ${filePath} (+${additions}/-${deletions})`
+  task.summary = needsApproval ? `${summary} — awaiting team owner approval` : summary
   await task.save()
   emitTaskUpdate(taskId, task.toObject())
 }
@@ -329,6 +338,36 @@ const FIX_SYSTEM_PROMPT = `You are ForgeAI, an autonomous software engineer.
 Your job is to fix code errors by modifying files.
 Always return complete file content — never partial diffs.
 Be precise. Do not add unnecessary comments or changes.`
+
+/** Fetch team owner's coding standards for a given user, or null if none set. */
+async function getTeamStandards(userId: string): Promise<string | null> {
+  const user = await User.findById(userId).select('teamOwnerId teamCodingStandards')
+  if (!user) return null
+  if (user.teamCodingStandards) return user.teamCodingStandards as string
+  if (user.teamOwnerId) {
+    const owner = await User.findById(user.teamOwnerId).select('teamCodingStandards')
+    return (owner?.teamCodingStandards as string) ?? null
+  }
+  return null
+}
+
+/** Build the system prompt, appending coding standards when the team owner has set them. */
+async function buildSystemPrompt(userId: string): Promise<string> {
+  const standards = await getTeamStandards(userId)
+  if (!standards) return FIX_SYSTEM_PROMPT
+  return `${FIX_SYSTEM_PROMPT}\n\n## Team Coding Standards (apply to every file you touch)\n${standards}`
+}
+
+/** Return true if the task owner (or their team owner) requires approval before completing AI tasks. */
+async function requiresApproval(userId: string): Promise<boolean> {
+  const user = await User.findById(userId).select('teamOwnerId teamRequireApproval')
+  if (!user) return false
+  if (user.teamOwnerId) {
+    const owner = await User.findById(user.teamOwnerId).select('teamRequireApproval')
+    return !!(owner?.teamRequireApproval)
+  }
+  return !!(user.teamRequireApproval)
+}
 
 interface ParsedChange { path: string; content: string }
 

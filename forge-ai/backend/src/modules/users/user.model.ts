@@ -63,7 +63,13 @@ export interface IUser extends Document {
     accepted: boolean
     invitedAt: Date
     userId?: Types.ObjectId
+    monthlyTaskLimit?: number | null
   }>
+  // ── Team settings (owner-level) ──
+  teamCodingStandards?: string      // injected into every member's AI prompt
+  teamRequireApproval?: boolean     // members' AI tasks need owner sign-off
+  teamDigestEnabled?: boolean       // weekly email digest to owner
+  teamDigestLastSent?: Date
   // ── Team membership (set when this user accepted someone else's invite) ──
   teamOwnerId?: Types.ObjectId
   teamRole?: 'admin' | 'member'
@@ -143,6 +149,10 @@ const userSchema = new Schema<IUser>(
         monthlyTaskLimit: { type: Number, default: null }, // null = use plan default
       },
     ],
+    teamCodingStandards: { type: String, default: null },
+    teamRequireApproval: { type: Boolean, default: false },
+    teamDigestEnabled: { type: Boolean, default: false },
+    teamDigestLastSent: { type: Date, default: null },
     teamOwnerId: { type: Schema.Types.ObjectId, ref: 'User' },
     teamRole: { type: String, enum: ['admin', 'member'] },
     settings: {

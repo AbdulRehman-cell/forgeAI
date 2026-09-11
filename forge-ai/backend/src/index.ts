@@ -10,6 +10,7 @@ import { setupWebSocket } from './modules/websocket'
 import { setupWorkers } from './lib/workers'
 import { startDashboardScheduler } from './modules/dashboard/refresh/scheduler'
 import { startMaintenancePlanScheduler } from './lib/maintenanceScheduler'
+import { startDigestScheduler } from './lib/teamDigest'
 
 const PORT = process.env.PORT ?? 4000
 
@@ -39,6 +40,7 @@ async function bootstrap() {
   setupWorkers()
   startDashboardScheduler()
   startMaintenancePlanScheduler()
+  startDigestScheduler()
   startKeepAlive()
 
   server.listen(PORT, () => {

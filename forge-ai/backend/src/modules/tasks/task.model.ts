@@ -20,7 +20,7 @@ export interface ITask extends Document {
   userId: Types.ObjectId
   repositoryId: Types.ObjectId
   type: 'fix_workspace' | 'fix_file' | 'fix_folder' | 'chat' | 'clone_repo' | 'review' | 'generate_tests' | 'security_scan' | 'blitz_deploy' | 'agent' | 'build_site' | 'build_dashboard'
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'awaiting_approval'
   progress: number
   logs: ITaskLog[]
   changes: IFileChange[]
@@ -28,6 +28,14 @@ export interface ITask extends Document {
   error?: string
   jobId?: string
   metadata?: Record<string, any>
+  // Team approval workflow
+  approvalStatus?: 'pending' | 'approved' | 'rejected'
+  approvalNote?: string
+  // Task assignment
+  assignedTo?: Types.ObjectId
+  assignedToEmail?: string
+  assignedByEmail?: string
+  assignedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -37,7 +45,7 @@ const taskSchema = new Schema<ITask>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     repositoryId: { type: Schema.Types.ObjectId, ref: 'Repository', required: true },
     type: { type: String, required: true },
-    status: { type: String, enum: ['pending', 'running', 'completed', 'failed'], default: 'pending' },
+    status: { type: String, enum: ['pending', 'running', 'completed', 'failed', 'awaiting_approval'], default: 'pending' },
     progress: { type: Number, default: 0 },
     logs: [
       {
@@ -60,6 +68,12 @@ const taskSchema = new Schema<ITask>(
     error: String,
     jobId: String,
     metadata: { type: Schema.Types.Mixed },
+    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'] },
+    approvalNote: String,
+    assignedTo: { type: Schema.Types.ObjectId, ref: 'User' },
+    assignedToEmail: String,
+    assignedByEmail: String,
+    assignedAt: Date,
   },
   { timestamps: true },
 )

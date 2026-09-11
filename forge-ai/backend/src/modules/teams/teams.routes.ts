@@ -334,6 +334,259 @@ router.patch('/:email/limit', async (req, res) => {
   res.json({ email, monthlyLimit: limit ?? null })
 })
 
+// ─── Feature: AI Coding Standards ────────────────────────────────────────────
+
+/** Get team coding standards */
+router.get('/standards', async (req, res) => {
+  const authed = req.user as any
+  const ownerId = authed.teamOwnerId ?? authed._id
+  const owner = await User.findById(ownerId)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+  res.json({ standards: owner.teamCodingStandards ?? '' })
+})
+
+/** Update team coding standards — owner/admin only */
+router.patch('/standards', async (req, res) => {
+  const authed = req.user as any
+  const isOwner = !authed.teamOwnerId
+  if (!isOwner && authed.teamRole !== 'admin') {
+    return res.status(403).json({ message: 'Only admins can update coding standards' })
+  }
+  const ownerId = authed.teamOwnerId ?? authed._id
+  const owner = await User.findById(ownerId)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+
+  owner.teamCodingStandards = req.body.standards?.trim() || null
+  await owner.save()
+  res.json({ standards: owner.teamCodingStandards ?? '' })
+})
+
+// ─── Feature: Team settings (approval toggle, digest toggle) ──────────────────
+
+router.patch('/settings', async (req, res) => {
+  const authed = req.user as any
+  if (authed.teamOwnerId) return res.status(403).json({ message: 'Owner only' })
+
+  const owner = await User.findById(authed._id)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+
+  if (typeof req.body.requireApproval === 'boolean') owner.teamRequireApproval = req.body.requireApproval
+  if (typeof req.body.digestEnabled === 'boolean') owner.teamDigestEnabled = req.body.digestEnabled
+  await owner.save()
+
+  res.json({ requireApproval: owner.teamRequireApproval, digestEnabled: owner.teamDigestEnabled })
+})
+
+// ─── Feature: Approval Workflow ───────────────────────────────────────────────
+
+/** List tasks awaiting approval (owner only) */
+router.get('/approvals', async (req, res) => {
+  const authed = req.user as any
+  if (authed.teamOwnerId) return res.status(403).json({ message: 'Owner only' })
+
+  const owner = await User.findById(authed._id)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+
+  const memberIds = (owner.teamMembers ?? [])
+    .filter((m: any) => m.accepted && m.userId)
+    .map((m: any) => m.userId)
+
+  const pending = await Task.find({
+    userId: { $in: memberIds },
+    status: 'awaiting_approval',
+  })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean()
+
+  const repoIds = [...new Set(pending.map(t => t.repositoryId?.toString()))]
+  const repos = await Repository.find({ _id: { $in: repoIds } }).select('name').lean()
+  const repoMap = Object.fromEntries(repos.map((r: any) => [r._id.toString(), r.name]))
+
+  const memberEmailMap: Record<string, string> = {}
+  for (const m of (owner.teamMembers ?? []) as any[]) {
+    if (m.userId) memberEmailMap[m.userId.toString()] = m.email
+  }
+
+  res.json(pending.map(t => ({
+    id: t._id,
+    type: t.type,
+    status: t.status,
+    approvalStatus: t.approvalStatus,
+    summary: t.summary,
+    repoName: repoMap[t.repositoryId?.toString()] ?? 'Unknown',
+    userEmail: memberEmailMap[t.userId?.toString()] ?? 'Unknown',
+    changes: (t.changes ?? []).map((c: any) => ({ path: c.path, additions: c.additions, deletions: c.deletions })),
+    createdAt: t.createdAt,
+  })))
+})
+
+/** Approve a task */
+router.post('/approvals/:taskId/approve', async (req, res) => {
+  const authed = req.user as any
+  if (authed.teamOwnerId) return res.status(403).json({ message: 'Owner only' })
+
+  const task = await Task.findById(req.params.taskId)
+  if (!task) return res.status(404).json({ message: 'Task not found' })
+  if (task.status !== 'awaiting_approval') return res.status(400).json({ message: 'Task is not pending approval' })
+
+  task.status = 'completed'
+  task.approvalStatus = 'approved'
+  task.approvalNote = req.body.note?.trim() || undefined
+  await task.save()
+
+  res.json({ approved: true })
+})
+
+/** Reject a task — reverts applied file changes */
+router.post('/approvals/:taskId/reject', async (req, res) => {
+  const authed = req.user as any
+  if (authed.teamOwnerId) return res.status(403).json({ message: 'Owner only' })
+
+  const task = await Task.findById(req.params.taskId).select('+changes')
+  if (!task) return res.status(404).json({ message: 'Task not found' })
+  if (task.status !== 'awaiting_approval') return res.status(400).json({ message: 'Task is not pending approval' })
+
+  // Revert files using the stored before state
+  const repo = await Repository.findById(task.repositoryId)
+  if (repo?.localPath) {
+    const fs = await import('fs')
+    const path = await import('path')
+    for (const change of task.changes ?? []) {
+      if (change.truncated) continue
+      try {
+        const absPath = path.join(repo.localPath, change.path)
+        if (!absPath.startsWith(repo.localPath)) continue
+        if (change.before) {
+          fs.writeFileSync(absPath, change.before, 'utf-8')
+        } else if (fs.existsSync(absPath)) {
+          fs.unlinkSync(absPath)
+        }
+      } catch {}
+    }
+  }
+
+  task.status = 'failed'
+  task.approvalStatus = 'rejected'
+  task.approvalNote = req.body.note?.trim() || 'Rejected by team owner'
+  task.error = 'Changes rejected by team owner'
+  await task.save()
+
+  res.json({ rejected: true })
+})
+
+// ─── Feature: Task Assignment ─────────────────────────────────────────────────
+
+/** Assign a task to a team member */
+router.post('/assign', async (req, res) => {
+  const authed = req.user as any
+  const isOwner = !authed.teamOwnerId
+  if (!isOwner && authed.teamRole !== 'admin') {
+    return res.status(403).json({ message: 'Only admins can assign tasks' })
+  }
+
+  const { repositoryId, type = 'fix_workspace', instruction, assignToEmail } = req.body
+  if (!repositoryId || !assignToEmail || !instruction?.trim()) {
+    return res.status(400).json({ message: 'repositoryId, assignToEmail, and instruction are required' })
+  }
+
+  const ownerId = authed.teamOwnerId ?? authed._id
+  const owner = await User.findById(ownerId)
+  if (!owner) return res.status(404).json({ message: 'Not found' })
+
+  const memberRecord = (owner.teamMembers ?? []).find(
+    (m: any) => m.email === assignToEmail.toLowerCase() && m.accepted && m.userId,
+  )
+  if (!memberRecord) return res.status(404).json({ message: 'Member not found or has not accepted invite' })
+
+  const task = await Task.create({
+    userId: memberRecord.userId,
+    repositoryId,
+    type,
+    status: 'pending',
+    assignedTo: memberRecord.userId,
+    assignedToEmail: assignToEmail.toLowerCase(),
+    assignedByEmail: authed.email,
+    assignedAt: new Date(),
+    metadata: { instruction: instruction.trim(), assignedTask: true },
+  })
+
+  res.status(201).json({
+    id: task._id,
+    assignedToEmail: assignToEmail.toLowerCase(),
+    instruction: instruction.trim(),
+    type,
+    createdAt: task.createdAt,
+  })
+})
+
+/** Get tasks assigned to me */
+router.get('/my-assignments', async (req, res) => {
+  const authed = req.user as any
+  const tasks = await Task.find({
+    assignedTo: authed._id,
+    'metadata.assignedTask': true,
+  })
+    .sort({ createdAt: -1 })
+    .limit(30)
+    .lean()
+
+  const repoIds = [...new Set(tasks.map(t => t.repositoryId?.toString()))]
+  const repos = await Repository.find({ _id: { $in: repoIds } }).select('name').lean()
+  const repoMap = Object.fromEntries(repos.map((r: any) => [r._id.toString(), r.name]))
+
+  res.json(tasks.map(t => ({
+    id: t._id,
+    type: t.type,
+    status: t.status,
+    repoName: repoMap[t.repositoryId?.toString()] ?? 'Unknown',
+    assignedByEmail: t.assignedByEmail,
+    instruction: t.metadata?.instruction,
+    createdAt: t.createdAt,
+  })))
+})
+
+// ─── Feature: Granular Repo Permissions ──────────────────────────────────────
+
+/** Get all team repos with their per-member permissions */
+router.get('/repo-permissions', async (req, res) => {
+  const authed = req.user as any
+  if (authed.teamOwnerId) return res.status(403).json({ message: 'Owner only' })
+
+  const repos = await Repository.find({ userId: authed._id })
+    .select('name fullName allowedMemberIds')
+    .lean()
+
+  const owner = await User.findById(authed._id)
+  const members = (owner?.teamMembers ?? [])
+    .filter((m: any) => m.accepted && m.userId)
+    .map((m: any) => ({ email: m.email, userId: m.userId.toString(), role: m.role }))
+
+  res.json(repos.map((r: any) => ({
+    repoId: r._id,
+    name: r.name || r.fullName,
+    allowedMemberIds: (r.allowedMemberIds ?? []).map((id: any) => id.toString()),
+    restricted: (r.allowedMemberIds ?? []).length > 0,
+  })).concat([{ members }] as any))
+})
+
+/** Set which members can access a repo — empty array = everyone */
+router.patch('/repos/:repoId/permissions', async (req, res) => {
+  const authed = req.user as any
+  if (authed.teamOwnerId) return res.status(403).json({ message: 'Owner only' })
+
+  const repo = await Repository.findOne({ _id: req.params.repoId, userId: authed._id })
+  if (!repo) return res.status(404).json({ message: 'Repo not found' })
+
+  const { allowedMemberIds } = req.body
+  if (!Array.isArray(allowedMemberIds)) return res.status(400).json({ message: 'allowedMemberIds must be an array' })
+
+  repo.allowedMemberIds = allowedMemberIds
+  await repo.save()
+
+  res.json({ repoId: repo._id, allowedMemberIds, restricted: allowedMemberIds.length > 0 })
+})
+
 /** Leave a team — for members only */
 router.post('/leave', async (req, res) => {
   const authed = req.user as any

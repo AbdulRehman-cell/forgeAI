@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middleware/auth.middleware'
-import { resolveTeamOwner, getEffectiveUserId } from '../../middleware/teamContext.middleware'
+import { resolveTeamOwner, getEffectiveUserId, checkRepoAccess } from '../../middleware/teamContext.middleware'
 import { Repository } from './repository.model'
 import { Task } from '../tasks/task.model'
 import { enqueueJob } from '../../lib/workers'
@@ -49,7 +49,7 @@ router.get('/', async (req, res) => {
 })
 
 // ─── Get one ──────────────────────────────────────────────
-router.get('/:id', async (req, res) => {
+router.get('/:id', checkRepoAccess, async (req, res) => {
   const ownerId = getEffectiveUserId(req)
   const repository = await Repository.findOne({ _id: req.params.id, userId: ownerId })
   if (!repository) return res.status(404).json({ message: 'Not found' })
@@ -57,7 +57,7 @@ router.get('/:id', async (req, res) => {
 })
 
 // ─── File tree — Python service with local fs fallback ────
-router.get('/:id/tree', async (req, res) => {
+router.get('/:id/tree', checkRepoAccess, async (req, res) => {
   const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found or not cloned' })
 
@@ -108,7 +108,7 @@ router.get('/:id/tree', async (req, res) => {
 })
 
 // ─── File content ─────────────────────────────────────────
-router.get('/:id/file', async (req, res) => {
+router.get('/:id/file', checkRepoAccess, async (req, res) => {
   const user = req.user as any
   const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found' })
