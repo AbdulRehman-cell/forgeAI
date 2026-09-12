@@ -1172,6 +1172,11 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
             await updateTask(task, {}, `Pushed auto-fix to forgeai/blitz-deploy`)
           } catch (gitErr: any) {
             await updateTask(task, {}, `Could not push fix: ${gitErr.message}`, 'warn')
+            // If there is no remote, further auto-fix attempts are pointless
+            if (/no remote|does not appear to be a git/i.test(gitErr.message)) {
+              lastError = gitErr.message
+              break
+            }
           }
         }
       }
@@ -1262,7 +1267,11 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
       } catch (err: any) {
         lastError = err.message
         await updateTask(task, {}, `Deploy API error: ${err.message}`, 'error')
-        if (attempt >= MAX_AUTOFIX_ATTEMPTS) break
+
+        // Non-retryable errors: quota limits, auth failures, missing remote.
+        // Auto-fix cannot help with these — break immediately.
+        const nonRetryable = /limited to \d+ services|quota|unauthorized|403|401|no remote|does not appear to be a git/i.test(err.message)
+        if (nonRetryable || attempt >= MAX_AUTOFIX_ATTEMPTS) break
       }
     }
 
@@ -1274,8 +1283,19 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
       await updateTask(task, { progress: 95 }, `🌐 Deployed and serving! ${deployUrl}`)
       summary = `## 🌐 Your site is live\n\n**[${deployUrl}](${deployUrl})**${deployDashboard ? `\n\n[Platform dashboard](${deployDashboard})` : ''}\n\n---\n\n${summary}`
     } else {
-      await updateTask(task, {}, `Deployment failed after ${MAX_AUTOFIX_ATTEMPTS} auto-fix attempts: ${lastError}`, 'error')
-      summary = `## ⚠️ Deployment failed after ${MAX_AUTOFIX_ATTEMPTS} auto-fix attempts\n\n**Last error:** ${lastError}\n\nThe generated files are in the repo — you can inspect them and fix manually, or re-run Blitz Deploy.\n\n---\n\n${summary}`
+      await updateTask(task, {}, `Deployment failed: ${lastError}`, 'error')
+
+      // Compose a tailored failure message based on what went wrong
+      let failureAdvice = 'The generated files are in the repo — you can inspect them and fix manually, or re-run Blitz Deploy.'
+      if (/limited to \d+ services/i.test(lastError)) {
+        failureAdvice = '**You have reached Render\'s service limit.** Go to [dashboard.render.com](https://dashboard.render.com), delete an unused service, then re-run Blitz Deploy.'
+      } else if (/no remote|does not appear to be a git/i.test(lastError)) {
+        failureAdvice = '**No GitHub remote is configured for this repo.** Run:\n```\ngit remote add origin https://github.com/<you>/<repo>.git\ngit push -u origin main\n```\nthen re-run Blitz Deploy.'
+      } else if (/unauthorized|403|401/i.test(lastError)) {
+        failureAdvice = '**Authentication failed.** Check that your Render token (in Settings → Deploy Tokens) is valid and has not expired, then re-run.'
+      }
+
+      summary = `## ⚠️ Deployment failed\n\n**Error:** ${lastError}\n\n${failureAdvice}\n\n---\n\n${summary}`
     }
   }
 
