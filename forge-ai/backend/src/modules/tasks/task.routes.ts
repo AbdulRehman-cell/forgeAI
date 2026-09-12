@@ -570,6 +570,13 @@ router.post('/:id/create-pr', async (req, res) => {
       await git.checkout(branchName)
     }
 
+    // Repos are cloned with --depth 1 (shallow). A shallow clone cannot push
+    // branches whose parent commits aren't in the local pack — GitHub rejects
+    // them with "did not receive expected object". Unshallow first.
+    if (fs.existsSync(path.join(repo.localPath!, '.git', 'shallow'))) {
+      try { await git.fetch([authRemote, '--unshallow']) } catch { /* already full */ }
+    }
+
     // Push to GitHub
     await git.push(authRemote, branchName, ['--force'])
 

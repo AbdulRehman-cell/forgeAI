@@ -760,6 +760,12 @@ export async function redeployRender(
   const parentSha = (await git.revparse(['HEAD'])).trim()
   const commitSha = (await git.raw(['commit-tree', treeSha, '-p', parentSha, '-m', commitMessage])).trim()
 
+  // Repos are cloned with --depth 1 (shallow). Unshallow before pushing so
+  // GitHub's index-pack doesn't reject the pack for a missing parent commit.
+  if (fs.existsSync(path.join(localPath, '.git', 'shallow'))) {
+    try { await git.fetch([pushRemote, '--unshallow']) } catch { /* already full */ }
+  }
+
   const pushCommit = (branch: string, force: boolean) =>
     git.push(force
       ? [pushRemote, `+${commitSha}:refs/heads/${branch}`]
