@@ -116,6 +116,8 @@ export default function Workspace() {
         setTaskRunning(false)
         qc.invalidateQueries({ queryKey: ['tasks'] })
         qc.invalidateQueries({ queryKey: ['last-task', id] })
+        // Refresh the file tree so new/modified files appear immediately
+        qc.invalidateQueries({ queryKey: ['filetree', id] })
         if (updated.status === 'completed')
           toast.success(updated.type === 'agent'
             ? `🤖 Agent finished — ${updated.changes?.length ?? 0} file(s) changed`

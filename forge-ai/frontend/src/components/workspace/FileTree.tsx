@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useWorkspaceStore } from '@/store/workspaceStore'
 import {
-  ChevronRight, ChevronDown, Loader2,
+  ChevronRight, ChevronDown, Loader2, RefreshCw,
   FileText, Folder, FolderOpen, FileCode2, FileJson, FileType2, Braces
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -11,10 +11,16 @@ import type { FileNode } from '@/types'
 interface Props { repositoryId: string }
 
 export default function FileTree({ repositoryId }: Props) {
-  const { data, isLoading } = useQuery({
+  const qc = useQueryClient()
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['filetree', repositoryId],
     queryFn: () => api.get(`/repositories/${repositoryId}/tree`).then((r) => r.data.tree),
+    // Poll every 4s while empty so new files appear automatically after a clone or task
+    refetchInterval: (q) => (!q.state.data?.length && !q.state.error) ? 4000 : false,
+    retry: 2,
   })
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ['filetree', repositoryId] })
 
   if (isLoading) return (
     <div className="p-4 flex justify-center">
@@ -22,9 +28,23 @@ export default function FileTree({ repositoryId }: Props) {
     </div>
   )
 
+  if (isError) return (
+    <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed space-y-2">
+      <p className="text-red-400/80">
+        {(error as any)?.response?.data?.message ?? 'Could not load files.'}
+      </p>
+      <button onClick={refresh} className="flex items-center gap-1 mx-auto text-zinc-500 hover:text-zinc-300 transition-colors">
+        <RefreshCw size={11} /> Retry
+      </button>
+    </div>
+  )
+
   if (!data?.length) return (
-    <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed">
-      No files found.<br />Repository may still be cloning.
+    <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed space-y-2">
+      <p>No files found.<br />Repository may still be cloning.</p>
+      <button onClick={refresh} className="flex items-center gap-1 mx-auto text-zinc-500 hover:text-zinc-300 transition-colors">
+        <RefreshCw size={11} /> Refresh
+      </button>
     </div>
   )
 
