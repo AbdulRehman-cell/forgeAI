@@ -646,12 +646,127 @@ function collectSourceFiles(root: string, limit: number): { rel: string; content
 }
 
 
-// ── 5. PASTE this function into task.processor.ts ──
+// ─── GitHub push helper (used by blitzDeploy) ────────────────────────────────
+// Creates a GitHub repo for the project and pushes the local code to it.
+// Returns the "owner/repo" fullName on success.
+async function pushRepoToGitHub(
+  localPath: string,
+  userId: string,
+  repositoryId: string,
+  repoName: string,
+  branch: string,
+  log: (msg: string, level?: 'info' | 'warn' | 'error') => Promise<void>,
+): Promise<string> {
+  const fullUser = await User.findById(userId).select('+githubAccessToken')
+  if (!fullUser?.githubAccessToken) {
+    throw new Error(
+      'GitHub account not connected — go to Settings → GitHub, connect your account, then re-run Blitz Deploy.',
+    )
+  }
+
+  const headers = { Authorization: `token ${fullUser.githubAccessToken}`, Accept: 'application/vnd.github+json' }
+
+  // Create the GitHub repo (retry up to 3 times on name collision)
+  let ghRepo: any
+  const baseName = repoName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'forgeai-app'
+  for (let attempt = 0; attempt < 3 && !ghRepo; attempt++) {
+    const name = attempt === 0 ? baseName : `${baseName}-${Math.random().toString(36).slice(2, 5)}`
+    try {
+      const { data } = await axios.post(
+        'https://api.github.com/user/repos',
+        { name, description: 'Deployed with ForgeAI Blitz Deploy', private: false, auto_init: false },
+        { headers },
+      )
+      ghRepo = data
+    } catch (err: any) {
+      const status = err.response?.status
+      if (status === 401 || status === 403) {
+        throw new Error('GitHub token was rejected — reconnect GitHub in Settings, then re-run Blitz Deploy.')
+      }
+      if (status !== 422) throw new Error(err.response?.data?.message ?? err.message)
+      await log(`GitHub repo name "${name}" is taken — trying another…`, 'warn')
+    }
+  }
+  if (!ghRepo?.full_name?.includes('/')) {
+    throw new Error('Could not create a GitHub repository (all name attempts failed). Try a different project name.')
+  }
+  await log(`Created GitHub repo: ${ghRepo.full_name}`)
+
+  // Ensure the local directory is a git repo with at least one commit
+  const git = simpleGit(localPath).env(gitEnv())
+  const isRepo = await git.checkIsRepo().catch(() => false)
+  if (!isRepo) await git.init()
+  await git.addConfig('user.name', 'ForgeAI')
+  await git.addConfig('user.email', 'bot@forgeai.dev')
+
+  let hasHead = true
+  try { await git.revparse(['HEAD']) } catch { hasHead = false }
+
+  if (!hasHead) {
+    await git.add('.')
+    await git.commit('ForgeAI: initial commit')
+  } else {
+    const status = await git.status()
+    if (status.files.length > 0) {
+      await git.add('.')
+      await git.commit('ForgeAI: prepare for deployment')
+    }
+  }
+
+  // Push — use token-authenticated URL but store the public URL as origin
+  const authRemote = `https://${fullUser.githubAccessToken}@github.com/${ghRepo.full_name}.git`
+  try {
+    await git.push([authRemote, `HEAD:refs/heads/${branch}`, '--force'])
+  } catch (pushErr: any) {
+    // Scrub credentials from the error message before surfacing it
+    throw new Error(pushErr.message.replace(/https?:\/\/[^@]+@/g, 'https://'))
+  }
+  await git.removeRemote('origin').catch(() => {})
+  await git.addRemote('origin', `https://github.com/${ghRepo.full_name}.git`).catch(() => {})
+
+  // Update the repository document so future operations use the real fullName
+  await Repository.findByIdAndUpdate(repositoryId, {
+    githubId: ghRepo.id,
+    fullName: ghRepo.full_name,
+    name: ghRepo.name,
+    cloneUrl: ghRepo.clone_url,
+    source: 'github',
+  })
+
+  await log(`✅ Code is on GitHub: https://github.com/${ghRepo.full_name}`)
+  return ghRepo.full_name
+}
 
 async function blitzDeploy(job: Job) {
-  const { taskId, localPath, platform, aiProvider, deployToken, repoFullName, repoName, branch, isLocal } = job.data
+  const { taskId, localPath, platform, aiProvider, deployToken, repoName, branch, isLocal, needsGitHubPush, repositoryId } = job.data
+  let { repoFullName } = job.data
   const task = await Task.findById(taskId)
   if (!task) throw new Error('Task not found')
+
+  // ── Auto-push to GitHub if this repo isn't on GitHub yet ──────────────────
+  // Render and Railway build from GitHub; if the project was generated locally
+  // (e.g. by build-site without a GitHub token, or opened as a local folder)
+  // we push it now before generating deployment configs.
+  if (needsGitHubPush) {
+    await updateTask(task, { status: 'running', progress: 5 }, '🐙 Pushing project to GitHub…')
+    try {
+      repoFullName = await pushRepoToGitHub(
+        localPath,
+        job.data.userId,
+        repositoryId,
+        repoName ?? 'forgeai-app',
+        branch ?? 'main',
+        (msg, level) => updateTask(task, {}, msg, level),
+      )
+      await updateTask(task, { progress: 8 }, `Repository is on GitHub — generating deployment configs…`)
+    } catch (ghErr: any) {
+      task.status = 'failed'
+      task.summary = `## ⚠️ GitHub push failed\n\n${ghErr.message}`
+      await task.save()
+      emitTaskUpdate(taskId, task.toObject())
+      return
+    }
+  }
 
   await updateTask(task, { status: 'running', progress: 10 }, '⚡ Blitz Deploy: analyzing project structure…')
 
@@ -1025,9 +1140,12 @@ After the files, add a summary starting with "## Deployment Summary" that explai
     : `⚡ Blitz Deploy complete — generated ${allChanges.length} deployment file(s): ${allChanges.map((c) => c.path).join(', ')}`
 
   // ── Push generated configs to a branch (Render/Railway build from GitHub) ──
+  // Docker is configs-only (self-host), Vercel uploads files directly — neither
+  // needs a GitHub push. Only Render and Railway require the code on GitHub.
+  const platformNeedsGitHub = platform === 'render' || platform === 'railway'
   let pushed = false
   let restoreBranch: string | undefined
-  if (allChanges.length) {
+  if (allChanges.length && platformNeedsGitHub) {
     const git = simpleGit(localPath)
     try {
       // Local folders are the user's own working copy — remember their branch
@@ -4122,20 +4240,33 @@ async function buildSite(job: Job) {
         await updateTask(task, {}, 'GitHub credentials expired — site generated locally. Reconnect GitHub in Settings → GitHub to push it.', 'warn')
       } else if (!ghRepo) {
         return await fail('Could not create a GitHub repository (name conflicts). Try a different site name.')
+      } else if (!ghRepo.full_name?.includes('/')) {
+        await updateTask(task, {}, `GitHub returned an unexpected repo structure (full_name="${ghRepo.full_name}") — site saved locally only.`, 'warn')
       } else {
         await updateTask(task, { progress: 82 }, `⬆️ Pushing code to ${ghRepo.full_name}…`)
+        // Store the token-authenticated remote but never expose it in task logs
         const authRemote = `https://${fullUser.githubAccessToken}@github.com/${ghRepo.full_name}.git`
-        await git.push([authRemote, 'main:main'])
-        await git.addRemote('origin', authRemote).catch(() => {})
-        pushedFullName = ghRepo.full_name
-
-        repo.githubId = ghRepo.id
-        repo.fullName = ghRepo.full_name
-        repo.name = ghRepo.name
-        repo.cloneUrl = ghRepo.clone_url
-        repo.private = false
-        await repo.save()
-        await updateTask(task, {}, `✅ Live on GitHub: https://github.com/${ghRepo.full_name}`)
+        try {
+          await git.push([authRemote, 'main:main'])
+          // Store origin WITHOUT the token so the URL is safe to display
+          await git.addRemote('origin', `https://github.com/${ghRepo.full_name}.git`).catch(() => {})
+          pushedFullName = ghRepo.full_name
+          repo.githubId = ghRepo.id
+          repo.fullName = ghRepo.full_name
+          repo.name = ghRepo.name
+          repo.cloneUrl = ghRepo.clone_url
+          repo.private = false
+          await repo.save()
+          await updateTask(task, {}, `✅ Live on GitHub: https://github.com/${ghRepo.full_name}`)
+        } catch (pushErr: any) {
+          await updateTask(task, {}, `GitHub push failed: ${pushErr.message.replace(/https?:\/\/[^@]+@/g, 'https://')} — site saved locally. Reconnect GitHub in Settings if your token expired.`, 'warn')
+          // Still record the GitHub repo that was created even if we couldn't push to it
+          repo.githubId = ghRepo.id
+          repo.fullName = ghRepo.full_name
+          repo.name = ghRepo.name
+          repo.cloneUrl = ghRepo.clone_url
+          await repo.save()
+        }
       }
     } else {
       await updateTask(task, {}, 'GitHub token missing — site generated locally but not pushed. Sign in with GitHub to enable pushing.', 'warn')

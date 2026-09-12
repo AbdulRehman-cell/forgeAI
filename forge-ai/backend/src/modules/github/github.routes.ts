@@ -28,7 +28,10 @@ router.get('/repos', async (req, res) => {
     console.error('[github] /repos failed:', status, msg)
 
     if (status === 401) {
-      return res.status(401).json({ message: 'GitHub token expired — reconnect GitHub in Settings' })
+      // Return 400 (not 401) so the frontend's session interceptor does NOT
+      // clear the ForgeAI JWT and redirect to /login — the user's session is
+      // fine, only the GitHub token expired.
+      return res.status(400).json({ code: 'GITHUB_TOKEN_EXPIRED', message: 'GitHub token expired — reconnect GitHub in Settings' })
     }
     if (status === 403) {
       const remaining = err.response?.headers?.['x-ratelimit-remaining']

@@ -138,25 +138,53 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
   // Resolve 'auto' to a concrete platform so we know which token is needed
   let resolvedPlatform = platform && platform !== 'auto' ? platform : detectAutoPlatform(repo.localPath)
 
-  // Local folders have a synthetic fullName ("local/<name>") — Render and
-  // Railway build from GitHub, so resolve the folder's real remote instead
+  // Render and Railway build from a real GitHub repo — verify we have one.
+  // This covers both local-folder repos and ForgeAI-built sites that were never
+  // pushed to GitHub (build-site sets source='github' but may skip the GitHub
+  // push when credentials are missing, leaving fullName as a bare name with no
+  // owner prefix and no 'origin' remote in the local git folder).
   let repoFullName = repo.fullName
   let repoBranch = repo.defaultBranch ?? 'main'
-  if (repo.source === 'local') {
+  let needsGitHubPush = false
+
+  if (['render', 'railway'].includes(resolvedPlatform)) {
+    // A real GitHub fullName always has the form "owner/repo". Anything else
+    // (a local-folder synthetic name, a bare site name) means no real remote.
+    const hasRealFullName = /^[^/]+\/[^/]+$/.test(repoFullName)
+    if (!hasRealFullName || repo.source === 'local') {
+      // Try to detect the real remote from the local git config
+      const remote = repo.localPath ? await detectGitHubRemote(repo.localPath) : null
+      if (remote) {
+        repoFullName = remote.fullName
+        if (remote.branch && !remote.branch.startsWith('forgeai/')) repoBranch = remote.branch
+      } else {
+        // No usable GitHub remote.
+        if (platform && platform !== 'auto') {
+          // Explicit render/railway choice: push to GitHub automatically if the
+          // user has a GitHub token connected; otherwise tell them what's missing.
+          const effectiveUserId = getEffectiveUserId(req)
+          const ghUser = await User.findById(effectiveUserId).select('+githubAccessToken')
+          if (ghUser?.githubAccessToken) {
+            needsGitHubPush = true   // task processor will push before deploying
+          } else {
+            await refundDeploy()
+            return res.status(400).json({
+              code: 'GITHUB_NOT_CONNECTED',
+              message: `${resolvedPlatform === 'render' ? 'Render' : 'Railway'} builds from a GitHub repository and this project isn't on GitHub yet. Connect your GitHub account in Settings so Blitz Deploy can push it automatically, or switch to Vercel — it uploads files directly without GitHub.`,
+            })
+          }
+        } else {
+          // 'auto' with no remote → Vercel direct-upload (no GitHub needed)
+          resolvedPlatform = 'vercel'
+        }
+      }
+    }
+  } else if (repo.source === 'local' && repo.localPath) {
+    // Non-GitHub platforms with a local folder: still try to update branch from git
     const remote = await detectGitHubRemote(repo.localPath)
     if (remote) {
       repoFullName = remote.fullName
-      // Use the folder's checked-out branch, unless it's a ForgeAI work branch
       if (remote.branch && !remote.branch.startsWith('forgeai/')) repoBranch = remote.branch
-    } else if (['render', 'railway'].includes(resolvedPlatform)) {
-      if (platform && platform !== 'auto') {
-        await refundDeploy()
-        return res.status(400).json({
-          message: `${resolvedPlatform === 'render' ? 'Render' : 'Railway'} builds from a GitHub repository, but this local folder has no GitHub remote. Push the folder to GitHub first, or deploy to Vercel — it uploads your files directly.`,
-        })
-      }
-      // 'auto' on a folder with no GitHub remote → Vercel (direct file upload)
-      resolvedPlatform = 'vercel'
     }
   }
 
@@ -208,6 +236,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
     repoName: deployName,
     branch: repoBranch,
     isLocal: repo.source === 'local',
+    needsGitHubPush,
     aiProvider: user.aiProvider,
     type: 'blitz_deploy',
   })

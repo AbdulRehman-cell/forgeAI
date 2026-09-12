@@ -18,11 +18,14 @@ export default function Repositories() {
     queryFn: () => api.get('/repositories').then((r) => r.data.repositories),
   })
 
-  const { data: ghRepos, isLoading: ghLoading } = useQuery({
+  const { data: ghRepos, isLoading: ghLoading, error: ghError } = useQuery({
     queryKey: ['github-repos'],
     queryFn: () => api.get('/github/repos').then((r) => r.data.repositories),
     enabled: showImport,
+    retry: false,
   })
+  const ghNeedsConnect = (ghError as any)?.response?.data?.code === 'GITHUB_TOKEN_EXPIRED'
+    || (ghError as any)?.response?.data?.message === 'GitHub not connected'
 
   const importMutation = useMutation({
     mutationFn: (repoData: any) => api.post('/repositories/import', repoData),
@@ -173,9 +176,25 @@ export default function Repositories() {
               <div className="flex-1 flex items-center justify-center py-12">
                 <Loader2 className="animate-spin text-zinc-500" />
               </div>
+            ) : ghNeedsConnect ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 gap-4 text-center">
+                <p className="text-sm text-zinc-400">
+                  {(ghError as any)?.response?.data?.code === 'GITHUB_TOKEN_EXPIRED'
+                    ? 'Your GitHub token has expired.'
+                    : 'GitHub is not connected to your account.'}
+                </p>
+                <a
+                  href={`${import.meta.env.VITE_API_URL}/auth/github`}
+                  className="btn-primary flex items-center gap-2 text-sm"
+                >
+                  Connect GitHub
+                </a>
+              </div>
             ) : (
               <div className="overflow-y-auto space-y-1.5">
-                {ghRepos?.map((r: any) => (
+                {(!ghRepos || ghRepos.length === 0) ? (
+                  <p className="text-sm text-zinc-500 text-center py-8">No repositories found.</p>
+                ) : ghRepos.map((r: any) => (
                   <button
                     key={r.id}
                     onClick={() => importMutation.mutate({ githubId: r.id, fullName: r.full_name, name: r.name, description: r.description, language: r.language, private: r.private, defaultBranch: r.default_branch, cloneUrl: r.clone_url })}
