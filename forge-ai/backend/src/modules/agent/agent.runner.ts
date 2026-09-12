@@ -64,7 +64,8 @@ You work in steps. Each reply must contain ONE OR MORE tool calls. Available too
 {"tool": "run_command", "command": "npm test"}
 \`\`\`
 
-5. **PREFERRED FOR SMALL EDITS TO LARGE FILES** — surgical string replacement. Finds ONE exact occurrence of old_string in the file and replaces it with new_string. Nothing else is touched. Use this whenever you want to change a specific block (one CSS rule, one function, one line) inside a file bigger than what you can hold in context:
+5. **PREFERRED FOR SMALL EDITS TO LARGE FILES** — surgical string replacement. Finds ONE exact occurrence of old_string in the file and replaces it with new_string. Nothing else is touched. Use this whenever you want to change a specific block (one CSS rule, one function, one line) inside a file bigger than what you can hold in context.
+CRITICAL: edit_file MUST use the XML format below — never use JSON for this tool:
 <edit_file path="relative/path/to/file.ts">
 <old>
 .contact-form { padding: 2rem; }
@@ -557,7 +558,16 @@ async function executeAction(
       case 'edit_file': {
         if (!action.path) throw new Error('edit_file requires "path"')
         if (typeof action.old_string !== 'string' || typeof action.new_string !== 'string') {
-          throw new Error('edit_file requires <old>…</old> and <new>…</new> blocks')
+          // Give the model a concrete, copy-paste-ready example so it can self-correct.
+          throw new Error(
+            `edit_file on "${action.path}" is missing the <old>…</old> and <new>…</new> blocks.\n` +
+            `Use EXACTLY this XML format (do not use JSON for edit_file):\n\n` +
+            `<edit_file path="${action.path}">\n` +
+            `<old>\nexact text from the file to replace (copy verbatim)\n</old>\n` +
+            `<new>\nreplacement text\n</new>\n` +
+            `</edit_file>\n\n` +
+            `Read the file first, then copy the exact lines you want to change into <old>.`,
+          )
         }
         await log(`✏️ Editing ${action.path}`)
         try {
