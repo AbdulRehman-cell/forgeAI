@@ -1177,6 +1177,14 @@ After the files, add a summary starting with "## Deployment Summary" that explai
         }
         await git.addConfig('user.name', 'ForgeAI')
         await git.addConfig('user.email', 'bot@forgeai.dev')
+        // Repos are cloned with --depth 1 (shallow). A shallow clone cannot
+        // push branches back to GitHub because the parent commit referenced
+        // by the new commit is not in the local pack. Unshallow first so
+        // GitHub's index-pack can verify the full object graph.
+        if (fs.existsSync(path.join(localPath, '.git', 'shallow'))) {
+          await updateTask(task, {}, 'Fetching full git history (shallow clone)…')
+          try { await simpleGit(localPath).env(gitEnv()).fetch([pushUrl, '--unshallow']) } catch { /* already full-depth */ }
+        }
         await git.checkout(['-B', 'forgeai/blitz-deploy'])
         // Local: stage ONLY the generated files — never sweep up the user's
         // uncommitted work. Cloned repos are ForgeAI-managed, so add all.
@@ -1311,6 +1319,9 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
           try {
             await git.addConfig('user.name', 'ForgeAI')
             await git.addConfig('user.email', 'bot@forgeai.dev')
+            if (attempt === 1 && fs.existsSync(path.join(localPath, '.git', 'shallow'))) {
+              try { await simpleGit(localPath).env(gitEnv()).fetch([blitzPushUrl(repoFullName), '--unshallow']) } catch { /* already full */ }
+            }
             await git.add(fixedFiles.map(f => f.path))
             await git.commit(`ForgeAI Auto-fix attempt ${attempt}: ${fixedFiles.map(f => f.path).join(', ')}`)
             await git.push([blitzPushUrl(repoFullName), 'forgeai/blitz-deploy', '--force'])
