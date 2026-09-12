@@ -41,7 +41,8 @@ export default function FileTree({ repositoryId }: Props) {
 
   if (!data?.length) return (
     <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed space-y-2">
-      <p>No files found.<br />Repository may still be cloning.</p>
+      <Loader2 size={12} className="animate-spin mx-auto text-zinc-700" />
+      <p>Loading files…</p>
       <button onClick={refresh} className="flex items-center gap-1 mx-auto text-zinc-500 hover:text-zinc-300 transition-colors">
         <RefreshCw size={11} /> Refresh
       </button>

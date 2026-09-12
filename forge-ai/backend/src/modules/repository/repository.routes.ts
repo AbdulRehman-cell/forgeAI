@@ -3,10 +3,12 @@ import { requireAuth } from '../../middleware/auth.middleware'
 import { resolveTeamOwner, getEffectiveUserId, checkRepoAccess } from '../../middleware/teamContext.middleware'
 import { Repository } from './repository.model'
 import { Task } from '../tasks/task.model'
+import { User } from '../users/user.model'
 import { enqueueJob } from '../../lib/workers'
 import axios from 'axios'
 import path from 'path'
 import fs from 'fs'
+import simpleGit from 'simple-git'
 
 const router = Router()
 router.use(requireAuth)
@@ -60,6 +62,27 @@ router.get('/:id', checkRepoAccess, async (req, res) => {
 router.get('/:id/tree', checkRepoAccess, async (req, res) => {
   const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found or not cloned' })
+
+  // Auto-re-clone if Render's ephemeral filesystem wiped the workspace
+  if (!fs.existsSync(repo.localPath) && repo.source !== 'local' && repo.cloneUrl) {
+    try {
+      const fullUser = await User.findById(repo.userId).select('+githubAccessToken')
+      const authUrl = fullUser?.githubAccessToken
+        ? repo.cloneUrl.replace('https://', `https://${fullUser.githubAccessToken}@`)
+        : repo.cloneUrl
+      fs.mkdirSync(repo.localPath, { recursive: true })
+      await simpleGit().clone(authUrl, repo.localPath, ['--depth', '1'])
+      repo.status = 'ready'
+      await repo.save()
+    } catch (err: any) {
+      fs.rmSync(repo.localPath, { recursive: true, force: true })
+      return res.status(503).json({
+        message: `Workspace was lost (server restart). Re-clone failed: ${err.message ?? 'unknown error'}`,
+      })
+    }
+  } else if (!fs.existsSync(repo.localPath)) {
+    return res.status(404).json({ message: 'Workspace files are unavailable. Please re-import this repository.' })
+  }
 
   // Try Python service first
   try {
