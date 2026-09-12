@@ -204,6 +204,16 @@ app.get('/api/share/:token', async (req, res) => {
 // Health
 app.get('/health', (_, res) => res.json({ status: 'ok' }))
 
+// Serve React frontend in production (backend and frontend share the same Render service)
+if (process.env.NODE_ENV === 'production') {
+  const frontendDist = path.join(process.cwd(), 'forge-ai', 'frontend', 'dist')
+  app.use(express.static(frontendDist))
+  // SPA fallback — send index.html for any non-API route
+  app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/)/, (_req, res) => {
+    res.sendFile(path.join(frontendDist, 'index.html'))
+  })
+}
+
 // 404
 app.use((_, res) => res.status(404).json({ message: 'Route not found' }))
 

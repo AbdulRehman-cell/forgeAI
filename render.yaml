@@ -5,7 +5,12 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: "cd forge-ai/backend && npm install --production=false && npm run build"
+    buildCommand: "cd forge-ai/frontend && npm install && npm run build && cd ../backend && npm install --production=false && npm run build"
     startCommand: "node forge-ai/backend/dist/index.js"
     healthCheckPath: /health
     autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_API_URL
+        value: /api
