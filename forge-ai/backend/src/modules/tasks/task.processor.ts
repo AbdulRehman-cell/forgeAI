@@ -100,6 +100,17 @@ async function safeChat(
 
 export async function processTask(job: Job) {
   const { type } = job.data
+
+  // Tasks that need a local workspace: re-clone from GitHub when Render's
+  // ephemeral filesystem wiped the repo directory between restarts/deploys.
+  const NEEDS_LOCAL_PATH = new Set([
+    'fix_workspace', 'fix_file', 'review', 'generate_tests',
+    'security_scan', 'blitz_deploy', 'agent', 'rebuild_proposal',
+  ])
+  if (NEEDS_LOCAL_PATH.has(type) && job.data.localPath && job.data.repositoryId) {
+    await ensureLocalPath(job)
+  }
+
   switch (type) {
     case 'clone_repo':    return cloneRepository(job)
     case 'fix_workspace': return fixWorkspace(job)
@@ -112,6 +123,49 @@ export async function processTask(job: Job) {
     case 'build_site':    return buildSite(job)
     case 'rebuild_proposal': return rebuildProposal(job)
     default: throw new Error(`Unknown task type: ${type}`)
+  }
+}
+
+/**
+ * If localPath no longer exists on disk (Render wipes the ephemeral
+ * filesystem on every restart/redeploy), re-clone the repo from GitHub
+ * so that all subsequent task tools find the files they expect.
+ */
+async function ensureLocalPath(job: Job) {
+  const { localPath, repositoryId, userId } = job.data
+  if (fs.existsSync(localPath)) return  // directory is present — nothing to do
+
+  const repo = await Repository.findById(repositoryId)
+  if (!repo) return
+
+  // Only GitHub-sourced repos can be re-cloned automatically.
+  // Local folders can't be recovered — the user must re-import them.
+  if (repo.source === 'local' || !repo.cloneUrl) {
+    throw new Error(
+      'The local workspace was lost (server restart / redeploy). ' +
+      'Please re-import this repository from the Repositories page to restore it.',
+    )
+  }
+
+  console.info(`[processor] localPath missing — re-cloning ${repo.fullName}`)
+  const fullUser = await User.findById(userId).select('+githubAccessToken')
+  const authUrl = fullUser?.githubAccessToken
+    ? repo.cloneUrl.replace('https://', `https://${fullUser.githubAccessToken}@`)
+    : repo.cloneUrl
+
+  fs.mkdirSync(localPath, { recursive: true })
+  const git = simpleGit().env(gitEnv())
+  try {
+    await git.clone(authUrl, localPath, ['--depth', '1'])
+    repo.status = 'ready'
+    await repo.save()
+    console.info(`[processor] Re-cloned ${repo.fullName} to ${localPath}`)
+  } catch (err: any) {
+    fs.rmSync(localPath, { recursive: true, force: true })
+    throw new Error(
+      `Could not re-clone ${repo.fullName}: ${String(err.message).replace(/\/\/[^@/\s]+@/g, '//***@')}. ` +
+      'Check that your GitHub token is still valid in Settings.',
+    )
   }
 }
 
