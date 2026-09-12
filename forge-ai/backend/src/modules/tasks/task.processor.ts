@@ -1145,42 +1145,69 @@ After the files, add a summary starting with "## Deployment Summary" that explai
   const platformNeedsGitHub = platform === 'render' || platform === 'railway'
   let pushed = false
   let restoreBranch: string | undefined
+
+  // Fetch the GitHub token once so we can push with auth directly — we never
+  // rely on `origin` being configured in the local repo because it may not be
+  // (e.g. a build-site repo that was created without a GitHub push).
+  let blitzGhToken: string | undefined
+  if (platformNeedsGitHub) {
+    const ghUser = await User.findById(job.data.userId).select('+githubAccessToken')
+    blitzGhToken = ghUser?.githubAccessToken ?? undefined
+  }
+
+  /** Build an authenticated push URL. Falls back to `origin` only as a last resort. */
+  const blitzPushUrl = (fullName: string): string => {
+    if (blitzGhToken && /^[^/]+\/[^/]+$/.test(fullName)) {
+      return `https://${blitzGhToken}@github.com/${fullName}.git`
+    }
+    return 'origin'
+  }
+
   if (allChanges.length && platformNeedsGitHub) {
-    const git = simpleGit(localPath)
-    try {
-      // Local folders are the user's own working copy — remember their branch
-      // so we can put them back on it after pushing the configs
-      if (isLocal) {
-        try { restoreBranch = (await git.branchLocal()).current || undefined } catch {}
-      }
-      await git.addConfig('user.name', 'ForgeAI')
-      await git.addConfig('user.email', 'bot@forgeai.dev')
-      await git.checkout(['-B', 'forgeai/blitz-deploy'])
-      // Local: stage ONLY the generated files — never sweep up the user's
-      // uncommitted work. Cloned repos are ForgeAI-managed, so add all.
-      if (isLocal) await git.add(allChanges.map((c) => c.path))
-      else await git.add('.')
-      await git.commit(`ForgeAI Blitz Deploy: ${platform} configs`)
-      await git.push(['origin', 'forgeai/blitz-deploy', '--force'])
-      pushed = true
-      await updateTask(task, {}, 'Pushed deployment configs to branch: forgeai/blitz-deploy')
-    } catch (err: any) {
-      // GitHub rejects pushes touching .github/workflows/ unless the OAuth
-      // token has the 'workflow' scope — retry without the CI files
-      if (/workflow/i.test(err.message)) {
-        try {
-          const ciFiles = allChanges.filter((c) => c.path.replace(/\\/g, '/').startsWith('.github/workflows/'))
-          for (const ci of ciFiles) fs.rmSync(path.join(localPath, ci.path), { force: true })
-          await git.add(['-A'])
-          await git.commit('ForgeAI Blitz Deploy: configs (CI workflow omitted)')
-          await git.push(['origin', 'forgeai/blitz-deploy', '--force'])
-          pushed = true
-          await updateTask(task, {}, 'GitHub token lacks the "workflow" scope, so the CI workflow was not pushed. Log out and sign in with GitHub again to grant it.', 'warn')
-        } catch (err2: any) {
-          await updateTask(task, {}, `Could not push configs to GitHub: ${err2.message}`, 'warn')
+    if (!blitzGhToken) {
+      await updateTask(task, {}, 'Cannot push deployment configs — GitHub account not connected. Go to Settings → GitHub to connect your account.', 'warn')
+    } else {
+      const git = simpleGit(localPath)
+      const pushUrl = blitzPushUrl(repoFullName)
+      try {
+        // Local folders are the user's own working copy — remember their branch
+        // so we can put them back on it after pushing the configs
+        if (isLocal) {
+          try { restoreBranch = (await git.branchLocal()).current || undefined } catch {}
         }
-      } else {
-        await updateTask(task, {}, `Could not push configs to GitHub: ${err.message}`, 'warn')
+        await git.addConfig('user.name', 'ForgeAI')
+        await git.addConfig('user.email', 'bot@forgeai.dev')
+        await git.checkout(['-B', 'forgeai/blitz-deploy'])
+        // Local: stage ONLY the generated files — never sweep up the user's
+        // uncommitted work. Cloned repos are ForgeAI-managed, so add all.
+        if (isLocal) await git.add(allChanges.map((c) => c.path))
+        else await git.add('.')
+        await git.commit(`ForgeAI Blitz Deploy: ${platform} configs`)
+        await git.push([pushUrl, 'forgeai/blitz-deploy', '--force'])
+        pushed = true
+        await updateTask(task, {}, 'Pushed deployment configs to branch: forgeai/blitz-deploy')
+        // Ensure a clean public origin is set for subsequent operations
+        await git.removeRemote('origin').catch(() => {})
+        await git.addRemote('origin', `https://github.com/${repoFullName}.git`).catch(() => {})
+      } catch (err: any) {
+        const errMsg = (err.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')
+        // GitHub rejects pushes touching .github/workflows/ unless the OAuth
+        // token has the 'workflow' scope — retry without the CI files
+        if (/workflow/i.test(errMsg)) {
+          try {
+            const ciFiles = allChanges.filter((c) => c.path.replace(/\\/g, '/').startsWith('.github/workflows/'))
+            for (const ci of ciFiles) fs.rmSync(path.join(localPath, ci.path), { force: true })
+            await git.add(['-A'])
+            await git.commit('ForgeAI Blitz Deploy: configs (CI workflow omitted)')
+            await git.push([pushUrl, 'forgeai/blitz-deploy', '--force'])
+            pushed = true
+            await updateTask(task, {}, 'GitHub token lacks the "workflow" scope, so the CI workflow was not pushed. Log out and sign in with GitHub again to grant it.', 'warn')
+          } catch (err2: any) {
+            await updateTask(task, {}, `Could not push configs to GitHub: ${(err2.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')}`, 'warn')
+          }
+        } else {
+          await updateTask(task, {}, `Could not push configs to GitHub: ${errMsg}`, 'warn')
+        }
       }
     }
   }
@@ -1286,10 +1313,10 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
             await git.addConfig('user.email', 'bot@forgeai.dev')
             await git.add(fixedFiles.map(f => f.path))
             await git.commit(`ForgeAI Auto-fix attempt ${attempt}: ${fixedFiles.map(f => f.path).join(', ')}`)
-            await git.push(['origin', 'forgeai/blitz-deploy', '--force'])
+            await git.push([blitzPushUrl(repoFullName), 'forgeai/blitz-deploy', '--force'])
             await updateTask(task, {}, `Pushed auto-fix to forgeai/blitz-deploy`)
           } catch (gitErr: any) {
-            await updateTask(task, {}, `Could not push fix: ${gitErr.message}`, 'warn')
+            await updateTask(task, {}, `Could not push fix: ${(gitErr.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')}`, 'warn')
             // If there is no remote, further auto-fix attempts are pointless
             if (/no remote|does not appear to be a git/i.test(gitErr.message)) {
               lastError = gitErr.message
