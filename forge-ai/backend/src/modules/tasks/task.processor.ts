@@ -3250,7 +3250,7 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
   const mounts = plan.models
     .map((m) => m.name.toLowerCase())
     .filter((lower) => files.some((f) => f.path === `server/routes/${lower}.routes.js`))
-    .map((lower) => `app.use('/api/${lower}s', require('./routes/${lower}.routes'))`)
+    .map((lower) => `app.use('/api/${pluralize(lower)}', require('./routes/${lower}.routes'))`)
     .join('\n')
   const content = [
     "require('dotenv').config()",
@@ -3312,7 +3312,7 @@ function mernAdminPage(plan: MernPlan, files: ParsedChange[]): ParsedChange {
     const src = files.find((f) => f.path === `server/models/${m.name}.js`)?.content ?? ''
     return {
       name: m.name,
-      endpoint: `/api/${m.name.toLowerCase()}s`,
+      endpoint: `/api/${pluralize(m.name.toLowerCase())}`,
       fields: m.fields.map((f) => ({ name: f.name, type: f.type, ...modelFieldConstraints(src, f.name) })),
     }
   })
@@ -3470,12 +3470,45 @@ export default function Admin() {
 function healModel(name: string): string {
   return [
     "const mongoose = require('mongoose');",
-    '// Auto-generated so a client API call has a working backend.',
-    '// strict:false accepts whatever fields the client sends.',
-    'const schema = new mongoose.Schema({}, { strict: false, timestamps: true });',
+    '// Auto-generated to back a client API call that had no matching route.',
+    `const schema = new mongoose.Schema({ name: { type: String, trim: true } }, { strict: false, timestamps: true });`,
     `module.exports = mongoose.model('${name}', schema);`,
     '',
   ].join('\n')
+}
+
+/** Proper English pluralization for model names used as API endpoint paths. */
+function pluralize(word: string): string {
+  const w = word.toLowerCase()
+  // Irregular
+  const irreg: Record<string, string> = {
+    person: 'people', man: 'men', woman: 'women', child: 'children',
+    tooth: 'teeth', foot: 'feet', mouse: 'mice', goose: 'geese',
+  }
+  if (irreg[w]) return irreg[w]
+  // Already plural (ends in common plural markers)
+  if (/^(quiz|bus|class|pass|glass|mass|dress|address|mess|success|press)$/.test(w)) return w + 'zes'.slice(w.endsWith('z') ? 0 : 1)
+  if (/[aeiou]z$/.test(w)) return w + 'zes'
+  if (/z$/.test(w)) return w + 'zes'
+  if (/[sxz]$/.test(w) || /[cs]h$/.test(w)) return w + 'es'
+  if (/[^aeiou]y$/.test(w)) return w.slice(0, -1) + 'ies'
+  if (/fe?$/.test(w)) return w.replace(/fe?$/, 'ves')
+  return w + 's'
+}
+
+/** Return candidates for ep by stripping/adding common plural suffixes. */
+function pluralVariants(ep: string): string[] {
+  const v = new Set<string>()
+  // singular → plural
+  v.add(ep + 's')
+  v.add(ep + 'es')
+  if (ep.endsWith('y')) v.add(ep.slice(0, -1) + 'ies')
+  // plural → singular
+  if (ep.endsWith('ies')) v.add(ep.slice(0, -3) + 'y')
+  if (ep.endsWith('es') && ep.length > 3) v.add(ep.slice(0, -2))
+  if (ep.endsWith('s') && ep.length > 2) v.add(ep.slice(0, -1))
+  v.delete(ep)
+  return [...v]
 }
 
 /** Generic CRUD Express router mounted at the exact endpoint the client calls. */
@@ -3511,19 +3544,31 @@ async function healMissingApiEndpoints(files: ParsedChange[], log: (m: string, p
   for (const m of server.content.matchAll(/app\.use\(\s*["'`]\/api\/([a-zA-Z0-9_-]+)/g)) mounted.add(m[1].toLowerCase())
   let mountLines = ''
   for (const ep of [...called].filter((e) => !mounted.has(e)).slice(0, 4)) {
-    // Route file exists but is mounted at a different path (e.g. a "News" model
-    // pluralized to /api/newss while the client calls /api/news) — alias it.
-    if (files.some((f) => f.path.replace(/\\/g, '/') === `server/routes/${ep}.routes.js`)) {
+    const norm = (p: string) => p.replace(/\\/g, '/')
+    const routePaths = files.map((f) => norm(f.path))
+
+    // 1. Exact route file already exists — just mount it.
+    if (routePaths.includes(`server/routes/${ep}.routes.js`)) {
       mountLines += `app.use('/api/${ep}', require('./routes/${ep}.routes'))\n`
       await log(`🔌 Aliased /api/${ep} to its existing route (mount-path mismatch fixed).`)
       continue
     }
+
+    // 2. Plural/singular variant exists — alias the client path to the real route file.
+    const variant = pluralVariants(ep).find((v) => routePaths.includes(`server/routes/${v}.routes.js`))
+    if (variant) {
+      mountLines += `app.use('/api/${ep}', require('./routes/${variant}.routes'))\n`
+      await log(`🔌 /api/${ep} → ${variant}.routes.js (plural/singular mismatch fixed — no duplicate model created).`)
+      continue
+    }
+
+    // 3. Genuine gap — no related route exists at all. Generate a minimal model + route.
     const name = (ep.replace(/[^a-zA-Z0-9]/g, '').replace(/^./, (c) => c.toUpperCase())) || 'Item'
-    if (files.some((f) => f.path.replace(/\\/g, '/') === `server/models/${name}.js`)) continue
+    if (routePaths.includes(`server/models/${name}.js`)) continue
     files.push({ path: `server/models/${name}.js`, content: healModel(name) })
     files.push({ path: `server/routes/${ep}.routes.js`, content: healRoute(name) })
     mountLines += `app.use('/api/${ep}', require('./routes/${ep}.routes'))\n`
-    await log(`🔌 Client calls /api/${ep} with no backend — auto-generated a ${name} model + route so it works.`)
+    await log(`🔌 Client calls /api/${ep} with no backend — generated minimal ${name} model + route.`)
   }
   if (mountLines) {
     server.content = /\n\/\/ Serve the built React client/.test(server.content)
