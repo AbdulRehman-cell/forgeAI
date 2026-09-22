@@ -250,7 +250,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
 // deployable with Blitz Deploy like any other repository.
 router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   const user = req.user as any
-  let { prompt, name, stack, mongoUri, style, importUrl, mode, analyticsProvider, analyticsId } = req.body
+  let { prompt, name, stack, mongoUri, style, importUrl, mode, analyticsProvider, analyticsId, addons } = req.body
   prompt += ' Generate a complete website with all necessary files Ensure the code is well-structured and ready for deployment and the ui and styling should be outstanding.The website should have atleast four pages and the home page should atleast ahve five sections.'
 
   if (!prompt?.trim()) return res.status(400).json({ message: 'Describe the website you want to build' })
@@ -313,6 +313,9 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     .toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
     || `forgeai-site-${Date.now().toString(36)}`
 
+  const validAddons = ['whatsapp', 'leads', 'seo', 'booking', 'reviews', 'chatbot']
+  const siteAddons = Array.isArray(addons) ? addons.filter((a: string) => validAddons.includes(a)) : []
+
   const repo = await Repository.create({
     userId: getEffectiveUserId(req),
     githubId: -Date.now(), // synthetic until the real GitHub repo is created
@@ -325,6 +328,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     cloneUrl: 'pending',
     source: 'github', // ForgeAI-managed folder — cleaned up on delete
     status: 'cloning',
+    addons: siteAddons,
   })
 
   const task = await Task.create({

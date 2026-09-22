@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
-import { Check, Loader2, Sparkles, ArrowRight, ArrowDownRight } from 'lucide-react'
+import { Check, Loader2, Sparkles, ArrowRight, ArrowDownRight, MessageCircle, TrendingUp, Globe, CalendarClock, Star, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
@@ -152,6 +152,102 @@ export default function Pricing() {
         <p className="text-center text-zinc-600 text-xs mt-10">
           All plans include the VS Code extension, GitHub integration, Blitz Deploy, and multi-model AI.
         </p>
+
+        {/* ── Add-ons section ── */}
+        <div className="mt-20">
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center gap-2 bg-violet-600/10 border border-violet-600/30 text-violet-400 text-xs font-medium px-3 py-1.5 rounded-full mb-4 backdrop-blur">
+              <Sparkles size={12} /> Pro &amp; Team Add-ons
+            </div>
+            <h2 className="text-3xl font-bold text-zinc-100 mb-3">More power for your clients</h2>
+            <p className="text-zinc-500 text-sm max-w-lg mx-auto">
+              When you build a site for a client on the Pro or Team plan, pick the add-ons they need.
+              Our team sets everything up for you.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {([
+              {
+                icon: MessageCircle,
+                color: 'text-emerald-400',
+                bg: 'bg-emerald-500/10 border-emerald-500/20',
+                title: 'WhatsApp Chat Widget',
+                desc: 'Live chat bubble on the site. New leads auto-ping the client via WhatsApp so they never miss an enquiry.',
+                badge: 'Most popular',
+              },
+              {
+                icon: TrendingUp,
+                color: 'text-blue-400',
+                bg: 'bg-blue-500/10 border-blue-500/20',
+                title: 'Lead Generation & CRM',
+                desc: 'Smart lead capture form with real-time WhatsApp & email notifications. Includes a weekly leads report.',
+                badge: null,
+              },
+              {
+                icon: Globe,
+                color: 'text-yellow-400',
+                bg: 'bg-yellow-500/10 border-yellow-500/20',
+                title: 'SEO Package',
+                desc: 'Full on-page SEO — sitemap, Schema markup, Google Business setup, and meta tag optimisation.',
+                badge: null,
+              },
+              {
+                icon: CalendarClock,
+                color: 'text-violet-400',
+                bg: 'bg-violet-500/10 border-violet-500/20',
+                title: 'Appointment Booking',
+                desc: 'Embedded booking calendar with automatic WhatsApp confirmation messages for every appointment.',
+                badge: null,
+              },
+              {
+                icon: Star,
+                color: 'text-orange-400',
+                bg: 'bg-orange-500/10 border-orange-500/20',
+                title: 'Google Reviews Bot',
+                desc: 'After a sale or visit, WhatsApp the customer a short review request. More stars, more trust.',
+                badge: null,
+              },
+              {
+                icon: Zap,
+                color: 'text-brand-400',
+                bg: 'bg-brand-500/10 border-brand-500/20',
+                title: 'WhatsApp AI Chatbot',
+                desc: 'Automated 24/7 FAQ bot. Qualifies leads, answers questions, and books appointments — all via WhatsApp.',
+                badge: 'New',
+              },
+            ] as const).map(({ icon: Icon, color, bg, title, desc, badge }) => (
+              <div key={title} className="relative rounded-2xl border border-[#26262e] bg-[#131318]/80 p-6 flex flex-col gap-3 hover:border-[#3a3a44] transition-colors">
+                {badge && (
+                  <span className="absolute top-4 right-4 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-brand-600/20 text-brand-300 border border-brand-500/30">
+                    {badge}
+                  </span>
+                )}
+                <div className={clsx('w-9 h-9 rounded-xl border flex items-center justify-center shrink-0', bg)}>
+                  <Icon size={16} className={color} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-100 mb-1">{title}</h3>
+                  <p className="text-xs text-zinc-500 leading-relaxed">{desc}</p>
+                </div>
+                <div className="mt-auto pt-2">
+                  <span className="text-[11px] text-zinc-600 flex items-center gap-1">
+                    <Check size={11} className="text-brand-400" /> Included in Pro &amp; Team builds
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-8 rounded-2xl border border-brand-500/20 bg-brand-600/5 px-6 py-5 text-center">
+            <p className="text-sm text-zinc-300 mb-1">
+              <span className="font-semibold text-brand-300">How it works:</span> Select add-ons when building a site in the Builder. Our team reaches out within 24 hours to set everything up for your client.
+            </p>
+            <p className="text-xs text-zinc-600">
+              Add-ons are available on Pro and Team plans. WhatsApp features require a WhatsApp Business number (we help you set one up).
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )

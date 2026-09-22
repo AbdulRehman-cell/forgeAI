@@ -70,6 +70,8 @@ export interface IRepository extends Document {
   }
   /** Granular team permissions — null/empty = all team members can access */
   allowedMemberIds?: Types.ObjectId[]
+  /** Add-ons selected at build time (e.g. whatsapp, leads, seo, booking, reviews, chatbot) */
+  addons?: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -101,6 +103,7 @@ const repositorySchema = new Schema<IRepository>(
     approvedAt: Date,
     maintenanceMode: { type: Boolean, default: false },
     allowedMemberIds: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    addons: [{ type: String }],
     analyticsProvider: { type: String, enum: ['ga', 'plausible', null] },
     analyticsId: String,
     maintenancePlan: {

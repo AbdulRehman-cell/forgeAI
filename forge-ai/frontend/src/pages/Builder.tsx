@@ -1,7 +1,7 @@
 // AI Website Builder — Lovable-style: describe a site, ForgeAI generates it,
 // pushes it to a brand-new GitHub repo, and deploys it with Blitz Deploy.
 import { useEffect, useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
@@ -11,8 +11,9 @@ import clsx from 'clsx'
 import {
   Sparkles, Loader2, Github, FolderOpen, Rocket, Globe, CheckCircle2, XCircle, Wand2, FileText,
   Monitor, Tablet, Smartphone, Send, BarChart2, Construction, UserCheck, CalendarClock,
-  Zap, TrendingUp, ArrowLeftRight, KeyRound,
+  Zap, TrendingUp, ArrowLeftRight, KeyRound, MessageCircle, ShieldCheck, Search, Star,
 } from 'lucide-react'
+import { useAuthStore } from '@/store/authStore'
 import type { Task } from '@/types'
 
 const EXAMPLES = [
@@ -86,8 +87,13 @@ export default function Builder() {
   const [maintenancePlanActive, setMaintenancePlanActive] = useState(false)
   const [envVarsRaw, setEnvVarsRaw] = useState('')
   const [savedEnvKeys, setSavedEnvKeys] = useState<string[]>([])
+  // ── Add-ons ──
+  const [addons, setAddons] = useState<string[]>([])
+  const [waTestState, setWaTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
   const logEndRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const { user } = useAuthStore()
+  const isPaidPlan = ['pro', 'team'].includes((user as any)?.plan ?? '')
 
   const isBuilding = task?.type === 'build_site' && (task.status === 'pending' || task.status === 'running')
   const isDeploying = task?.type === 'blitz_deploy' && (task.status === 'pending' || task.status === 'running')
@@ -129,6 +135,7 @@ export default function Builder() {
       ...(flow === 'existing' ? { importUrl: importUrl.trim(), force } : {}),
       ...(flow === 'new' && stack === 'mern' && mongoUri.trim() ? { mongoUri: mongoUri.trim() } : {}),
       ...(analyticsProvider ? { analyticsProvider, analyticsId: analyticsId.trim() } : {}),
+      ...(addons.length > 0 ? { addons } : {}),
     }),
     onSuccess: ({ data }) => {
       setTask(data.task)
@@ -254,6 +261,12 @@ export default function Builder() {
       toast.success(`${data.savedKeys.length} env var${data.savedKeys.length !== 1 ? 's' : ''} saved — applied on next deploy`)
     },
     onError: (e: any) => toast.error(e.response?.data?.message ?? 'Could not save env vars'),
+  })
+
+  const { data: waStatus } = useQuery({
+    queryKey: ['wa-status'],
+    queryFn: () => api.get('/whatsapp/status').then(r => r.data as { connected: boolean; displayPhone: string | null; verifiedName: string | null }),
+    staleTime: 60_000,
   })
 
   const repoFullName = buildDone || deployDone || isDeploying
@@ -553,6 +566,81 @@ export default function Builder() {
               </div>
             )}
 
+            {/* ── Add-ons ── */}
+            <div className="border border-surface-600 rounded-xl p-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-violet-400" /> Add-ons
+                  <span className="text-zinc-600 font-normal">(Pro / Team)</span>
+                </p>
+                {!isPaidPlan && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300">PRO</span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {([
+                  { id: 'whatsapp', icon: MessageCircle, label: 'WhatsApp Chat Widget', desc: 'Live chat bubble + lead notifications', color: 'text-emerald-400' },
+                  { id: 'leads',    icon: TrendingUp,    label: 'Lead Generation & CRM', desc: 'Smart lead form + WhatsApp/email alerts', color: 'text-blue-400' },
+                  { id: 'seo',      icon: Search,        label: 'SEO Package', desc: 'Sitemap, Schema, Google Business, meta', color: 'text-yellow-400' },
+                  { id: 'booking',  icon: CalendarClock, label: 'Appointment Booking', desc: 'Embedded calendar with WA confirmations', color: 'text-violet-400' },
+                  { id: 'reviews',  icon: Star,          label: 'Google Reviews Bot', desc: 'Auto-send WA asking customers for a review', color: 'text-orange-400' },
+                  { id: 'chatbot',  icon: Sparkles,      label: 'WhatsApp AI Chatbot', desc: 'Automated FAQ + booking flow via WhatsApp', color: 'text-brand-400' },
+                ] as const).map(({ id, icon: Icon, label, desc, color }) => {
+                  const checked = addons.includes(id)
+                  const disabled = !isPaidPlan || busy
+                  return (
+                    <button
+                      key={id}
+                      disabled={disabled}
+                      onClick={() => setAddons(prev => checked ? prev.filter(a => a !== id) : [...prev, id])}
+                      className={clsx(
+                        'text-left rounded-xl border px-3 py-2.5 transition-colors flex items-start gap-2.5',
+                        checked
+                          ? 'border-brand-500/60 bg-brand-600/10'
+                          : 'border-surface-600 hover:border-brand-500/30',
+                        disabled && 'opacity-50 cursor-not-allowed',
+                      )}
+                    >
+                      <div className={clsx('mt-0.5 shrink-0', color)}>
+                        <Icon size={13} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-zinc-200 leading-tight">{label}</p>
+                        <p className="text-[10px] text-zinc-500 mt-0.5 leading-tight">{desc}</p>
+                      </div>
+                      <div className={clsx(
+                        'ml-auto shrink-0 w-4 h-4 rounded border flex items-center justify-center mt-0.5',
+                        checked ? 'bg-brand-500 border-brand-500' : 'border-surface-500',
+                      )}>
+                        {checked && <CheckCircle2 size={10} className="text-white" />}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+              {addons.includes('whatsapp') && (
+                <div className={clsx(
+                  'mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-lg border',
+                  waStatus?.connected
+                    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                    : 'border-amber-500/30 bg-amber-500/5 text-amber-400',
+                )}>
+                  {waStatus?.connected
+                    ? <><ShieldCheck size={12} /> WhatsApp connected — {waStatus.displayPhone ?? waStatus.verifiedName}</>
+                    : <><MessageCircle size={12} /> WhatsApp not connected — <a href="/settings" className="underline font-medium">go to Settings</a> to connect it first</>
+                  }
+                  {waTestState === 'ok' && <span className="ml-auto text-emerald-400">✓ API reachable</span>}
+                  {waTestState === 'fail' && <span className="ml-auto text-red-400">✗ API error</span>}
+                  {waTestState === 'testing' && <Loader2 size={11} className="ml-auto animate-spin" />}
+                </div>
+              )}
+              {!isPaidPlan && (
+                <p className="text-[10px] text-zinc-600 mt-2">
+                  Add-ons are available on Pro and Team plans. <a href="/pricing" className="text-brand-400 hover:underline">Upgrade</a> to enable them.
+                </p>
+              )}
+            </div>
+
             {(() => {
               // Existing sites are gated on the audit: score first, and a site the
               // audit rates "perfect" needs an explicit override to touch.
@@ -562,14 +650,41 @@ export default function Builder() {
               const label = flow === 'existing'
                 ? (!audit ? 'Score the site first' : 'Rebuild this website')
                 : 'Build my website'
+
+              const handleBuild = async () => {
+                if (addons.includes('whatsapp')) {
+                  if (!waStatus?.connected) {
+                    toast.error('Connect WhatsApp in Settings before using the WhatsApp add-on')
+                    return
+                  }
+                  setWaTestState('testing')
+                  try {
+                    const { data } = await api.post('/settings/whatsapp/test')
+                    if (data.ok) {
+                      setWaTestState('ok')
+                      toast.success('WhatsApp API verified ✓')
+                    } else {
+                      setWaTestState('fail')
+                      toast.error('WhatsApp API check failed — verify your credentials in Settings')
+                      return
+                    }
+                  } catch (e: any) {
+                    setWaTestState('fail')
+                    toast.error(e.response?.data?.error ?? 'WhatsApp connection test failed')
+                    return
+                  }
+                }
+                buildMutation.mutate()
+              }
+
               return (
                 <button
-                  onClick={() => buildMutation.mutate()}
-                  disabled={blocked || (flow === 'new' && !prompt.trim()) || busy}
+                  onClick={handleBuild}
+                  disabled={blocked || (flow === 'new' && !prompt.trim()) || busy || waTestState === 'testing'}
                   className="btn-primary w-full flex items-center justify-center gap-2 py-3 disabled:opacity-50"
                 >
-                  {busy ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                  {busy ? 'Working…' : label}
+                  {busy || waTestState === 'testing' ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                  {waTestState === 'testing' ? 'Testing WhatsApp…' : busy ? 'Working…' : label}
                 </button>
               )
             })()}
