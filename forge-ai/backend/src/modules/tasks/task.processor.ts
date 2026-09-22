@@ -3095,7 +3095,7 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
       dev: 'node server/index.js',
       build: 'npm --prefix client install && npm --prefix client run build',
     },
-    dependencies: { cors: '^2.8.5', dotenv: '^16.4.5', express: '^4.19.2', mongoose: '^8.4.0' },
+    dependencies: { cors: '^2.8.5', dotenv: '^16.4.5', express: '^4.19.2', jsonwebtoken: '^9.0.2', mongoose: '^8.4.0' },
   }
   const clientPkg = {
     name: `${siteName}-client`,
@@ -3246,7 +3246,7 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
 }
 
 /** Server entry — built AFTER route generation so it only mounts files that exist. */
-function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]): ParsedChange {
+function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[], adminPassword: string): ParsedChange {
   const mounts = plan.models
     .map((m) => m.name.toLowerCase())
     .filter((lower) => files.some((f) => f.path === `server/routes/${lower}.routes.js`))
@@ -3258,26 +3258,45 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     "const express = require('express')",
     "const cors = require('cors')",
     "const mongoose = require('mongoose')",
+    "const jwt = require('jsonwebtoken')",
     '',
     'const app = express()',
     'app.use(cors())',
     'app.use(express.json())',
     '',
+    '// ── Admin auth helpers ──────────────────────────────────────────────────────',
+    "const ADMIN_SECRET = process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'",
+    `const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ${JSON.stringify(adminPassword)}`,
+    '',
+    'function requireAdmin(req, res, next) {',
+    "  const header = req.headers.authorization || ''",
+    "  const token = header.replace(/^Bearer\\s+/i, '').trim()",
+    "  if (!token) return res.status(401).json({ error: 'Admin authentication required' })",
+    '  try { jwt.verify(token, ADMIN_SECRET); next() }',
+    "  catch { res.status(401).json({ error: 'Invalid or expired admin token' }) }",
+    '}',
+    '',
+    "app.post('/api/admin/login', function (req, res) {",
+    '  const { password } = req.body || {}',
+    "  if (!password || password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Invalid password.' })",
+    "  const token = jwt.sign({ role: 'admin' }, ADMIN_SECRET, { expiresIn: '12h' })",
+    '  res.json({ token })',
+    '})',
+    '',
+    '// ── Data routes (GET public; POST/PUT/DELETE require admin) ─────────────────',
     mounts,
     '',
-    '// Serve the built React client',
+    '// ── Serve the built React client ─────────────────────────────────────────────',
     "const dist = path.join(__dirname, '..', 'client', 'dist')",
     'app.use(express.static(dist))',
     "app.get('*', function (req, res, next) {",
-    "  if (req.path.indexOf('/api/') === 0) return next() // unknown API route -> real 404, not index.html",
+    "  if (req.path.indexOf('/api/') === 0) return next()",
     "  res.sendFile(path.join(dist, 'index.html'))",
     "})",
     '',
     'const PORT = process.env.PORT || 4000',
     `const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/${siteName}'`,
     '',
-    '// Listen immediately — the site must load even while MongoDB connects',
-    '// (or when no database is configured at all)',
     "app.listen(PORT, function () { console.log('Server + client on http://localhost:' + PORT) })",
     '',
     "mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 })",
@@ -3307,7 +3326,7 @@ function modelFieldConstraints(src: string, field: string): { required: boolean;
  *  ONLY at /admin — never linked from the public site navigation. Reads the
  *  generated Mongoose models so the form matches server constraints (required
  *  fields, enum dropdowns) — otherwise create/update fails with a 400. */
-function mernAdminPage(plan: MernPlan, files: ParsedChange[]): ParsedChange {
+function mernAdminPage(plan: MernPlan, files: ParsedChange[], adminPassword: string): ParsedChange {
   const models = plan.models.map((m) => {
     const src = files.find((f) => f.path === `server/models/${m.name}.js`)?.content ?? ''
     return {
@@ -3322,7 +3341,61 @@ import axios from 'axios'
 // ForgeAI admin panel — generic CRUD over every data model.
 // Intentionally NOT linked from the public site; reach it directly at /admin.
 const MODELS = ${JSON.stringify(models, null, 2)}
+const TOKEN_KEY = 'forgeai_admin_token'
 
+function authHeader() {
+  const t = localStorage.getItem(TOKEN_KEY)
+  return t ? { Authorization: \`Bearer \${t}\` } : {}
+}
+
+// ── Login screen ──────────────────────────────────────────────────────────────
+function Login({ onLogin }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      const { data } = await axios.post('/api/admin/login', { password })
+      localStorage.setItem(TOKEN_KEY, data.token)
+      onLogin()
+    } catch {
+      setError('Invalid password.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="container">
+      <section className="section">
+        <form className="card admin-login-card" onSubmit={submit}>
+          <h1 className="admin-login-title">Admin Access</h1>
+          <label className="admin-field" style={{ display: 'block', marginBottom: 16 }}>
+            <span className="admin-label">Password</span>
+            <input
+              className="admin-input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={{ width: '100%', marginTop: 6 }}
+              autoFocus
+            />
+          </label>
+          {error && <p className="admin-error">{error}</p>}
+          <button className="btn btn-primary" type="submit" disabled={loading}>
+            {loading ? 'Logging in…' : 'Log In'}
+          </button>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+// ── Model manager ─────────────────────────────────────────────────────────────
 function ModelManager({ model }) {
   const [rows, setRows] = useState([])
   const [form, setForm] = useState({})
@@ -3351,19 +3424,17 @@ function ModelManager({ model }) {
 
   const submit = async (e) => {
     e.preventDefault()
-    // Build a clean payload: coerce types and OMIT empty values so an empty
-    // number/date never gets sent as "" (which fails the server's cast -> 400).
     const payload = {}
     model.fields.forEach((f) => {
       let v = form[f.name]
       if (f.type === 'Boolean') { payload[f.name] = !!v; return }
-      if (v === '' || v == null) return // skip empties — let the server use defaults/required rules
+      if (v === '' || v == null) return
       if (f.type === 'Number') { const n = Number(v); if (!Number.isNaN(n)) payload[f.name] = n; return }
       payload[f.name] = v
     })
     try {
-      if (editing) await axios.put(model.endpoint + '/' + editing, payload)
-      else await axios.post(model.endpoint, payload)
+      if (editing) await axios.put(model.endpoint + '/' + editing, payload, { headers: authHeader() })
+      else await axios.post(model.endpoint, payload, { headers: authHeader() })
       reset()
       await load()
     } catch (err) {
@@ -3376,8 +3447,8 @@ function ModelManager({ model }) {
 
   const remove = async (id) => {
     if (!window.confirm('Delete this record?')) return
-    try { await axios.delete(model.endpoint + '/' + id); await load() }
-    catch (err) { setError('Delete failed') }
+    try { await axios.delete(model.endpoint + '/' + id, { headers: authHeader() }); await load() }
+    catch { setError('Delete failed') }
   }
 
   return (
@@ -3450,12 +3521,27 @@ function ModelManager({ model }) {
   )
 }
 
+// ── Root component ────────────────────────────────────────────────────────────
 export default function Admin() {
+  const [loggedIn, setLoggedIn] = useState(() => {
+    try { return !!localStorage.getItem(TOKEN_KEY) } catch { return false }
+  })
+
+  const logout = () => {
+    try { localStorage.removeItem(TOKEN_KEY) } catch {}
+    setLoggedIn(false)
+  }
+
+  if (!loggedIn) return <Login onLogin={() => setLoggedIn(true)} />
+
   return (
     <main className="admin container">
-      <header className="admin-head">
-        <h1>Admin Panel</h1>
-        <p className="admin-sub">Manage your application's data. This page is not linked from the public site.</p>
+      <header className="admin-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>Admin Panel</h1>
+          <p className="admin-sub">Manage your application's data. This page is not linked from the public site.</p>
+        </div>
+        <button className="btn btn-secondary" onClick={logout}>Log Out</button>
       </header>
       {MODELS.map((m) => <ModelManager key={m.name} model={m} />)}
     </main>
@@ -3517,13 +3603,21 @@ function healRoute(name: string): string {
   return [
     "const express = require('express');",
     `const ${N} = require('../models/${N}');`,
+    "const jwt = require('jsonwebtoken');",
     'const router = express.Router();',
+    '',
+    'function requireAdmin(req, res, next) {',
+    "  const h = req.headers.authorization || ''; const t = h.replace(/^Bearer\\s+/i, '').trim();",
+    "  if (!t) return res.status(401).json({ error: 'Admin authentication required' });",
+    "  try { jwt.verify(t, process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'); next(); }",
+    "  catch { res.status(401).json({ error: 'Invalid or expired admin token' }); }",
+    '}',
     '',
     `router.get('/', async (req, res) => { try { res.json(await ${N}.find().sort('-createdAt')); } catch (e) { res.status(500).json({ error: 'Failed to fetch.' }); } });`,
     `router.get('/:id', async (req, res) => { try { const doc = await ${N}.findById(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
-    `router.post('/', async (req, res) => { try { res.status(201).json(await ${N}.create(req.body)); } catch (e) { res.status(400).json({ error: e.message }); } });`,
-    `router.put('/:id', async (req, res) => { try { const doc = await ${N}.findByIdAndUpdate(req.params.id, req.body, { new: true }); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(400).json({ error: e.message }); } });`,
-    `router.delete('/:id', async (req, res) => { try { const doc = await ${N}.findByIdAndDelete(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json({ message: 'Deleted.' }); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
+    `router.post('/', requireAdmin, async (req, res) => { try { res.status(201).json(await ${N}.create(req.body)); } catch (e) { res.status(400).json({ error: e.message }); } });`,
+    `router.put('/:id', requireAdmin, async (req, res) => { try { const doc = await ${N}.findByIdAndUpdate(req.params.id, req.body, { new: true }); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(400).json({ error: e.message }); } });`,
+    `router.delete('/:id', requireAdmin, async (req, res) => { try { const doc = await ${N}.findByIdAndDelete(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json({ message: 'Deleted.' }); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
     '',
     'module.exports = router;',
     '',
@@ -3583,8 +3677,9 @@ export async function generateMernSite(
   siteName: string,
   designBrief: string,
   log: (message: string, progress?: number) => Promise<unknown>,
-): Promise<{ files: ParsedChange[]; summary: string }> {
+): Promise<{ files: ParsedChange[]; summary: string; adminPassword: string }> {
   const files: ParsedChange[] = []
+  const adminPassword = generateAdminPassword()
   // Injected into the VISUAL files (App shell, pages, stylesheet) so the whole
   // UI shares one identity. Backend files (models/routes/server) skip it.
   const briefBlock = `${briefHeader}\n${designBrief}\n\n`
@@ -3646,13 +3741,13 @@ export async function generateMernSite(
     await log(`🔌 Generating API routes for ${m.name}…`, (pct += 4))
     await sleep(1500)
     await gen(
-      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) implementing the full CRUD convention for the ${m.name} model (require it from ../models/${m.name}). Every handler async with try/catch and proper status codes (400 validation, 404 missing, 500 otherwise). module.exports the router.`,
+      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) implementing the full CRUD convention for the ${m.name} model (require it from ../models/${m.name}). Rules: GET / and GET /:id are PUBLIC (no auth). POST /, PUT /:id, DELETE /:id must be protected with a requireAdmin middleware that verifies a JWT from req.headers.authorization (secret from process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'). Inline requireAdmin directly in this file — do NOT import from a separate file. Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
       `server/routes/${lower}.routes.js`,
     )
   }
 
   // Server entry — mounts only the route files that actually got generated
-  files.push(mernServerEntry(siteName, plan, files))
+  files.push(mernServerEntry(siteName, plan, files, adminPassword))
 
   // ── React app shell ──
   await log('⚛️ Generating App.jsx…', (pct += 5))
@@ -3715,7 +3810,7 @@ export async function generateMernSite(
   // ── Hidden admin panel ── code-generated CRUD over every model, wired to the
   // /api endpoints. Pushed here (before the CSS passes) so its classes get styled
   // and before the import sanity pass so App.jsx's Admin import resolves.
-  files.push(mernAdminPage(plan, files))
+  files.push(mernAdminPage(plan, files, adminPassword))
 
   // Self-heal: any /api/<x> the client calls but the server never mounted gets a
   // flexible model + CRUD route generated and mounted, so pages never 404.
@@ -3832,7 +3927,7 @@ export async function generateMernSite(
     await log('🎨 Linked index.css into client/src/main.jsx so Vite bundles the styles')
   }
 
-  return { files, summary: plan.summary }
+  return { files, summary: plan.summary, adminPassword }
 }
 
 // ═══ CLAUDE QA / ENHANCEMENT PASS ═════════════════════════════
@@ -3874,6 +3969,12 @@ function createStylist(fallback: AIProvider): AIProvider {
   }
 }
 
+/** Random admin password — alphanumeric, no ambiguous chars (0/O/1/l/I). */
+function generateAdminPassword(): string {
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
 /** Ask the enhancer to return a corrected full file. Guarded: an empty or
  *  truncated reply never overwrites the working file. Returns true if changed. */
 async function claudeFix(
@@ -3898,6 +3999,38 @@ async function claudeFix(
     return true
   }
   return false
+}
+
+/** Send multiple files in ONE Claude call and patch back every file it returns.
+ *  Far cheaper than one call per file: shared system-prompt overhead, and Claude
+ *  has cross-file context so it catches consistency bugs (model vs route mismatches).
+ *  Returns the count of files actually changed. */
+async function claudeFixBatch(
+  enhancer: AIProvider,
+  files: ParsedChange[],
+  instruction: string,
+  context = '',
+): Promise<number> {
+  if (files.length === 0) return 0
+  const fileBlocks = files.map((f) => `<file path="${f.path}">\n${f.content}\n</file>`).join('\n\n')
+  const res = await safeChat(
+    enhancer,
+    `${context ? context + '\n\n' : ''}${fileBlocks}\n\n${instruction}`,
+    QA_SYSTEM_PROMPT,
+  )
+  if (!res) return 0
+  const parsed = parseAIChanges(res.content)
+  let changed = 0
+  for (const fix of parsed) {
+    const target = files.find(
+      (f) => f.path.replace(/\\/g, '/').toLowerCase() === fix.path.replace(/\\/g, '/').toLowerCase(),
+    )
+    if (target && fix.content && fix.content.trim().length > Math.max(80, target.content.length * 0.5)) {
+      target.content = fix.content
+      changed++
+    }
+  }
+  return changed
 }
 
 /** Append-only UI polish: asks for a small block of extra CSS rules (reusing
@@ -3932,75 +4065,69 @@ async function runMernQA(
 ): Promise<void> {
   const norm = (p: string) => p.replace(/\\/g, '/')
 
-  // 1. App.jsx — routing & admin wiring
-  const app = files.find((f) => norm(f.path) === 'client/src/App.jsx')
-  if (app) {
-    await log('🔍 Claude QA — verifying routes & admin wiring in App.jsx…')
-    await claudeFix(
-      enhancer, app,
-      "Verify every page <Route> renders and all page imports resolve. Ensure there is exactly one import of ./pages/Admin.jsx and a <Route path=\"/admin\" element={<Admin />} /> inside <Routes>, but do NOT add /admin to the visible header or nav links — it must stay hidden. main.jsx already provides <BrowserRouter>, so App.jsx must not render its own Router. Fix any routing or import bugs.",
+  // ── Pass 1: entire backend in ONE call ───────────────────────────────────────
+  // Sending all server files together costs far fewer tokens than N individual
+  // calls and gives Claude cross-file context to catch model↔route mismatches.
+  const backendFiles = files.filter((f) => /^server\//.test(norm(f.path)))
+  if (backendFiles.length > 0) {
+    await log(`🔍 Claude QA — reviewing ${backendFiles.length} backend files together…`)
+    const n = await claudeFixBatch(
+      enhancer,
+      backendFiles,
+      `Review these backend files as a connected system. Return <file path="...">...</file> ONLY for files you actually change — omit any file that is already correct.
+
+MONGOOSE MODELS — fix only real bugs:
+• Multi-value fields (options, items, tags, choices, images) MUST be [String] or [{…}], never plain String
+• strict:false schemas with no real fields: replace with properly typed fields inferred from the model name
+• Missing required:true on essential fields (name, text, title, question, email, price…)
+• Date defaults: { default: Date.now } — never { default: Date.now() } (that freezes at boot)
+
+SERVER ENTRY (server/index.js):
+• express.json() must come BEFORE all route mounts
+• Every *.routes.js in server/routes/ must be mounted under /api/<plural>
+• MONGODB_URI and PORT from process.env with sensible fallbacks
+• Static client/dist served; all non-/api/* GET routes fall back to client/dist/index.html
+• Admin login route (/api/admin/login POST) must be mounted BEFORE the requireAdmin middleware
+
+ROUTES (*.routes.js) — full CRUD only, CommonJS, module.exports router:
+• GET / list, GET /:id, POST /, PUT /:id, DELETE /:id with correct Mongoose calls
+• Status codes: 201 create, 400 validation, 404 not found, 500 server error
+• POST / PUT / DELETE handlers must call requireAdmin before any DB write — return 401 if no valid token
+• GET routes remain fully public (no auth)`,
     )
+    await log(`✅ Backend QA — ${n} file(s) improved`)
   }
 
-  // 2. Mongoose models — schema correctness
-  for (const mf of files.filter((f) => /^server\/models\/.+\.js$/.test(norm(f.path)))) {
-    await log(`🔍 Claude QA — reviewing Mongoose schema in ${norm(mf.path)}…`)
-    await claudeFix(
-      enhancer, mf,
-      `Fix real schema bugs only:
-- Fields that hold multiple values (options, items, tags, choices, images) MUST be [String] or [{…}] not plain String — AI generators often get this wrong
-- A schema with strict:false and no real field definitions is always a bug; add proper typed fields inferred from the model name and the app context
-- Add required:true to fields that are always expected (e.g. name, text, title, question)
-- Default date fields: use { type: Date, default: Date.now } — never default: Date.now() (the call form freezes the date at boot)
-Keep CommonJS module.exports. Do not add auth, middleware, or business logic.`,
+  // ── Pass 2: entire frontend in ONE call ──────────────────────────────────────
+  const frontendFiles = files.filter(
+    (f) => /^client\/src\//.test(norm(f.path))
+      && norm(f.path) !== 'client/src/pages/Admin.jsx'
+      && !norm(f.path).endsWith('.css'),
+  )
+  if (frontendFiles.length > 0) {
+    await log(`🔍 Claude QA — reviewing ${frontendFiles.length} frontend files together…`)
+    const n = await claudeFixBatch(
+      enhancer,
+      frontendFiles,
+      `Review these frontend files as a connected system. Return <file path="...">...</file> ONLY for files you actually change — omit any file that is already correct.
+
+APP.JSX:
+• Every planned page has a matching import and <Route> inside <Routes>
+• /admin route must exist but must NOT appear in any <nav>, header link, or menu
+• main.jsx already provides <BrowserRouter> — App.jsx must NOT wrap its own Router
+
+PAGES — fix real bugs only, do NOT touch working UI/layout/styling:
+• Remove ALL hardcoded placeholder values: "Anonymous Student", "Test User", fake IDs, fake emails, fake scores, hardcoded numbers that should come from the server
+• API payloads must include every field the backend requires — if a form collects name/phone/answers, all must be in the POST body
+• Never call JSON.parse() on data that already arrives from axios as a JS value (array or object)
+• SECURITY — this is critical: public-facing pages (Home, Browse, Products, etc.) must NOT contain Create, Edit, or Delete buttons, admin forms, or any data-write controls. Those belong exclusively in Admin.jsx. If you find a delete button or create form on a public page, remove it — public users should only read data
+• Scoring/results: send raw answers to the backend and use the server's response for the score; never calculate a score or grade client-side
+• Fix broken imports; useState initial values must match data shape ([] lists, {} objects, null/'' scalars)`,
     )
+    await log(`✅ Frontend QA — ${n} file(s) improved`)
   }
 
-  // 3. Server entry point — middleware & route wiring
-  const serverIndex = files.find((f) => norm(f.path) === 'server/index.js')
-  if (serverIndex) {
-    await log('🔍 Claude QA — verifying server entry point wiring…')
-    await claudeFix(
-      enhancer, serverIndex,
-      `Verify the Express server wiring and fix any bugs:
-- express.json() must be registered BEFORE routes
-- Every file in server/routes/ must be required and mounted under /api/<name>
-- MONGODB_URI must come from process.env.MONGODB_URI (with a localhost fallback)
-- PORT must come from process.env.PORT (with fallback 4000)
-- The built React client (client/dist) must be served as static files; all non-/api/* GET routes must fall back to client/dist/index.html
-- No duplicate route mounts
-Do not add auth or change business logic.`,
-    )
-  }
-
-  // 4. Route files — CRUD & DB correctness
-  for (const rf of files.filter((f) => /^server\/routes\/.+\.routes\.js$/.test(norm(f.path)))) {
-    const model = norm(rf.path).match(/routes\/(.+)\.routes\.js$/)?.[1] ?? ''
-    await log(`🔍 Claude QA — checking API & DB wiring in ${norm(rf.path)}…`)
-    await claudeFix(
-      enhancer, rf,
-      'Verify full CRUD: GET / (list), GET /:id, POST / (create), PUT /:id (update), DELETE /:id. Confirm correct Mongoose calls, async/await with try/catch, and proper status codes (400 validation, 404 not found, 500 otherwise). Keep it CommonJS and keep module.exports of the router. Fix any database or routing bugs — do not add auth.',
-      `This Express router serves the "${model}" model at /api/${model}s.`,
-    )
-  }
-
-  // 5. Page components — logic, data bugs, hardcoded placeholders
-  for (const pf of files.filter((f) => /^client\/src\/pages\/.+\.(jsx|tsx)$/.test(norm(f.path)))) {
-    await log(`🔍 Claude QA — reviewing page logic in ${norm(pf.path)}…`)
-    await claudeFix(
-      enhancer, pf,
-      `Fix real bugs in this React page:
-- Remove hardcoded placeholder values: "Anonymous Student", "Test User", "test@example.com", fake IDs, fake scores, or any other literal that should come from user input or the server
-- API call payloads: verify every required field is included — if a form collects a name or phone, they must be in the POST body
-- Never call JSON.parse() on data that already arrives from the API as a parsed JavaScript value (array or object) — iterate or access it directly
-- If this page calculates a score, total, or result client-side and there is a backend route for it, remove the client-side calculation and instead send the raw inputs to the server; use the server's response for the result
-- Fix broken imports (components or hooks that are used but not imported, or imported but do not exist)
-- useState initial values must match the data shape: [] for lists, {} for objects, null or '' for scalars
-Do not change working UI, layout, styling, or structure.`,
-    )
-  }
-
-  // 6. CSS polish
+  // ── Pass 3: CSS polish (small append-only, unchanged) ───────────────────────
   await claudePolishCss(
     enhancer, files, 'client/src/index.css',
     '.admin, .admin-model, .admin-form, .admin-field, .admin-input, .admin-table, .admin-actions, .admin-error, .admin-row-actions',
@@ -4210,6 +4337,7 @@ async function buildSite(job: Job) {
       await updateTask(task, {}, '🎨 Claude will handle the styling on this build')
     }
 
+    let mernAdminPwd = ''
     if (stack === 'mern') {
       await updateTask(task, { progress: 8 }, '🧱 Building a full-stack MERN app…')
       const result = await generateMernSite(provider, prompt, siteName, designBrief, (message, progress) =>
@@ -4219,6 +4347,7 @@ async function buildSite(job: Job) {
       }
       generated.push(...result.files)
       summaryLine = result.summary
+      mernAdminPwd = result.adminPassword
     } else {
       // A rebuild must out-do the site it replaces, so the generator is told
       // exactly how rich the original is (pages, imagery, its own sections).
@@ -4337,12 +4466,24 @@ async function buildSite(job: Job) {
       allChanges.push({ path: 'robots.txt', before: '', after: robotsTxt, ...diffStats('', robotsTxt) })
     }
 
-    // MERN + connection string: write a local .env (gitignored — never pushed
-    // to GitHub, never shown in the task diff) and remember it for deploys
-    if (stack === 'mern' && mongoUri) {
-      fs.writeFileSync(path.join(sitePath, '.env'), `MONGODB_URI=${mongoUri}\nPORT=4000\n`, 'utf-8')
-      repo.set('builderEnv', { MONGODB_URI: mongoUri })
-      await updateTask(task, {}, '🔐 MongoDB connection string saved to .env (kept out of git) — it will also be applied when you deploy')
+    // MERN: write a local .env (gitignored — never pushed to GitHub, never
+    // shown in the task diff) with the connection string AND admin password.
+    if (stack === 'mern') {
+      const envLines = ['PORT=4000']
+      if (mongoUri) envLines.push(`MONGODB_URI=${mongoUri}`)
+      if (mernAdminPwd) {
+        envLines.push(`ADMIN_PASSWORD=${mernAdminPwd}`)
+        envLines.push(`ADMIN_JWT_SECRET=${generateAdminPassword()}${generateAdminPassword()}`) // 20-char secret
+      }
+      fs.writeFileSync(path.join(sitePath, '.env'), envLines.join('\n') + '\n', 'utf-8')
+      const envSaved: Record<string, string> = {}
+      if (mongoUri) envSaved.MONGODB_URI = mongoUri
+      if (mernAdminPwd) envSaved.ADMIN_PASSWORD = mernAdminPwd
+      repo.set('builderEnv', envSaved)
+      if (mongoUri) await updateTask(task, {}, '🔐 MongoDB connection string saved to .env (kept out of git)')
+      if (mernAdminPwd) {
+        await updateTask(task, {}, `🔑 Admin panel password: ${mernAdminPwd}  ← save this, it is shown only once. Access /admin directly (not linked from the public site).`)
+      }
     }
 
     // ── Deploy safety-net ── every file that appeared in `generated` must
