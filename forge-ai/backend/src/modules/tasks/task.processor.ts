@@ -3792,10 +3792,11 @@ export async function generateMernSite(
 
 // ═══ CLAUDE QA / ENHANCEMENT PASS ═════════════════════════════
 // The free stack (GPT + Gemini) generates the structure; Claude then runs a
-// TARGETED pass over the highest-leverage files — routing/admin wiring, the
-// server CRUD/DB routes, and UI polish. Best-effort: a missing key, no credit,
-// or a junk reply leaves the free-stack file untouched, so a build never fails
-// because the enhancer was unavailable.
+// TARGETED pass over every high-leverage file — Mongoose models, server entry
+// wiring, every page component, all API route files, and CSS polish.
+// Best-effort: a missing key, no credit, or a junk reply leaves the
+// free-stack file untouched, so a build never fails because the enhancer
+// was unavailable.
 
 const QA_SYSTEM_PROMPT = `You are a senior full-stack engineer doing a focused QA pass on freshly generated code. Fix real bugs, wiring, routing, and data-layer issues while PRESERVING all working behaviour and every existing feature. Do not rewrite working code for style. Output the COMPLETE corrected file inside a single <file path="..."> tag and nothing else. If the file is already correct, return it unchanged.`
 
@@ -3886,6 +3887,7 @@ async function runMernQA(
 ): Promise<void> {
   const norm = (p: string) => p.replace(/\\/g, '/')
 
+  // 1. App.jsx — routing & admin wiring
   const app = files.find((f) => norm(f.path) === 'client/src/App.jsx')
   if (app) {
     await log('🔍 Claude QA — verifying routes & admin wiring in App.jsx…')
@@ -3895,6 +3897,38 @@ async function runMernQA(
     )
   }
 
+  // 2. Mongoose models — schema correctness
+  for (const mf of files.filter((f) => /^server\/models\/.+\.js$/.test(norm(f.path)))) {
+    await log(`🔍 Claude QA — reviewing Mongoose schema in ${norm(mf.path)}…`)
+    await claudeFix(
+      enhancer, mf,
+      `Fix real schema bugs only:
+- Fields that hold multiple values (options, items, tags, choices, images) MUST be [String] or [{…}] not plain String — AI generators often get this wrong
+- A schema with strict:false and no real field definitions is always a bug; add proper typed fields inferred from the model name and the app context
+- Add required:true to fields that are always expected (e.g. name, text, title, question)
+- Default date fields: use { type: Date, default: Date.now } — never default: Date.now() (the call form freezes the date at boot)
+Keep CommonJS module.exports. Do not add auth, middleware, or business logic.`,
+    )
+  }
+
+  // 3. Server entry point — middleware & route wiring
+  const serverIndex = files.find((f) => norm(f.path) === 'server/index.js')
+  if (serverIndex) {
+    await log('🔍 Claude QA — verifying server entry point wiring…')
+    await claudeFix(
+      enhancer, serverIndex,
+      `Verify the Express server wiring and fix any bugs:
+- express.json() must be registered BEFORE routes
+- Every file in server/routes/ must be required and mounted under /api/<name>
+- MONGODB_URI must come from process.env.MONGODB_URI (with a localhost fallback)
+- PORT must come from process.env.PORT (with fallback 4000)
+- The built React client (client/dist) must be served as static files; all non-/api/* GET routes must fall back to client/dist/index.html
+- No duplicate route mounts
+Do not add auth or change business logic.`,
+    )
+  }
+
+  // 4. Route files — CRUD & DB correctness
   for (const rf of files.filter((f) => /^server\/routes\/.+\.routes\.js$/.test(norm(f.path)))) {
     const model = norm(rf.path).match(/routes\/(.+)\.routes\.js$/)?.[1] ?? ''
     await log(`🔍 Claude QA — checking API & DB wiring in ${norm(rf.path)}…`)
@@ -3905,6 +3939,23 @@ async function runMernQA(
     )
   }
 
+  // 5. Page components — logic, data bugs, hardcoded placeholders
+  for (const pf of files.filter((f) => /^client\/src\/pages\/.+\.(jsx|tsx)$/.test(norm(f.path)))) {
+    await log(`🔍 Claude QA — reviewing page logic in ${norm(pf.path)}…`)
+    await claudeFix(
+      enhancer, pf,
+      `Fix real bugs in this React page:
+- Remove hardcoded placeholder values: "Anonymous Student", "Test User", "test@example.com", fake IDs, fake scores, or any other literal that should come from user input or the server
+- API call payloads: verify every required field is included — if a form collects a name or phone, they must be in the POST body
+- Never call JSON.parse() on data that already arrives from the API as a parsed JavaScript value (array or object) — iterate or access it directly
+- If this page calculates a score, total, or result client-side and there is a backend route for it, remove the client-side calculation and instead send the raw inputs to the server; use the server's response for the result
+- Fix broken imports (components or hooks that are used but not imported, or imported but do not exist)
+- useState initial values must match the data shape: [] for lists, {} for objects, null or '' for scalars
+Do not change working UI, layout, styling, or structure.`,
+    )
+  }
+
+  // 6. CSS polish
   await claudePolishCss(
     enhancer, files, 'client/src/index.css',
     '.admin, .admin-model, .admin-form, .admin-field, .admin-input, .admin-table, .admin-actions, .admin-error, .admin-row-actions',
@@ -4152,7 +4203,7 @@ async function buildSite(job: Job) {
     // ── Claude QA / enhancement pass (targeted, best-effort) ──
     const enhancer = createEnhancer()
     if (enhancer) {
-      await updateTask(task, {}, '✨ Claude QA pass — fixing bugs, checking routes & database, polishing UI…')
+      await updateTask(task, {}, '✨ Claude QA pass — reviewing models, server wiring, every page, routes & database…')
       if (stack === 'mern') await runMernQA(enhancer, generated, (m) => updateTask(task, {}, m))
       else await runStaticQA(enhancer, generated, (m) => updateTask(task, {}, m))
       await updateTask(task, {}, '✅ Claude QA pass complete')
