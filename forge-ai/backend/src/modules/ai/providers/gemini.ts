@@ -16,7 +16,7 @@ import type { AIProvider, AIMessage, AIResponse } from './base'
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-flash-latest,gemini-3.1-flash-lite')
+const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-2.0-flash,gemini-1.5-flash,gemini-flash-latest,gemini-1.5-flash-8b')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean)
@@ -73,7 +73,7 @@ export class GeminiProvider implements AIProvider {
 
   constructor(apiKey: string, model?: string) {
     this.apiKey = apiKey
-    this.model = model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash'
+    this.model = model ?? process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   }
 
   async chat(messages: AIMessage[], systemPrompt?: string): Promise<AIResponse> {
@@ -102,9 +102,20 @@ export class GeminiProvider implements AIProvider {
             deadModels.add(model)
             break // rotate to the next model
           }
-          // Rate limited or overloaded → next model has its own quota
-          if (status === 429 || status === 503) {
-            console.warn(`[gemini] ${model} ${status === 429 ? 'rate limited' : 'overloaded'} — trying next model`)
+          // Rate limited → next model has its own quota
+          if (status === 429) {
+            console.warn(`[gemini] ${model} rate limited — trying next model`)
+            break // rotate to the next model
+          }
+          // 503 overloaded — retry same model once with a short backoff before rotating
+          if (status === 503) {
+            if (attempt < 2) {
+              const delay = 1500 * (attempt + 1)
+              console.warn(`[gemini] ${model} overloaded (503) — retry in ${delay}ms`)
+              await sleep(delay)
+              continue // retry same model
+            }
+            console.warn(`[gemini] ${model} overloaded after retries — trying next model`)
             break // rotate to the next model
           }
           if (status === 400 && sendThinking && THINKING_BUDGET <= 0) {
