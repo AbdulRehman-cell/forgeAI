@@ -67,7 +67,9 @@ export function createProvider(name: ProviderName, model?: string): AIProvider {
     }
     case 'gemini':
       if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set')
-      return new GeminiProvider(process.env.GEMINI_API_KEY)
+      // Groq is wired as a per-call fallback — when Gemini 429s, the one in-flight
+      // call retries on Groq; completed files are never regenerated.
+      return freeStack(model)
     case 'github':
       return freeStack(model)
     case 'kimi': {
