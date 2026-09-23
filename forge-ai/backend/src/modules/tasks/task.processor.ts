@@ -3832,24 +3832,51 @@ export async function generateMernSite(
 
   // ── Mongoose models ──
   let pct = 15
+  const generatedModels: string[] = []
   for (const m of plan.models) {
     await log(`🗄️ Generating Mongoose model ${m.name}…`, (pct += 4))
     await sleep(1500)
-    await gen(
+    const ok = await gen(
       `${contract}\n\nGenerate server/models/${m.name}.js — the Mongoose model for ${m.name} (CommonJS) with fields ${JSON.stringify(m.fields)}, { timestamps: true }, and sensible required/trim/default options. module.exports the model.`,
       `server/models/${m.name}.js`,
     )
+    if (ok) {
+      generatedModels.push(m.name)
+    } else {
+      // Fallback: write a minimal but valid model so the route can still compile
+      await log(`⚙️ Model generation failed for ${m.name} — writing minimal fallback model`)
+      const fallbackFields = m.fields.map((f) => {
+        const t = f.type === 'Number' ? 'Number' : f.type === 'Boolean' ? 'Boolean' : f.type === 'Date' ? 'Date' : 'String'
+        return `  ${f.name}: { type: ${t}, trim: ${t === 'String' ? 'true' : 'false'} }`
+      }).join(',\n')
+      files.push({
+        path: `server/models/${m.name}.js`,
+        content: [
+          "const mongoose = require('mongoose')",
+          `const schema = new mongoose.Schema({\n${fallbackFields}\n}, { timestamps: true })`,
+          `module.exports = mongoose.model('${m.name}', schema)`,
+          '',
+        ].join('\n'),
+      })
+      generatedModels.push(m.name)
+    }
   }
 
-  // ── Express routes ──
+  // ── Express routes — only for models that have a file ──
   for (const m of plan.models) {
+    if (!generatedModels.includes(m.name)) continue
     const lower = m.name.toLowerCase()
     await log(`🔌 Generating API routes for ${m.name}…`, (pct += 4))
     await sleep(1500)
-    await gen(
+    const ok = await gen(
       `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) implementing the full CRUD convention for the ${m.name} model (require it from ../models/${m.name}). Rules: GET / and GET /:id are PUBLIC (no auth). POST /, PUT /:id, DELETE /:id must be protected with a requireAdmin middleware that verifies a JWT from req.headers.authorization (secret from process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'). Inline requireAdmin directly in this file — do NOT import from a separate file. Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
       `server/routes/${lower}.routes.js`,
     )
+    if (!ok) {
+      // Fallback: write a minimal CRUD route using the heal route generator
+      await log(`⚙️ Route generation failed for ${m.name} — writing minimal fallback route`)
+      files.push({ path: `server/routes/${lower}.routes.js`, content: healRoute(m.name) })
+    }
   }
 
   // Server entry — mounts only the route files that actually got generated
