@@ -15,6 +15,7 @@ import settingsRoutes from './modules/settings/settings.routes'
 import billingRoutes, { stripeWebhook } from './modules/billing/billing.routes'
 import localRoutes from './modules/local/local.routes'
 import path from 'path'
+import fs from 'fs'
 import uploadRoutes, { UPLOADS_DIR } from './modules/uploads/upload.routes'
 import dashboardRoutes from './modules/dashboard/dashboard.routes'
 import leadsRoutes from './modules/leads/leads.routes'
@@ -206,12 +207,21 @@ app.get('/health', (_, res) => res.json({ status: 'ok' }))
 
 // Serve React frontend in production (backend and frontend share the same Render service)
 if (process.env.NODE_ENV === 'production') {
-  const frontendDist = path.join(process.cwd(), 'forge-ai', 'frontend', 'dist')
-  app.use(express.static(frontendDist))
-  // SPA fallback — send index.html for any non-API route
-  app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/)/, (_req, res) => {
-    res.sendFile(path.join(frontendDist, 'index.html'))
-  })
+  // __dirname = .../forge-ai/backend/dist  →  ../../frontend/dist = .../forge-ai/frontend/dist
+  // Using __dirname is reliable regardless of what cwd Render uses to launch the process.
+  const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist')
+  const indexHtml = path.join(frontendDist, 'index.html')
+  if (fs.existsSync(indexHtml)) {
+    app.use(express.static(frontendDist))
+    app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/)/, (_req, res) => {
+      res.sendFile(indexHtml)
+    })
+  } else {
+    console.warn(`[static] Frontend dist not found at ${frontendDist} — API-only mode. Run 'npm run build' in forge-ai/frontend to fix.`)
+    app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/)/, (_req, res) => {
+      res.status(503).send('<h2>ForgeAI</h2><p>Frontend build not found. The backend is running — redeploy with <code>npm run build</code> in forge-ai/frontend.</p>')
+    })
+  }
 }
 
 // 404
