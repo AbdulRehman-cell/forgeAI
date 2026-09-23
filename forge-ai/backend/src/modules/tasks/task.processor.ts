@@ -3935,7 +3935,7 @@ export async function generateMernSite(
       ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. Include, IN ORDER: (1) a full hero (eyebrow + big headline with a <span class="gradient-text"> accent + subhead + two CTAs), then AT LEAST SIX more full <section class="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stats + stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial-card), a pricing/plans row, an FAQ, and a final call-to-action band — and a rich footer. Every section wrapped in <div class="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance/scroll-reveal animations and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
       : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section class="section"> blocks of real content (not one thin block).`
     await gen(
-      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\nBuild it entirely from the design-system class vocabulary (container, section, section-head, grid-2/3/4, card, feature-card, feature-icon, btn btn-primary/btn-secondary, stats, stat-value, step, step-num, testimonial-card, badge, eyebrow, gradient-text). Write REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page shows or edits data, use axios against the API convention with loading, error, and empty states; forms need validation feedback. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
+      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\nBuild it entirely from the design-system class vocabulary (container, section, section-head, grid-2/3/4, card, feature-card, feature-icon, btn btn-primary/btn-secondary, stats, stat-value, step, step-num, testimonial-card, badge, eyebrow, gradient-text). Write REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page shows data, fetch it with axios GET (no auth needed). CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it. All data write operations (create, edit, delete) belong exclusively in the /admin panel. If you want to show a "Create" or "Add" button, make it a react-router Link to="/admin" instead. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
       `client/src/pages/${p.file}`,
     )
   }
@@ -3987,7 +3987,7 @@ export async function generateMernSite(
     await sleep(1500)
     const importer = files.find((f) => f.path === miss.from)
     const ok = await gen(
-      `${contract}\n\nThe component below imports "${miss.spec}", which does not exist yet. Importer ${miss.from}:\n\`\`\`jsx\n${importer?.content.slice(0, 3000) ?? ''}\n\`\`\`\n\nGenerate the COMPLETE ${miss.resolved} module it expects (default export, matching exactly how the importer uses it). Do NOT import any CSS file.`,
+      `${contract}\n\nThe component below imports "${miss.spec}", which does not exist yet. Importer ${miss.from}:\n\`\`\`jsx\n${importer?.content.slice(0, 3000) ?? ''}\n\`\`\`\n\nGenerate the COMPLETE ${miss.resolved} module it expects (default export, matching exactly how the importer uses it). PUBLIC page rules: only axios GET calls allowed — never POST/PUT/DELETE (those belong in /admin only). Do NOT import any CSS file.`,
       miss.resolved,
     )
     if (!ok && !files.some((f) => f.path === miss.resolved)) {
@@ -3997,7 +3997,7 @@ export async function generateMernSite(
         await log(`🤖 Gemini failed on ${miss.resolved} — asking Claude to generate it…`)
         try {
           const resp = await enhancer.chat(
-            [{ role: 'user', content: `${contract}\n\nGenerate the COMPLETE ${miss.resolved} React component (default export). It is imported by ${miss.from}:\n\`\`\`jsx\n${importer?.content.slice(0, 3000) ?? ''}\n\`\`\`\nMatch exactly how the importer uses it. Do NOT import any CSS file. Reply with only the file content, no markdown fences.` }],
+            [{ role: 'user', content: `${contract}\n\nGenerate the COMPLETE ${miss.resolved} React component (default export). It is imported by ${miss.from}:\n\`\`\`jsx\n${importer?.content.slice(0, 3000) ?? ''}\n\`\`\`\nMatch exactly how the importer uses it. PUBLIC page rules: only axios GET calls — never POST/PUT/DELETE (those belong in /admin only). Do NOT import any CSS file. Reply with only the file content, no markdown fences.` }],
           )
           files.push({ path: miss.resolved, content: resp.content })
           await log(`✅ Claude generated ${miss.resolved}`)
