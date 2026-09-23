@@ -3982,14 +3982,23 @@ export async function generateMernSite(
     }
     if (changed) f.content = lines.join('\n')
   }
-  for (const miss of missingModules.slice(0, 4)) {
+  for (const miss of missingModules) {
     await log(`🧩 ${miss.from} imports missing ${miss.spec} — generating it…`)
     await sleep(1500)
     const importer = files.find((f) => f.path === miss.from)
-    await gen(
+    const ok = await gen(
       `${contract}\n\nThe component below imports "${miss.spec}", which does not exist yet. Importer ${miss.from}:\n\`\`\`jsx\n${importer?.content.slice(0, 3000) ?? ''}\n\`\`\`\n\nGenerate the COMPLETE ${miss.resolved} module it expects (default export, matching exactly how the importer uses it). Do NOT import any CSS file.`,
       miss.resolved,
     )
+    if (!ok && !files.some((f) => f.path === miss.resolved)) {
+      // AI failed — push a minimal stub so Vite can build at all
+      const name = path.posix.basename(miss.resolved, '.jsx').replace(/[^a-zA-Z0-9]/g, '')
+      files.push({
+        path: miss.resolved,
+        content: `export default function ${name || 'Page'}() {\n  return (\n    <div className="section">\n      <div className="container">\n        <h1 className="gradient-text">${name}</h1>\n        <p>Coming soon.</p>\n      </div>\n    </div>\n  )\n}\n`,
+      })
+      await log(`⚠️ Could not generate ${miss.resolved} — inserted placeholder so the build succeeds`)
+    }
   }
 
   // ── Stylesheet LAST — after every component exists ──
