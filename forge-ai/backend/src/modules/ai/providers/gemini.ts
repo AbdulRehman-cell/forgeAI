@@ -86,8 +86,8 @@ export class GeminiProvider implements AIProvider {
       // Inner loop attempts (per model):
       //   attempt 0: send with thinkingConfig
       //   attempt 1: retry without thinkingConfig (some models 400 on budget=0)
-      //   attempts 2-4: network-retry slots for transient TLS/socket failures
-      for (let attempt = 0; attempt < 5; attempt++) {
+      //   attempts 2-5: 503 backoff slots (5s, 10s, 20s, 40s)
+      for (let attempt = 0; attempt < 6; attempt++) {
         const sendThinking = attempt === 0
         try {
           return await this.generateWithContinuation(model, contents, systemPrompt, sendThinking)
@@ -107,10 +107,12 @@ export class GeminiProvider implements AIProvider {
             console.warn(`[gemini] ${model} rate limited — trying next model`)
             break // rotate to the next model
           }
-          // 503 overloaded — retry same model once with a short backoff before rotating
+          // 503 overloaded — retry with exponential backoff before rotating.
+          // Paid tier: 5 attempts (0s,5s,10s,20s,40s = ~75s max per model).
           if (status === 503) {
-            if (attempt < 2) {
-              const delay = 1500 * (attempt + 1)
+            const maxRetries = 4
+            if (attempt < maxRetries) {
+              const delay = Math.min(5000 * Math.pow(2, attempt), 40_000)
               console.warn(`[gemini] ${model} overloaded (503) — retry in ${delay}ms`)
               await sleep(delay)
               continue // retry same model
