@@ -1974,6 +1974,94 @@ footer, .site-footer { margin-top: clamp(4rem, 8vw, 6rem); padding: clamp(2.5rem
 /* Wide content (data tables, etc.) scrolls instead of breaking the layout on phones */
 .admin-table-wrap, .table-wrap, .table-responsive, .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
+/* ── Featured / highlighted card (pricing, spotlight, etc.) ─────────────────── */
+.card.featured, .pricing-card.featured, .plan.featured { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), 0 24px 56px -20px color-mix(in srgb, var(--primary) 40%, transparent); position: relative; }
+.card.featured::before, .pricing-card.featured::before { content: attr(data-badge); position: absolute; top: -14px; left: 50%; transform: translateX(-50%); background: var(--primary); color: var(--on-primary); padding: .3rem .9rem; border-radius: var(--radius-pill); font-size: .75rem; font-weight: 700; white-space: nowrap; }
+
+/* ── CTA / banner sections ───────────────────────────────────────────────────── */
+.cta-section, .cta-banner, .promo-banner { background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 18%, var(--surface)), color-mix(in srgb, var(--secondary) 12%, var(--surface))); border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent); border-radius: var(--radius); padding: clamp(2.5rem, 6vw, 4.5rem); text-align: center; }
+
+/* ── Avatars ─────────────────────────────────────────────────────────────────── */
+.avatar, .avatar-img { border-radius: 50%; object-fit: cover; display: inline-block; vertical-align: middle; }
+.avatar-sm, .avatar.sm { width: 36px; height: 36px; }
+.avatar-md, .avatar.md { width: 52px; height: 52px; }
+.avatar-lg, .avatar.lg { width: 80px; height: 80px; }
+.avatar-xl, .avatar.xl { width: 120px; height: 120px; }
+
+/* ── Gallery / portfolio grid with hover overlay ─────────────────────────────── */
+.gallery-grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.gallery-item, .portfolio-item { position: relative; border-radius: var(--radius); overflow: hidden; aspect-ratio: 4 / 3; }
+.gallery-item img, .portfolio-item img { width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+.gallery-item:hover img, .portfolio-item:hover img { transform: scale(1.06); }
+.gallery-item-overlay, .item-overlay { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(0,0,0,.72) 0%, transparent 55%); opacity: 0; transition: opacity .25s ease; display: flex; align-items: flex-end; padding: 1.25rem; }
+.gallery-item:hover .gallery-item-overlay, .portfolio-item:hover .item-overlay { opacity: 1; }
+.gallery-item-overlay h3, .item-overlay h3, .gallery-item-overlay p, .item-overlay p { color: #fff; margin: 0; }
+
+/* ── Filters / category bar ──────────────────────────────────────────────────── */
+.filters, .filter-bar, .category-bar, .tag-bar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: clamp(1.5rem, 3vw, 2.5rem); }
+.filter-btn, .category-btn { padding: .45rem 1.1rem; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: .9rem; font-weight: 500; cursor: pointer; transition: all .18s ease; }
+.filter-btn:hover, .category-btn:hover, .filter-btn.active, .category-btn.active, .filter-btn[data-active="true"], .category-btn[data-active="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+
+/* ── Skeleton loading placeholders ───────────────────────────────────────────── */
+@keyframes shimmer { from { background-position: -800px 0; } to { background-position: 800px 0; } }
+.skeleton, .skeleton-line, .skeleton-block { background: linear-gradient(90deg, var(--surface) 25%, color-mix(in srgb, var(--border) 80%, var(--surface)) 50%, var(--surface) 75%); background-size: 1600px 100%; animation: shimmer 1.6s infinite linear; border-radius: var(--radius-sm); display: block; }
+.skeleton-text { height: 1em; margin-bottom: .5rem; }
+.skeleton-text:last-child { width: 68%; }
+.skeleton-card { height: 220px; border-radius: var(--radius); }
+.skeleton-avatar { width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-thumb { height: 180px; border-radius: var(--radius-sm); }
+
+/* ── Step row with connecting line ───────────────────────────────────────────── */
+.step-row { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); position: relative; }
+.step-row::before { content: ""; position: absolute; top: 22px; left: 12%; right: 12%; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); pointer-events: none; }
+.step { text-align: center; position: relative; }
+
+/* ── Check / feature list ─────────────────────────────────────────────────────── */
+.feature-list, .check-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .65rem; }
+.feature-list li, .check-list li { display: flex; align-items: flex-start; gap: .65rem; line-height: 1.5; }
+.feature-list li::before, .check-list li::before { content: "✓"; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 16%, transparent); color: var(--primary); font-size: .7rem; font-weight: 700; margin-top: .15rem; flex-shrink: 0; }
+
+/* ── Alert banners ────────────────────────────────────────────────────────────── */
+.alert { padding: .9rem 1.25rem; border-radius: var(--radius-sm); border: 1px solid; margin-bottom: 1rem; font-size: .9rem; }
+.alert-success { background: color-mix(in srgb, #22c55e 10%, transparent); border-color: color-mix(in srgb, #22c55e 35%, transparent); color: #22c55e; }
+.alert-error { background: color-mix(in srgb, #ef4444 10%, transparent); border-color: color-mix(in srgb, #ef4444 35%, transparent); color: #ef4444; }
+.alert-info { background: color-mix(in srgb, var(--primary) 10%, transparent); border-color: color-mix(in srgb, var(--primary) 35%, transparent); color: var(--primary); }
+.alert-warning { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--accent); }
+
+/* ── Rating stars / score ─────────────────────────────────────────────────────── */
+.stars, .rating { color: var(--accent); letter-spacing: .1em; font-size: 1rem; }
+
+/* ── Progress / capacity bar ──────────────────────────────────────────────────── */
+.progress-bar { height: 6px; background: var(--surface-2); border-radius: var(--radius-pill); overflow: hidden; }
+.progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--secondary)); border-radius: inherit; transition: width .6s ease; }
+
+/* ── Horizontal media card ────────────────────────────────────────────────────── */
+.card-horizontal, .media-card, .list-card { display: grid; grid-template-columns: auto 1fr; gap: 1.25rem; align-items: center; }
+.card-horizontal img, .media-card img, .list-card img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-sm); flex-shrink: 0; }
+
+/* ── Logo strip (partner logos) ───────────────────────────────────────────────── */
+.logo-strip, .logos-row, .partners-row { display: flex; align-items: center; justify-content: center; gap: clamp(2rem, 5vw, 4rem); flex-wrap: wrap; opacity: .45; filter: grayscale(1); transition: opacity .3s ease; }
+.logo-strip:hover, .logos-row:hover { opacity: .65; }
+
+/* ── Reveal-on-scroll ─────────────────────────────────────────────────────────── */
+.reveal { opacity: 0; transform: translateY(22px); transition: opacity .55s ease, transform .55s ease; }
+.reveal.visible { opacity: 1; transform: none; }
+
+/* ── Image aspect-ratio helpers ───────────────────────────────────────────────── */
+.aspect-video { aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--radius); }
+.aspect-square { aspect-ratio: 1; overflow: hidden; border-radius: var(--radius); }
+.aspect-video img, .aspect-square img, .aspect-video video { width: 100%; height: 100%; object-fit: cover; }
+
+/* ── Two-column feature (image left, copy right) ──────────────────────────────── */
+.feature-split { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(2rem, 6vw, 5rem); align-items: center; }
+.feature-split.reverse { direction: rtl; }
+.feature-split.reverse > * { direction: ltr; }
+@media (max-width: 720px) { .feature-split { grid-template-columns: 1fr; } .feature-split.reverse { direction: ltr; } }
+
+/* ── Booking / date-range / ticket form card ──────────────────────────────────── */
+.booking-card, .search-bar, .filter-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: clamp(1.25rem, 3vw, 2rem); display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; box-shadow: var(--shadow); }
+.booking-card .field, .search-bar .field, .filter-card .field { flex: 1 1 160px; margin: 0; }
+
 /* ═══ Responsive — phones & small tablets ═══ */
 @media (max-width: 900px) {
   .grid-4 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
@@ -2233,7 +2321,7 @@ async function buildDesignBrief(provider: AIProvider, prompt: string, siteName: 
     : ''
   const res = await safeChat(
     provider,
-    `Invent a distinctive visual identity for this website:\n\n"${prompt}"\n\nSite name: ${siteName}${styleLine}\n\nReturn a DESIGN BRIEF as plain text (no markdown fences) with EXACTLY these labelled lines, tailored to THIS product's mood:\nVIBE: 4-6 adjectives.\nPALETTE: hex/rgba for --bg --surface --surface-2 --text --muted --primary --primary-hover --secondary --accent --border. Cohesive, theme-appropriate, high contrast between --text and --bg. NOT the generic violet-on-slate default.\nFONTS: a real Google Fonts pairing — a display font for headings + a clean body font, with weights.\nTYPE SCALE: fluid clamp() sizes + line-height + weight for h1/h2/h3/body.\nSPACING: a spacing rhythm and section vertical padding and content max-width.\nMOTIFS: 5 concrete premium treatments (backdrop, card style, button style, hero accent, etc.). Keep them SUBTLE and contained — refined and tasteful, NEVER large garish blobs or cut-off floating shapes that overlap or distract from content.\nPHOTO SUBJECTS: 2-4 comma-separated CONCRETE photo subjects showing the PLACES, PEOPLE, and real things a visitor expects for this category — not abstract concepts (e.g. a university: "university campus, students studying, graduation ceremony, library"; a restaurant: "plated gourmet food, restaurant interior, chef cooking"; a hotel: "hotel lobby, luxury suite, resort pool").\nREFERENCE: name this site's CATEGORY, then how best-in-class REAL sites in that category are built — their signature SECTIONS in the usual order, layout patterns, imagery style, and tone. (e.g. a hotel: full-bleed hero with a booking/enquiry bar, rooms & suites showcase, amenities, photo gallery, dining, special offers, guest reviews, location/map; a restaurant: hero, menu, reservations, gallery, story, hours/location; a SaaS: hero, logos, features, how-it-works, pricing, testimonials, FAQ, CTA.) Build this site to feel like a TOP example of its category, following those conventions.\n\nThe identity MUST obviously match this site's INDUSTRY/TYPE (a sports brand = athletic, bold, high-energy; a law firm = refined and trustworthy; a bakery = warm and inviting) — not a generic template. The hero headline must read with STRONG contrast against the hero background; keep any gradient/accent color to a SINGLE word so the headline never washes out, and no ghosting text-shadow.\n\nWhatever the vibe, the final result MUST be HIGH-CLASS with tremendous styling and tasteful visual effects — never plain, generic, or bare.\n\nBe specific and prescriptive — this is injected verbatim into every file generation.`,
+    `Invent a distinctive visual identity for this website:\n\n"${prompt}"\n\nSite name: ${siteName}${styleLine}\n\nReturn a DESIGN BRIEF as plain text (no markdown fences) with EXACTLY these labelled lines, tailored to THIS product's mood:\nVIBE: 4-6 adjectives.\nPALETTE: hex/rgba for --bg --surface --surface-2 --text --muted --primary --primary-hover --secondary --accent --border. Cohesive, theme-appropriate, high contrast between --text and --bg. NOT the generic violet-on-slate default.\nFONTS: a real Google Fonts pairing — a display font for headings + a clean body font, with weights.\nTYPE SCALE: fluid clamp() sizes + line-height + weight for h1/h2/h3/body.\nSPACING: a spacing rhythm and section vertical padding and content max-width.\nMOTIFS: 5 SPECIFIC, implementable CSS treatments — name the exact effect, not a vague adjective. Examples of the level of specificity required: "hero has a radial mesh-gradient backdrop (two overlapping radial-gradient blobs at 30%/70% using --primary and --secondary at 30% opacity, blurred 60px)", "cards use a 1px rgba(255,255,255,.07) border + box-shadow 0 18px 44px -18px rgba(0,0,0,.5) + translateY(-4px) on hover", "primary button has a box-shadow 0 10px 30px -10px var(--primary) glow that intensifies on hover", "section dividers use a single-pixel linear-gradient(90deg, transparent, --border, transparent) line", "featured/highlighted cards get a 1px solid --primary border + a subtle glow". Keep treatments SUBTLE and contained — never large floating blobs that overlap content.\nPHOTO SUBJECTS: 2-4 comma-separated CONCRETE photo subjects showing the PLACES, PEOPLE, and real things a visitor expects for this category — not abstract concepts (e.g. a university: "university campus, students studying, graduation ceremony, library"; a restaurant: "plated gourmet food, restaurant interior, chef cooking"; a hotel: "hotel lobby, luxury suite, resort pool").\nREFERENCE: name this site's CATEGORY, then how best-in-class REAL sites in that category are built — their signature SECTIONS in the usual order, layout patterns, imagery style, and tone. (e.g. a hotel: full-bleed hero with a booking/enquiry bar, rooms & suites showcase, amenities, photo gallery, dining, special offers, guest reviews, location/map; a restaurant: hero, menu, reservations, gallery, story, hours/location; a SaaS: hero, logos, features, how-it-works, pricing, testimonials, FAQ, CTA.) Build this site to feel like a TOP example of its category, following those conventions.\n\nThe identity MUST obviously match this site's INDUSTRY/TYPE (a sports brand = athletic, bold, high-energy; a law firm = refined and trustworthy; a bakery = warm and inviting) — not a generic template. The hero headline must read with STRONG contrast against the hero background; keep any gradient/accent color to a SINGLE word so the headline never washes out, and no ghosting text-shadow.\n\nWhatever the vibe, the final result MUST be HIGH-CLASS with tremendous styling and tasteful visual effects — never plain, generic, or bare.\n\nBe specific and prescriptive — this is injected verbatim into every file generation.`,
     DESIGN_DIRECTOR_PROMPT,
   )
   const brief = res?.content?.trim()
@@ -2971,13 +3059,21 @@ RULES:
   • Layout: wrap page content in <div class="container">; group sections as <section class="section">…; use "grid grid-2 | grid-3 | grid-4" for card rows; center intros with "section-head".
   • Hero (landing): <section class="hero"><img class="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""><div class="container"> <span class="eyebrow">…</span> <h1>… use <span class="gradient-text">ONE accent word</span> (never the whole headline — it must stay high-contrast/legible)</h1> <p class="hero-subtitle">…</p> <div class="hero-actions"><a class="btn btn-primary">…</a><a class="btn btn-secondary">…</a></div> </div></section>
   • Buttons: "btn btn-primary" / "btn btn-secondary" / "btn btn-ghost" (on <a> or <button>).
-  • Cards & content: "card" or "feature-card" (with "feature-icon"), "stats"+"stat-value"/"stat-label", "step"+"step-num", "testimonial-card", "badge"/"pill"/"tag".
+  • Cards & content: "card" or "feature-card" (with "feature-icon"), "stats"+"stat-value"/"stat-label", "step-row"+"step"+"step-num", "testimonial-card", "badge"/"pill"/"tag", "card.featured" (data-badge="Most Popular") for a highlighted plan.
+  • Filtering: "filters"/"filter-bar" wrapping "filter-btn" buttons — add class "active" on the selected one.
+  • Media: "gallery-grid" + "gallery-item" (with "gallery-item-overlay") for image grids. "aspect-video" for 16:9 embeds. "avatar avatar-md/lg" for circular profile photos.
+  • Feature splits: "feature-split" (add class "reverse" on alternating rows) for image-beside-text layouts.
+  • Booking/search: "booking-card" or "search-bar" for a combined search/filter form row.
+  • Loading: use "skeleton skeleton-card" / "skeleton skeleton-text" placeholder blocks while data is fetching — replace with real content when loaded.
+  • Feedback: "alert alert-success" / "alert-error" / "alert-info" for inline messages. "progress-bar"+"progress-bar-fill" for capacity/progress.
+  • CTA sections: wrap in <div class="cta-section"> for a gradient-tinted call-to-action block.
+  • Reveal: add class "reveal" to sections/cards — the design system auto-animates them into view on scroll.
   • Nav lives in <header> with a "brand" and a <nav> of links (add class="active" on the current one). Footer is <footer> with "footer-links".
   You MAY add extra semantic classes for page-specific bits (the stylesheet covers them too), but ALWAYS build on this vocabulary — never bare unstyled <div>s for structural things.
 - QUALITY BAR: the UI must look like a designer built it (Linear/Stripe/Vercel/Lovable tier), never "AI-generated filler". Follow the DESIGN BRIEF you are given EXACTLY — its palette, fonts, type scale, spacing, and motifs — and never fall back to a generic default (never violet #8b5cf6 on slate #0f172a unless the brief says so). Big confident headings with a clamp() type scale; DEPTH via layered shadows, subtle gradients / soft mesh hero backdrop, and 1px translucent card borders; generous section padding and a max-width content column; smooth ~180ms hover/focus micro-interactions on every interactive element; a sticky nav that has BOTH a semi-opaque --bg background (~82% opacity) AND backdrop-blur (a blurred nav with no background lets content smear through it — always give it the background). CONTRAST IS NON-NEGOTIABLE — the hero headline must read with strong contrast against its background; use gradient-text on AT MOST one accent word (never the whole headline), and never let words fade into the background. No heavy text-shadow/glow that ghosts the text. MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, feature2, gallery3) so each image is distinct and STABLE (sizes hero/showcase ≥ 1200 wide, cards ≥ 600 wide), avatars via https://i.pravatar.cc/300?img={n}. The LANDING hero MUST START with a full-bleed background image — <img class="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""> as the FIRST child of <section class="hero"> — UNLESS the request explicitly says no hero image. Put PLENTY of images across every page (feature/gallery/showcase/testimonial sections). Include at least one VIDEO from the web: a relevant YouTube embed inside <div class="video-embed"><iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen></iframe></div>, or a muted autoplay looping <video class="hero-bg" autoplay muted loop playsinline>. Present images cleanly (object-fit: cover, rounded corners) — NEVER rotate/tilt/skew/overlap them. Explicit width/height + descriptive alt on every <img>. Never reference local files that don't exist.
 - DYNAMIC & ANIMATED: make the app feel alive — entrance/scroll-reveal animations, hover/focus micro-interactions, and loading states (a spinner or skeleton placeholders) while data is fetching. A page loader is shown until the app mounts. Lively, never static.
 - FOLLOW CATEGORY CONVENTIONS: build the sections, layout, and structure that best-in-class REAL sites in this site's CATEGORY use — the DESIGN BRIEF's REFERENCE names the category and its conventions. A hotel must feel like a hotel site (rooms, amenities, gallery, offers, location), a restaurant like a restaurant site (menu, reservations, gallery), etc. — not a generic template.
-- SUBSTANCE: build real, full pages — a landing/home page needs a proper hero (headline + subhead + CTA), then several meaningful sections that fit the category and a rich footer. Never ship a thin one-section page.
+- SUBSTANCE & DENSITY: build RICH, full pages — never thin one-section pages. Every major page MUST have 6–8 distinct sections. Landing/Home: hero → stats/social-proof → feature highlights (3-col grid) → how-it-works (step-row) → gallery or showcase → testimonials → CTA banner → footer. Listing pages: filter-bar + category-btn chips → grid of cards → pagination. Detail/single-item pages: hero image → key details + action button → description → related items grid. Form/booking pages: a prominent booking-card search bar → results → booking confirmation. Each section must have a real eyebrow label, a strong h2, a sub-paragraph, and the appropriate visual treatment. Pages that match what Lovable would build — never sparse.
 - No placeholders, no "...", no TODOs — complete working code only.
 
 Return ONLY the requested file, in exactly this format:
@@ -3160,6 +3256,16 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     '    </BrowserRouter>',
     '  </React.StrictMode>,',
     ')',
+    '',
+    '// Scroll-reveal: add .visible to .reveal elements when they enter the viewport',
+    "const observer = new IntersectionObserver((entries) => {",
+    "  entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); } })",
+    "}, { threshold: 0.12 })",
+    "const wire = () => document.querySelectorAll('.reveal').forEach((el) => observer.observe(el))",
+    "wire()",
+    "// Re-wire after React renders new pages",
+    "const _mo = new MutationObserver(wire)",
+    "_mo.observe(document.getElementById('root'), { childList: true, subtree: true })",
     '',
   ].join('\n')
   const gitignore = ['node_modules/', 'client/node_modules/', 'client/dist/', '.env', ''].join('\n')
