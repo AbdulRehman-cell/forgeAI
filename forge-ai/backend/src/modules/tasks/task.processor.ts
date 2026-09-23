@@ -3991,13 +3991,33 @@ export async function generateMernSite(
       miss.resolved,
     )
     if (!ok && !files.some((f) => f.path === miss.resolved)) {
-      // AI failed — push a minimal stub so Vite can build at all
-      const name = path.posix.basename(miss.resolved, '.jsx').replace(/[^a-zA-Z0-9]/g, '')
-      files.push({
-        path: miss.resolved,
-        content: `export default function ${name || 'Page'}() {\n  return (\n    <div className="section">\n      <div className="container">\n        <h1 className="gradient-text">${name}</h1>\n        <p>Coming soon.</p>\n      </div>\n    </div>\n  )\n}\n`,
-      })
-      await log(`⚠️ Could not generate ${miss.resolved} — inserted placeholder so the build succeeds`)
+      // Gemini failed — try Claude as a fallback generator before stubbing
+      const enhancer = createEnhancer()
+      if (enhancer) {
+        await log(`🤖 Gemini failed on ${miss.resolved} — asking Claude to generate it…`)
+        try {
+          const resp = await enhancer.chat(
+            [{ role: 'user', content: `${contract}\n\nGenerate the COMPLETE ${miss.resolved} React component (default export). It is imported by ${miss.from}:\n\`\`\`jsx\n${importer?.content.slice(0, 3000) ?? ''}\n\`\`\`\nMatch exactly how the importer uses it. Do NOT import any CSS file. Reply with only the file content, no markdown fences.` }],
+          )
+          files.push({ path: miss.resolved, content: resp.content })
+          await log(`✅ Claude generated ${miss.resolved}`)
+        } catch {
+          // Claude also failed — stub it
+          const name = path.posix.basename(miss.resolved, '.jsx').replace(/[^a-zA-Z0-9]/g, '')
+          files.push({
+            path: miss.resolved,
+            content: `export default function ${name || 'Page'}() {\n  return (\n    <div className="section">\n      <div className="container">\n        <h1 className="gradient-text">${name}</h1>\n        <p>Coming soon.</p>\n      </div>\n    </div>\n  )\n}\n`,
+          })
+          await log(`⚠️ Could not generate ${miss.resolved} — inserted placeholder so the build succeeds`)
+        }
+      } else {
+        const name = path.posix.basename(miss.resolved, '.jsx').replace(/[^a-zA-Z0-9]/g, '')
+        files.push({
+          path: miss.resolved,
+          content: `export default function ${name || 'Page'}() {\n  return (\n    <div className="section">\n      <div className="container">\n        <h1 className="gradient-text">${name}</h1>\n        <p>Coming soon.</p>\n      </div>\n    </div>\n  )\n}\n`,
+        })
+        await log(`⚠️ Could not generate ${miss.resolved} — inserted placeholder so the build succeeds`)
+      }
     }
   }
 
