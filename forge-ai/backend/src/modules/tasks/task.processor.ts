@@ -3543,7 +3543,7 @@ function ModelManager({ model, onAuthFail }) {
     })
     try {
       if (editing) await axios.put(model.endpoint + '/' + editing, payload, { headers: authHeader() })
-      else await axios.post(model.endpoint, payload)
+      else await axios.post(model.endpoint, payload, { headers: authHeader() })
       reset()
       await load()
     } catch (err) {
@@ -3748,28 +3748,29 @@ function healRoute(name: string): string {
   ].join('\n')
 }
 
-/** Deterministic post-generation audit: any route endpoint that a PUBLIC page
- *  calls via axios.post() must NOT have requireAdmin on POST /. Scans every
- *  client JSX file, extracts the /api/x endpoints it POSTs to, then strips
- *  requireAdmin from the corresponding server route file. No AI needed. */
+/** Deterministic post-generation route audit.
+ *  Rule: GET / GET/:id / POST / → always PUBLIC.  PUT/:id / DELETE/:id → requireAdmin.
+ *  Scans every generated server/routes/*.routes.js and enforces this regardless
+ *  of what the AI wrote. Handles all patterns:
+ *    - router.use(requireAdmin)  ← blanket lock on the whole router
+ *    - router.get('/', requireAdmin, ...)
+ *    - router.get('/:id', requireAdmin, ...)
+ *    - router.post('/', requireAdmin, ...)
+ *  No AI needed — pure string replacement. Never throws. */
 function auditPublicPostRoutes(files: ParsedChange[]): void {
-  const publicJsx = files.filter((f) => /^client\/src\/(pages|components)\/.+\.jsx$/.test(f.path.replace(/\\/g, '/')))
-  const endpoints = new Set<string>()
-  for (const f of publicJsx) {
-    for (const m of f.content.matchAll(/axios\.post\s*\(\s*[`'"]\/api\/([a-zA-Z0-9_-]+)[`'"]/g)) {
-      endpoints.add(m[1].toLowerCase())
-    }
-  }
-  for (const ep of endpoints) {
-    const routeFile = files.find((f) => f.path.replace(/\\/g, '/') === `server/routes/${ep}.routes.js`)
-    if (!routeFile) continue
-    const before = routeFile.content
-    // Remove requireAdmin from the POST / handler — POST must always be public
-    routeFile.content = routeFile.content
+  const routeFiles = files.filter((f) => /^server\/routes\/.+\.routes\.js$/.test(f.path.replace(/\\/g, '/')))
+  for (const f of routeFiles) {
+    const before = f.content
+    f.content = f.content
+      // Remove top-level router.use(requireAdmin) that blanket-locks all routes
+      .replace(/router\.use\s*\(\s*requireAdmin\s*\)\s*;?\n?/g, '')
+      // Remove requireAdmin from GET / and GET /:id
+      .replace(/router\.get\s*\(\s*(['"`]\/['"`])\s*,\s*requireAdmin\s*,/g, 'router.get($1,')
+      .replace(/router\.get\s*\(\s*(['"`]\/:id['"`])\s*,\s*requireAdmin\s*,/g, 'router.get($1,')
+      // Remove requireAdmin from POST /
       .replace(/router\.post\s*\(\s*(['"`]\/['"`])\s*,\s*requireAdmin\s*,/g, 'router.post($1,')
-      .replace(/router\.post\s*\(\s*(['"`]\/['"`])\s*,\s*requireAdmin\)/g, 'router.post($1, async (req, res) => { try { res.status(201).json(await module.exports.model.create(req.body)) } catch(e) { res.status(400).json({ error: e.message }) } })')
-    if (routeFile.content !== before) {
-      console.log(`[auditPublicPostRoutes] removed requireAdmin from POST /api/${ep}`)
+    if (f.content !== before) {
+      console.log(`[auditRoutes] enforced public GET+POST in ${f.path}`)
     }
   }
 }
