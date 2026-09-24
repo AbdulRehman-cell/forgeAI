@@ -3724,7 +3724,7 @@ function healRoute(name: string): string {
     '',
     `router.get('/', async (req, res) => { try { res.json(await ${N}.find().sort('-createdAt')); } catch (e) { res.status(500).json({ error: 'Failed to fetch.' }); } });`,
     `router.get('/:id', async (req, res) => { try { const doc = await ${N}.findById(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
-    `router.post('/', requireAdmin, async (req, res) => { try { res.status(201).json(await ${N}.create(req.body)); } catch (e) { res.status(400).json({ error: e.message }); } });`,
+    `router.post('/', async (req, res) => { try { res.status(201).json(await ${N}.create(req.body)); } catch (e) { res.status(400).json({ error: e.message }); } });`,
     `router.put('/:id', requireAdmin, async (req, res) => { try { const doc = await ${N}.findByIdAndUpdate(req.params.id, req.body, { new: true }); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(400).json({ error: e.message }); } });`,
     `router.delete('/:id', requireAdmin, async (req, res) => { try { const doc = await ${N}.findByIdAndDelete(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json({ message: 'Deleted.' }); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
     '',
@@ -3872,7 +3872,7 @@ export async function generateMernSite(
     await log(`🔌 Generating API routes for ${m.name}…`, (pct += 4))
     await sleep(1500)
     const ok = await gen(
-      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) implementing the full CRUD convention for the ${m.name} model (require it from ../models/${m.name}). Rules: GET / and GET /:id are PUBLIC (no auth). POST /, PUT /:id, DELETE /:id must be protected with a requireAdmin middleware that verifies a JWT from req.headers.authorization (secret from process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'). Inline requireAdmin directly in this file — do NOT import from a separate file. Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
+      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) for the ${m.name} model (require it from ../models/${m.name}).\n\nAuth rules — think about the SEMANTIC meaning of each route:\n• GET / and GET /:id → always PUBLIC (no auth).\n• PUT /:id and DELETE /:id → always requireAdmin (only admins edit or delete records).\n• POST / → PUBLIC if users naturally submit this themselves (applications, bookings, orders, contact forms, registrations, reviews, messages, tickets, payments). requireAdmin ONLY if this creates content that admins manage (job listings, products, articles, events, announcements).\n\nInline requireAdmin directly in this file (verify JWT from req.headers.authorization, secret: process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'). Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
       `server/routes/${lower}.routes.js`,
     )
     if (!ok) {
@@ -4257,7 +4257,8 @@ SERVER ENTRY (server/index.js):
 ROUTES (*.routes.js) — full CRUD only, CommonJS, module.exports router:
 • GET / list, GET /:id, POST /, PUT /:id, DELETE /:id with correct Mongoose calls
 • Status codes: 201 create, 400 validation, 404 not found, 500 server error
-• POST / PUT / DELETE handlers must call requireAdmin before any DB write — return 401 if no valid token
+• PUT /:id and DELETE /:id must call requireAdmin — return 401 if no valid token
+• POST / is PUBLIC if this model represents user submissions (applications, bookings, orders, reviews, messages, registrations, contact forms). POST / uses requireAdmin ONLY for admin-managed content (listings, products, articles, events, announcements)
 • GET routes remain fully public (no auth)`,
     )
     await log(`✅ Backend QA — ${n} file(s) improved`)
