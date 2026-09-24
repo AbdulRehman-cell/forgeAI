@@ -1878,6 +1878,9 @@ const BASE_CSS = `/* ═══ ForgeAI Design System — themable component base
 html { scroll-behavior: smooth; }
 body { margin: 0; font-family: var(--font-body); background: var(--bg); color: var(--text); line-height: 1.65; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: hidden; }
 img, svg, video { max-width: 100%; height: auto; display: block; }
+/* Hide broken images gracefully — alt text shows but no grey box */
+img:not([src]), img[src=""], img { color: transparent; }
+img:-moz-broken { opacity: 0; }
 /* Clean image presentation — rounded, cover-fit, never distorted or tilted */
 .hero img:not(.hero-bg), .hero-section img:not(.hero-bg), .showcase img, .gallery img, .card img, .feature-card img, figure img, .media img { object-fit: cover; border-radius: var(--radius); }
 
@@ -4058,14 +4061,14 @@ export async function generateMernSite(
   const isStyled = (cls: string) =>
     new RegExp(`\\.${cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(cssEntry.content)
 
-  for (const pageFile of files.filter((f) => /^client\/src\/pages\/.+\.jsx$/.test(f.path.replace(/\\/g, '/')))) {
+  for (const pageFile of files.filter((f) => /^client\/src\/(pages\/.+|App)\.jsx$/.test(f.path.replace(/\\/g, '/')))) {
     const need = classesIn(pageFile.content).filter((c) => !isStyled(c))
     if (!need.length) continue
     const pageName = pageFile.path.split('/').pop()
     await log(`🎨 Styling ${pageName} (${need.length} classes)…`, Math.min(85, (pct += 3)))
     await sleep(1500)
     const chunk = await askCss(
-      `The stylesheet's CSS variables:\n\`\`\`css\n${cssEntry.content.match(/:root\s*{[^}]*}/)?.[0] ?? ''}\n\`\`\`\n\nComponent ${pageFile.path}:\n\`\`\`jsx\n${pageFile.content.slice(0, 6000)}\n\`\`\`\n\nWrite polished CSS rules for EXACTLY these classes (everything else is already styled):\n${need.slice(0, 80).map((c) => `.${c}`).join('\n')}\n\nReuse the CSS variables above so the design stays cohesive. Include hover/focus states and responsive breakpoints where relevant. Output ONLY the new rules as <file path="additions.css">.`,
+      `The stylesheet's CSS variables:\n\`\`\`css\n${cssEntry.content.match(/:root\s*{[^}]*}/)?.[0] ?? ''}\n\`\`\`\n\nComponent ${pageFile.path}:\n\`\`\`jsx\n${pageFile.content.slice(0, 8000)}\n\`\`\`\n\nWrite polished CSS rules for EXACTLY these classes (everything else is already styled):\n${need.slice(0, 150).map((c) => `.${c}`).join('\n')}\n\nReuse the CSS variables above so the design stays cohesive. Include hover/focus states and responsive breakpoints where relevant. Output ONLY the new rules as <file path="additions.css">.`,
     )
     if (chunk) cssEntry.content += `\n/* ── ${pageName} ── */\n${chunk}\n`
   }
