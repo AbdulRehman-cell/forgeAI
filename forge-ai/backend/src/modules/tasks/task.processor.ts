@@ -3392,7 +3392,7 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     '  res.json({ token })',
     '})',
     '',
-    '// ── Data routes (GET public; POST/PUT/DELETE require admin) ─────────────────',
+    '// ── Data routes (GET+POST public; PUT+DELETE require admin token) ───────────',
     mounts,
     '',
     '// ── Serve the built React client ─────────────────────────────────────────────',
@@ -3505,7 +3505,7 @@ function Login({ onLogin }) {
 }
 
 // ── Model manager ─────────────────────────────────────────────────────────────
-function ModelManager({ model }) {
+function ModelManager({ model, onAuthFail }) {
   const [rows, setRows] = useState([])
   const [form, setForm] = useState({})
   const [editing, setEditing] = useState(null)
@@ -3543,10 +3543,11 @@ function ModelManager({ model }) {
     })
     try {
       if (editing) await axios.put(model.endpoint + '/' + editing, payload, { headers: authHeader() })
-      else await axios.post(model.endpoint, payload, { headers: authHeader() })
+      else await axios.post(model.endpoint, payload)
       reset()
       await load()
     } catch (err) {
+      if (err.response?.status === 401) { onAuthFail(); return }
       const d = err.response && err.response.data
       setError((d && (d.message || d.error)) || err.message || 'Save failed — check the required fields')
     }
@@ -3557,7 +3558,10 @@ function ModelManager({ model }) {
   const remove = async (id) => {
     if (!window.confirm('Delete this record?')) return
     try { await axios.delete(model.endpoint + '/' + id, { headers: authHeader() }); await load() }
-    catch { setError('Delete failed') }
+    catch (err) {
+      if (err.response?.status === 401) { onAuthFail(); return }
+      setError('Delete failed')
+    }
   }
 
   return (
@@ -3631,10 +3635,21 @@ function ModelManager({ model }) {
 }
 
 // ── Root component ────────────────────────────────────────────────────────────
+function tokenValid() {
+  try {
+    const t = localStorage.getItem(TOKEN_KEY)
+    if (!t) return false
+    const payload = JSON.parse(atob(t.split('.')[1]))
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      localStorage.removeItem(TOKEN_KEY)
+      return false
+    }
+    return true
+  } catch { return false }
+}
+
 export default function Admin() {
-  const [loggedIn, setLoggedIn] = useState(() => {
-    try { return !!localStorage.getItem(TOKEN_KEY) } catch { return false }
-  })
+  const [loggedIn, setLoggedIn] = useState(tokenValid)
 
   const logout = () => {
     try { localStorage.removeItem(TOKEN_KEY) } catch {}
@@ -3652,7 +3667,7 @@ export default function Admin() {
         </div>
         <button className="btn btn-secondary" onClick={logout}>Log Out</button>
       </header>
-      {MODELS.map((m) => <ModelManager key={m.name} model={m} />)}
+      {MODELS.map((m) => <ModelManager key={m.name} model={m} onAuthFail={logout} />)}
     </main>
   )
 }
@@ -3731,6 +3746,32 @@ function healRoute(name: string): string {
     'module.exports = router;',
     '',
   ].join('\n')
+}
+
+/** Deterministic post-generation audit: any route endpoint that a PUBLIC page
+ *  calls via axios.post() must NOT have requireAdmin on POST /. Scans every
+ *  client JSX file, extracts the /api/x endpoints it POSTs to, then strips
+ *  requireAdmin from the corresponding server route file. No AI needed. */
+function auditPublicPostRoutes(files: ParsedChange[]): void {
+  const publicJsx = files.filter((f) => /^client\/src\/(pages|components)\/.+\.jsx$/.test(f.path.replace(/\\/g, '/')))
+  const endpoints = new Set<string>()
+  for (const f of publicJsx) {
+    for (const m of f.content.matchAll(/axios\.post\s*\(\s*[`'"]\/api\/([a-zA-Z0-9_-]+)[`'"]/g)) {
+      endpoints.add(m[1].toLowerCase())
+    }
+  }
+  for (const ep of endpoints) {
+    const routeFile = files.find((f) => f.path.replace(/\\/g, '/') === `server/routes/${ep}.routes.js`)
+    if (!routeFile) continue
+    const before = routeFile.content
+    // Remove requireAdmin from the POST / handler — POST must always be public
+    routeFile.content = routeFile.content
+      .replace(/router\.post\s*\(\s*(['"`]\/['"`])\s*,\s*requireAdmin\s*,/g, 'router.post($1,')
+      .replace(/router\.post\s*\(\s*(['"`]\/['"`])\s*,\s*requireAdmin\)/g, 'router.post($1, async (req, res) => { try { res.status(201).json(await module.exports.model.create(req.body)) } catch(e) { res.status(400).json({ error: e.message }) } })')
+    if (routeFile.content !== before) {
+      console.log(`[auditPublicPostRoutes] removed requireAdmin from POST /api/${ep}`)
+    }
+  }
 }
 
 /** Self-heal API mismatches: any `/api/<x>` the client calls but the server never
@@ -3872,7 +3913,7 @@ export async function generateMernSite(
     await log(`🔌 Generating API routes for ${m.name}…`, (pct += 4))
     await sleep(1500)
     const ok = await gen(
-      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) for the ${m.name} model (require it from ../models/${m.name}).\n\nAuth rules — think about the SEMANTIC meaning of each route:\n• GET / and GET /:id → always PUBLIC (no auth).\n• PUT /:id and DELETE /:id → always requireAdmin (only admins edit or delete records).\n• POST / → PUBLIC if users naturally submit this themselves (applications, bookings, orders, contact forms, registrations, reviews, messages, tickets, payments). requireAdmin ONLY if this creates content that admins manage (job listings, products, articles, events, announcements).\n\nInline requireAdmin directly in this file (verify JWT from req.headers.authorization, secret: process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'). Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
+      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) for the ${m.name} model (require it from ../models/${m.name}).\n\nAuth rules — these are FIXED, no exceptions:\n• GET / → PUBLIC\n• GET /:id → PUBLIC\n• POST / → PUBLIC (anyone can create — visitors submit forms, admin panel creates records through the same endpoint)\n• PUT /:id → requireAdmin only\n• DELETE /:id → requireAdmin only\n\nInline requireAdmin directly in this file (verify JWT from req.headers.authorization, secret: process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'). Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
       `server/routes/${lower}.routes.js`,
     )
     if (!ok) {
@@ -3941,7 +3982,7 @@ export async function generateMernSite(
       ? `You are free to invent any class names you need — be creative. The CSS styling pass will generate rules for every class you use.`
       : `STRICT DESIGN SYSTEM MODE: Use ONLY these exact class names from the ForgeAI design system — do NOT invent any class outside this list: container, section, section-head, eyebrow, hero, hero-content, btn, btn-primary, btn-secondary, card, feature-card, feature-icon, grid-2, grid-3, grid-4, stats, stat-value, stat-label, step, step-num, testimonial-card, badge, gradient-text, nav-links. Every class you write must be one of these exact tokens. This ensures consistent, polished, production-ready output.`
     await gen(
-      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\n${designSystemNote}\n\nWrite REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page shows data, fetch it with axios GET (no auth needed). CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it. All data write operations (create, edit, delete) belong exclusively in the /admin panel. If you want to show a "Create" or "Add" button, make it a react-router Link to="/admin" instead. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
+      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\n${designSystemNote}\n\nWrite REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page fetches data (GET), show a loading skeleton or spinner while loading, then render the data. FORMS: if this page has any form, you MUST implement: (1) const [loading, setLoading] = useState(false) — disable submit button and show "Submitting…" text while true, (2) const [success, setSuccess] = useState(false) — when true, hide the form and show a large green success message (e.g. "✓ Your application was received! We'll be in touch within 48 hours."), (3) const [error, setError] = useState('') — show it in red below the form if the request fails. Always reset the form fields on success. CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it EXCEPT for user submissions (forms, bookings, applications, registrations, contact, orders). Never make admin-style writes. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
       `client/src/pages/${p.file}`,
     )
   }
@@ -3954,6 +3995,11 @@ export async function generateMernSite(
   // Self-heal: any /api/<x> the client calls but the server never mounted gets a
   // flexible model + CRUD route generated and mounted, so pages never 404.
   await healMissingApiEndpoints(files, log)
+
+  // Deterministic route audit: strip requireAdmin from any POST endpoint that
+  // a public page calls. Runs after all route files are finalized so it catches
+  // both AI-generated and heal-generated routes. No AI, no prompts — pure scan.
+  auditPublicPostRoutes(files)
 
   // ── Import sanity pass ──
   // Vite fails the ENTIRE build on one unresolvable import. Strip imports of
@@ -4093,6 +4139,45 @@ export async function generateMernSite(
   if (mainJsx && !/import\s+['"][^'"]*index\.css['"]/.test(mainJsx.content)) {
     mainJsx.content = `import './index.css'\n${mainJsx.content}`
     await log('🎨 Linked index.css into client/src/main.jsx so Vite bundles the styles')
+  }
+
+  // ── Seed data ── generate realistic starter records so the site never
+  // launches with empty pages. Uses the already-generated model schemas.
+  // Only seeds CONTENT models (things visitors browse), not submission models.
+  await log('🌱 Generating seed data so the site launches with real content…', 95)
+  try {
+    const contentModels = plan.models.filter((m) => {
+      const lower = m.name.toLowerCase()
+      // Skip submission/log models — seeding these would look fake to real users
+      return !/^(contact|message|inquiry|submission|order|booking|payment|log|notification|application|lead|review|rsvp|attendee|ticket|signup|registration)s?$/.test(lower)
+    })
+    if (contentModels.length > 0) {
+      const modelSchemas = contentModels.map((m) => {
+        const src = files.find((f) => f.path === `server/models/${m.name}.js`)?.content ?? ''
+        return `${m.name}: ${src.slice(0, 600)}`
+      }).join('\n\n')
+      const seedResp = await safeChat(provider,
+        `${briefBlock}You are seeding a MongoDB database for "${siteName}" (${prompt.slice(0, 200)}).\n\nGenerate realistic, on-brand seed data. Output a single server/seed.js file (CommonJS) that:\n1. requires mongoose and each model from ../models/ModelName\n2. For each model below, inserts 4-6 realistic records using Model.insertMany([...]) BUT ONLY IF the collection is empty (check with Model.countDocuments() first)\n3. Connects to MONGODB_URI from process.env then runs the seed, then disconnects\n4. Has realistic, specific copy — real names, real prices, real descriptions — nothing lorem ipsum\n\nModels:\n${modelSchemas}\n\nOutput ONLY the file wrapped in <file path="server/seed.js">...</file>`,
+        MERN_SYSTEM_PROMPT,
+      )
+      if (seedResp?.content) {
+        const seedFile = parseAIChanges(seedResp.content)[0]
+        if (seedFile?.content?.trim()) {
+          files.push({ path: 'server/seed.js', content: seedFile.content })
+          // Mount the seed runner in server/index.js so it auto-runs on startup
+          const serverEntry = files.find((f) => f.path.replace(/\\/g, '/') === 'server/index.js')
+          if (serverEntry && !serverEntry.content.includes('seed.js')) {
+            serverEntry.content = serverEntry.content.replace(
+              "mongoose.connect(MONGODB_URI",
+              "try { require('./seed') } catch(e) { console.warn('Seed skipped:', e.message) }\nmongoose.connect(MONGODB_URI",
+            )
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Seed failure never blocks the build
+    console.warn('[seed] seed data generation failed (non-fatal):', e)
   }
 
   return { files, summary: plan.summary, adminPassword }
@@ -4261,7 +4346,7 @@ ROUTES (*.routes.js) — full CRUD only, CommonJS, module.exports router:
 • GET / list, GET /:id, POST /, PUT /:id, DELETE /:id with correct Mongoose calls
 • Status codes: 201 create, 400 validation, 404 not found, 500 server error
 • PUT /:id and DELETE /:id must call requireAdmin — return 401 if no valid token
-• POST / is PUBLIC if this model represents user submissions (applications, bookings, orders, reviews, messages, registrations, contact forms). POST / uses requireAdmin ONLY for admin-managed content (listings, products, articles, events, announcements)
+• POST / must ALWAYS be PUBLIC — no requireAdmin on POST, ever. Admins use the same public endpoint from the admin panel. Only PUT /:id and DELETE /:id use requireAdmin
 • GET routes remain fully public (no auth)`,
     )
     await log(`✅ Backend QA — ${n} file(s) improved`)
