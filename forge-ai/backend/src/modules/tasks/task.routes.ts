@@ -250,7 +250,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
 // deployable with Blitz Deploy like any other repository.
 router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   const user = req.user as any
-  let { prompt, name, stack, mongoUri, style, importUrl, mode, analyticsProvider, analyticsId, addons } = req.body
+  let { prompt, name, stack, mongoUri, style, importUrl, mode, analyticsProvider, analyticsId, addons, vibeMode } = req.body
   prompt += ' Generate a complete website with all necessary files Ensure the code is well-structured and ready for deployment and the ui and styling should be outstanding.The website should have atleast four pages and the home page should atleast ahve five sections.'
 
   if (!prompt?.trim()) return res.status(400).json({ message: 'Describe the website you want to build' })
@@ -362,6 +362,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     analyticsProvider: analyticsProvider || undefined,
     analyticsId: analyticsId || undefined,
     aiProvider: user.aiProvider,
+    vibeMode: vibeMode === true,
     type: 'build_site',
   })
 

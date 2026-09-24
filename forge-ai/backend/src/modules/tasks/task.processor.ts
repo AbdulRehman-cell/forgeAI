@@ -3937,8 +3937,11 @@ export async function generateMernSite(
     const richness = isLanding
       ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. Include, IN ORDER: (1) a full hero (eyebrow + big headline with a <span class="gradient-text"> accent + subhead + two CTAs), then AT LEAST SIX more full <section class="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stats + stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial-card), a pricing/plans row, an FAQ, and a final call-to-action band — and a rich footer. Every section wrapped in <div class="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance/scroll-reveal animations and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
       : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section class="section"> blocks of real content (not one thin block).`
+    const designSystemNote = vibeMode
+      ? `You are free to invent any class names you need — be creative. The CSS styling pass will generate rules for every class you use.`
+      : `STRICT DESIGN SYSTEM MODE: Use ONLY these exact class names from the ForgeAI design system — do NOT invent any class outside this list: container, section, section-head, eyebrow, hero, hero-content, btn, btn-primary, btn-secondary, card, feature-card, feature-icon, grid-2, grid-3, grid-4, stats, stat-value, stat-label, step, step-num, testimonial-card, badge, gradient-text, nav-links. Every class you write must be one of these exact tokens. This ensures consistent, polished, production-ready output.`
     await gen(
-      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\nBuild it entirely from the design-system class vocabulary (container, section, section-head, grid-2/3/4, card, feature-card, feature-icon, btn btn-primary/btn-secondary, stats, stat-value, step, step-num, testimonial-card, badge, eyebrow, gradient-text). Write REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page shows data, fetch it with axios GET (no auth needed). CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it. All data write operations (create, edit, delete) belong exclusively in the /admin panel. If you want to show a "Create" or "Add" button, make it a react-router Link to="/admin" instead. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
+      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\n${designSystemNote}\n\nWrite REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page shows data, fetch it with axios GET (no auth needed). CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it. All data write operations (create, edit, delete) belong exclusively in the /admin panel. If you want to show a "Create" or "Add" button, make it a react-router Link to="/admin" instead. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
       `client/src/pages/${p.file}`,
     )
   }
@@ -4380,7 +4383,7 @@ async function validateAndHeal(
 }
 
 async function buildSite(job: Job) {
-  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, importUrl, mode } = job.data
+  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, importUrl, mode, vibeMode } = job.data
   let { prompt } = job.data
   const task = await Task.findById(taskId)
   if (!task) throw new Error('Task not found')

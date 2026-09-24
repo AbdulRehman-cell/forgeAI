@@ -89,6 +89,7 @@ export default function Builder() {
   const [savedEnvKeys, setSavedEnvKeys] = useState<string[]>([])
   // ── Add-ons ──
   const [addons, setAddons] = useState<string[]>([])
+  const [vibeMode, setVibeMode] = useState(false)
   const [waTestState, setWaTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
   const logEndRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -136,6 +137,7 @@ export default function Builder() {
       ...(flow === 'new' && stack === 'mern' && mongoUri.trim() ? { mongoUri: mongoUri.trim() } : {}),
       ...(analyticsProvider ? { analyticsProvider, analyticsId: analyticsId.trim() } : {}),
       ...(addons.length > 0 ? { addons } : {}),
+      ...(vibeMode ? { vibeMode: true } : {}),
     }),
     onSuccess: ({ data }) => {
       setTask(data.task)
@@ -391,6 +393,39 @@ export default function Builder() {
                 </button>
               ))}
             </div>
+
+            {/* Vibe mode toggle */}
+            <button
+              type="button"
+              onClick={() => setVibeMode((v) => !v)}
+              disabled={busy}
+              className={clsx(
+                'w-full flex items-center justify-between rounded-xl border px-4 py-3 mb-4 transition-colors text-left',
+                vibeMode
+                  ? 'border-violet-500/60 bg-violet-600/10'
+                  : 'border-surface-600 hover:border-brand-500/40',
+              )}
+            >
+              <div>
+                <p className="text-xs font-semibold text-zinc-200">
+                  {vibeMode ? '⚡ Vibe coded mode' : '✦ Professional mode'}
+                </p>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  {vibeMode
+                    ? 'AI invents its own class names and styles freely — creative but inconsistent'
+                    : 'Constrained to ForgeAI\'s design system — consistent, polished, production-ready'}
+                </p>
+              </div>
+              <div className={clsx(
+                'w-8 h-4 rounded-full transition-colors shrink-0 ml-4',
+                vibeMode ? 'bg-violet-500' : 'bg-brand-500',
+              )}>
+                <div className={clsx(
+                  'w-3 h-3 bg-white rounded-full mt-0.5 transition-transform',
+                  vibeMode ? 'translate-x-4.5 ml-0.5' : 'translate-x-0.5',
+                )} />
+              </div>
+            </button>
 
             <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
               Site name
