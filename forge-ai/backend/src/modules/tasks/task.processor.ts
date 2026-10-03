@@ -3889,7 +3889,6 @@ export async function generateMernSite(
   siteName: string,
   designBrief: string,
   log: (message: string, progress?: number) => Promise<unknown>,
-  vibeMode = false,
 ): Promise<{ files: ParsedChange[]; summary: string; adminPassword: string }> {
   const files: ParsedChange[] = []
   const adminPassword = generateAdminPassword()
@@ -4041,11 +4040,8 @@ export async function generateMernSite(
     const richness = isLanding
       ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. Include, IN ORDER: (1) a full hero (eyebrow + big headline with a <span class="gradient-text"> accent + subhead + two CTAs), then AT LEAST SIX more full <section class="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stats + stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial-card), a pricing/plans row, an FAQ, and a final call-to-action band — and a rich footer. Every section wrapped in <div class="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance/scroll-reveal animations and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
       : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section class="section"> blocks of real content (not one thin block).`
-    const designSystemNote = vibeMode
-      ? `You are free to invent any class names you need — be creative. The CSS styling pass will generate rules for every class you use.`
-      : `STRICT DESIGN SYSTEM MODE: Use ONLY these exact class names from the ForgeAI design system — do NOT invent any class outside this list: container, section, section-head, eyebrow, hero, hero-content, btn, btn-primary, btn-secondary, card, feature-card, feature-icon, grid-2, grid-3, grid-4, stats, stat-value, stat-label, step, step-num, testimonial-card, badge, gradient-text, nav-links. Every class you write must be one of these exact tokens. This ensures consistent, polished, production-ready output.`
     await gen(
-      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\n${designSystemNote}\n\nWrite REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page fetches data (GET), show a loading skeleton or spinner while loading, then render the data. FORMS: if this page has any form, you MUST implement: (1) const [loading, setLoading] = useState(false) — disable submit button and show "Submitting…" text while true, (2) const [success, setSuccess] = useState(false) — when true, hide the form and show a large green success message (e.g. "✓ Your application was received! We'll be in touch within 48 hours."), (3) const [error, setError] = useState('') — show it in red below the form if the request fails. Always reset the form fields on success. CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it EXCEPT for user submissions (forms, bookings, applications, registrations, contact, orders). Never make admin-style writes. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
+      `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\nWrite REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page fetches data (GET), show a loading skeleton or spinner while loading, then render the data. FORMS: if this page has any form, you MUST implement: (1) const [loading, setLoading] = useState(false) — disable submit button and show "Submitting…" text while true, (2) const [success, setSuccess] = useState(false) — when true, hide the form and show a large green success message (e.g. "✓ Your application was received! We'll be in touch within 48 hours."), (3) const [error, setError] = useState('') — show it in red below the form if the request fails. Always reset the form fields on success. CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it EXCEPT for user submissions (forms, bookings, applications, registrations, contact, orders). Never make admin-style writes. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
       `client/src/pages/${p.file}`,
     )
   }
@@ -4531,7 +4527,7 @@ async function validateAndHeal(
 }
 
 async function buildSite(job: Job) {
-  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, importUrl, mode, vibeMode } = job.data
+  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, importUrl, mode } = job.data
   let { prompt } = job.data
   const task = await Task.findById(taskId)
   if (!task) throw new Error('Task not found')
@@ -4673,7 +4669,7 @@ async function buildSite(job: Job) {
     if (stack === 'mern') {
       await updateTask(task, { progress: 10 }, '🧱 Building a full-stack MERN app…')
       const result = await generateMernSite(provider, prompt, siteName, designBrief, (message, progress) =>
-        updateTask(task, progress ? { progress } : {}, message), vibeMode === true)
+        updateTask(task, progress ? { progress } : {}, message))
       if (!result.files.some((f) => f.path === 'client/src/App.jsx')) {
         return await fail('The AI could not generate the React app shell — please try again (rephrase the description slightly).')
       }
