@@ -2316,6 +2316,67 @@ const STYLE_DIRECTIVES: Record<string, string> = {
   elegant: 'STYLE DIRECTION: elegant & premium — refined and sophisticated; a graceful serif or refined sans for headings, a tasteful muted or rich palette, fine details and airy spacing.',
 }
 
+/** Phase 2 of the planning pipeline: given the visual identity (designBrief),
+ *  Claude writes the full content PRD — page-by-page blueprint with actual copy,
+ *  section order, CTAs, and data-model spec. This runs BEFORE any coding so
+ *  Gemini always has a complete script to follow instead of inventing content
+ *  on the fly (which produces generic, "vibe-coded" output).
+ *  Best-effort: falls back silently if Claude is unavailable. */
+async function generateContentPRD(
+  enhancer: AIProvider | null,
+  provider: AIProvider,
+  prompt: string,
+  siteName: string,
+  stack: string,
+  designBrief: string,
+): Promise<string> {
+  const planner = enhancer ?? provider
+  try {
+    const resp = await safeChat(
+      planner,
+      `You are a senior product strategist and UX copywriter. You are writing the CONTENT BLUEPRINT for a ${stack === 'mern' ? 'full-stack web app' : 'marketing website'} called "${siteName}".
+
+User brief: "${prompt}"
+
+Visual identity already decided:
+${designBrief.slice(0, 800)}
+
+Write the PRODUCT REQUIREMENTS DOCUMENT (PRD) — the exact blueprint the coding AI will follow. Be SPECIFIC and production-ready. Write actual copy, never lorem ipsum or placeholders.
+
+## Pages & Sections Blueprint
+For EACH page, list IN ORDER:
+### [Page Name] (/route)
+**Purpose:** one sentence
+**Sections:**
+1. [Section]: what it shows + 1-2 actual copy lines in brand voice
+2. ...
+**Key headlines (write the real text):** H1 "...", H2s "...", "..."
+**Primary CTA:** "Button text" → action
+
+## Brand Voice & Copy
+**Tagline:** "..."
+**Value prop (1 sentence):** "..."
+**5 on-brand headlines:** (write the actual text for this specific site)
+**3 CTA variants:** "...", "...", "..."
+**Brand adjectives:** 3 words
+
+## Data Models (for MERN backend)
+For each entity visitors interact with:
+- **ModelName**: field1 (type), field2 (type) — what the UI shows from this
+
+## User Flows
+Top 2-3 things a visitor does, step by step.
+
+Write for THIS specific site — not generic. Every headline must feel written by a real copywriter for this exact brand.`,
+      'You are a product strategist and copywriter. Output structured markdown only — actual copy, never placeholders.',
+    )
+    const prd = resp?.content?.trim() ?? ''
+    return prd.length > 300 ? prd : ''
+  } catch {
+    return ''
+  }
+}
+
 /** Art-direct a distinctive identity for this specific site. Resilient: a
  *  provider failure or a thin reply falls back to the strong default brief. */
 async function buildDesignBrief(provider: AIProvider, prompt: string, siteName: string, style?: string): Promise<string> {
@@ -4583,6 +4644,21 @@ async function buildSite(job: Job) {
       await updateTask(task, {}, `🖼️ Loaded ${imagePool.length} topical web photos (${photoSubjects.join(', ') || 'site topic'})`)
     }
 
+    // ── PRD: Claude writes the content blueprint before any coding starts ──
+    // Phase 1 (above): visual identity via buildDesignBrief (Gemini).
+    // Phase 2 (here): page-by-page content plan with real copy via Claude.
+    // This separation is what prevents "vibe-coded" generic output — Gemini
+    // follows a precise script instead of inventing content from scratch.
+    if (!importUrl) {
+      await updateTask(task, { progress: 9 }, '📋 Claude is writing the content blueprint (pages, copy, data models)…')
+      const enhancer = createEnhancer()
+      const contentPRD = await generateContentPRD(enhancer, provider, prompt, siteName, stack, designBrief)
+      if (contentPRD) {
+        designBrief += `\n\n═══ CONTENT PRD — FOLLOW THIS BLUEPRINT EXACTLY ═══\n${contentPRD}\n══════════════════════════════════════════════════`
+        await updateTask(task, {}, '✅ Content blueprint ready — coding now begins')
+      }
+    }
+
     // When an existing site is imported (rebuild or enhance), route CSS through
     // Claude for a premium styling pass. Silent fallback to `provider` if the
     // Anthropic key is missing or Claude fails — normal generation (no
@@ -4594,7 +4670,7 @@ async function buildSite(job: Job) {
 
     let mernAdminPwd = ''
     if (stack === 'mern') {
-      await updateTask(task, { progress: 8 }, '🧱 Building a full-stack MERN app…')
+      await updateTask(task, { progress: 10 }, '🧱 Building a full-stack MERN app…')
       const result = await generateMernSite(provider, prompt, siteName, designBrief, (message, progress) =>
         updateTask(task, progress ? { progress } : {}, message))
       if (!result.files.some((f) => f.path === 'client/src/App.jsx')) {
