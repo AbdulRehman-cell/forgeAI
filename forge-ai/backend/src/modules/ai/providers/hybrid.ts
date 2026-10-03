@@ -51,6 +51,7 @@ export class HybridProvider implements AIProvider {
         status === 429 || // rate limited
         status === 413 || // request too large
         status === 410 || // model retired by provider (e.g. Gemini EOL'd a version) — helper likely has its own model catalog
+        status === 402 || // prepaid credits depleted — fall back to free tier
         status === 401 || status === 403 || // bad/expired token
         (status ?? 0) >= 500 || // provider down
         outOfCredit || // paid account drained — fall back to the free tier

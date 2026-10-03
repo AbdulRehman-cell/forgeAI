@@ -120,6 +120,12 @@ export class GeminiProvider implements AIProvider {
             console.warn(`[gemini] ${model} overloaded after retries — trying next model`)
             break // rotate to the next model
           }
+          if (status === 402) {
+            // Billing issue — all Gemini models share the same account; no point
+            // rotating. Throw immediately so HybridProvider falls back to Groq.
+            console.error(`[gemini] 402 Payment Required — prepaid credits depleted. Top up at https://aistudio.google.com/`)
+            throw err
+          }
           if (status === 400 && sendThinking && THINKING_BUDGET <= 0) {
             // Model refuses thinkingBudget=0 — retry it once without the field
             console.warn(`[gemini] ${model} rejected thinkingConfig (400) — retrying without it`)
