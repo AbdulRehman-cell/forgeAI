@@ -3889,6 +3889,7 @@ export async function generateMernSite(
   siteName: string,
   designBrief: string,
   log: (message: string, progress?: number) => Promise<unknown>,
+  vibeMode = false,
 ): Promise<{ files: ParsedChange[]; summary: string; adminPassword: string }> {
   const files: ParsedChange[] = []
   const adminPassword = generateAdminPassword()
@@ -4672,7 +4673,7 @@ async function buildSite(job: Job) {
     if (stack === 'mern') {
       await updateTask(task, { progress: 10 }, '🧱 Building a full-stack MERN app…')
       const result = await generateMernSite(provider, prompt, siteName, designBrief, (message, progress) =>
-        updateTask(task, progress ? { progress } : {}, message))
+        updateTask(task, progress ? { progress } : {}, message), vibeMode === true)
       if (!result.files.some((f) => f.path === 'client/src/App.jsx')) {
         return await fail('The AI could not generate the React app shell — please try again (rephrase the description slightly).')
       }
