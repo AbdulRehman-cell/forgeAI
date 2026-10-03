@@ -3218,28 +3218,46 @@ function sanitizeMernPlan(raw: any): MernPlan | null {
   return { summary: String(raw?.summary ?? 'A full-stack MERN application.').slice(0, 300), models, pages }
 }
 
-async function planMernSite(provider: AIProvider, prompt: string, brief?: string): Promise<MernPlan> {
-  const conventions = brief
-    ? `\n\nMatch this site's CATEGORY CONVENTIONS — pick the pages a top real site in this category has (see the REFERENCE in this design context):\n${brief}`
+async function planMernSite(provider: AIProvider, prompt: string, brief?: string, enhancer?: AIProvider | null): Promise<MernPlan> {
+  // Extract just the Pages & Data Models sections from the PRD to keep the
+  // planning prompt focused — the full PRD can be 3-5k chars which confuses
+  // JSON-only generation.
+  const prdPagesSection = brief
+    ? (brief.match(/##\s*Pages[\s\S]*?(?=##\s*(?:Brand|User|Data|Copy)|═══|$)/i)?.[0] ?? '').slice(0, 1200)
     : ''
-  try {
-    const res = await chatWithContinuation(provider, [{
-      role: 'user',
-      content: `Design a MERN web app for this request:\n\n${prompt}${conventions}\n\nReply with ONLY one JSON object — no prose, no markdown fences:\n{"summary":"one sentence","models":[{"name":"PascalCase","fields":[{"name":"camelCase","type":"String"}]}],"pages":[{"file":"Home.jsx","route":"/","purpose":"what the page shows and does"}]}\nField types: String | Number | Boolean | Date. Limits: 1-3 models, 4-6 pages (ALWAYS at least 4 — the pages a top site in this category would have). Always include Home.jsx at route "/".`,
-    }], MERN_SYSTEM_PROMPT)
-    const text = stripCodeFence(res.content.trim())
-    const jsonText = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
-    const plan = sanitizeMernPlan(JSON.parse(jsonText))
-    if (plan) return plan
-  } catch { /* fall through to the default plan */ }
+  const prdModelsSection = brief
+    ? (brief.match(/##\s*Data Models[\s\S]*?(?=##\s*(?:Brand|User|Pages|Copy)|═══|$)/i)?.[0] ?? '').slice(0, 600)
+    : ''
+  const conventions = (prdPagesSection || prdModelsSection)
+    ? `\n\nCONTENT PLAN (use these pages and models — don't invent new ones):\n${prdModelsSection}\n${prdPagesSection}`
+    : brief
+      ? `\n\nMatch this site's CATEGORY CONVENTIONS:\n${brief.slice(0, 800)}`
+      : ''
+
+  const planPrompt = `Design a MERN web app for this request:\n\n${prompt}${conventions}\n\nReply with ONLY one JSON object — no prose, no markdown fences:\n{"summary":"one sentence","models":[{"name":"PascalCase","fields":[{"name":"camelCase","type":"String"}]}],"pages":[{"file":"Home.jsx","route":"/","purpose":"what the page shows and does"}]}\nField types: String | Number | Boolean | Date. Limits: 1-3 models, 4-6 pages. Always include Home.jsx at route "/".`
+
+  const tryPlan = async (p: AIProvider): Promise<MernPlan | null> => {
+    try {
+      const res = await chatWithContinuation(p, [{ role: 'user', content: planPrompt }], MERN_SYSTEM_PROMPT)
+      const text = stripCodeFence(res.content.trim())
+      const jsonText = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
+      return sanitizeMernPlan(JSON.parse(jsonText))
+    } catch { return null }
+  }
+
+  const plan = await tryPlan(provider) ?? (enhancer ? await tryPlan(enhancer) : null)
+  if (plan) return plan
+
+  // Hard fallback — at least use the user's prompt to guess the model name
+  const guessedModel = (prompt.match(/\b([A-Z][a-z]+(?:ing|ion|ment|er|ee)?)\b/)?.[1]) ?? 'Item'
   return {
     summary: 'A full-stack MERN application.',
-    models: [{ name: 'Item', fields: [{ name: 'title', type: 'String' }, { name: 'description', type: 'String' }] }],
+    models: [{ name: guessedModel, fields: [{ name: 'title', type: 'String' }, { name: 'description', type: 'String' }, { name: 'status', type: 'String' }] }],
     pages: [
-      { file: 'Home.jsx', route: '/', purpose: 'Landing page that lists items and lets visitors add one' },
-      { file: 'About.jsx', route: '/about', purpose: 'About the site — mission and story' },
-      { file: 'Services.jsx', route: '/services', purpose: 'The key features or services offered' },
-      { file: 'Contact.jsx', route: '/contact', purpose: 'A contact form and contact details' },
+      { file: 'Home.jsx', route: '/', purpose: 'Landing page introducing the app' },
+      { file: 'About.jsx', route: '/about', purpose: 'About the project — mission and story' },
+      { file: 'Services.jsx', route: '/services', purpose: 'Key features or services offered' },
+      { file: 'Contact.jsx', route: '/contact', purpose: 'Contact form and details' },
     ],
   }
 }
@@ -3896,31 +3914,38 @@ export async function generateMernSite(
   // UI shares one identity. Backend files (models/routes/server) skip it.
   const briefBlock = `${briefHeader}\n${designBrief}\n\n`
 
+  const enhancer = createEnhancer()
+
   const gen = async (instruction: string, expectPath: string): Promise<boolean> => {
     const isJsx = expectPath.endsWith('.jsx')
     let nudge = ''
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await safeChat(provider, instruction + nudge, MERN_SYSTEM_PROMPT)
-      if (!res) { await sleep(2000); continue }
-      const parsed = parseAIChanges(res.content)
-      const file = parsed.find(
-        (f) => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase(),
-      ) ?? parsed[0]
-      if (file?.content?.trim()) {
-        // The scaffold has NO Tailwind — utility classes render UNSTYLED. If the
-        // model reached for them, retry ONCE demanding semantic classNames the
-        // generated stylesheet can actually target (this is the #1 cause of
-        // ugly MERN pages). Second Tailwind reply is accepted to avoid looping.
-        if (isJsx && attempt === 0 && looksTailwind(file.content)) {
-          nudge = `\n\nYOUR LAST ATTEMPT USED TAILWIND UTILITY CLASSES (e.g. "flex", "p-6", "bg-white", "rounded-xl", "max-w-6xl", "text-center") — this project has NO Tailwind, so they render COMPLETELY UNSTYLED. Rewrite the SAME rich content using ONLY descriptive semantic classNames (e.g. "hero", "profile-card", "match-grid", "section-title") that the global stylesheet targets. No utility classes anywhere.`
-          await log(`🎨 ${expectPath.split('/').pop()} used Tailwind (unsupported here) — regenerating with semantic classes`)
-          await sleep(1200)
-          continue
+    // Try primary provider (Gemini) first, then fall back to Claude if it fails
+    const providers: AIProvider[] = [provider, ...(enhancer ? [enhancer] : [])]
+    for (const p of providers) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const res = await safeChat(p, instruction + nudge, MERN_SYSTEM_PROMPT)
+        if (!res) { await sleep(2000); continue }
+        const parsed = parseAIChanges(res.content)
+        const file = parsed.find(
+          (f) => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase(),
+        ) ?? parsed[0]
+        if (file?.content?.trim()) {
+          // The scaffold has NO Tailwind — utility classes render UNSTYLED. If the
+          // model reached for them, retry ONCE demanding semantic classNames the
+          // generated stylesheet can actually target (this is the #1 cause of
+          // ugly MERN pages). Second Tailwind reply is accepted to avoid looping.
+          if (isJsx && attempt === 0 && looksTailwind(file.content)) {
+            nudge = `\n\nYOUR LAST ATTEMPT USED TAILWIND UTILITY CLASSES (e.g. "flex", "p-6", "bg-white", "rounded-xl", "max-w-6xl", "text-center") — this project has NO Tailwind, so they render COMPLETELY UNSTYLED. Rewrite the SAME rich content using ONLY descriptive semantic classNames (e.g. "hero", "profile-card", "match-grid", "section-title") that the global stylesheet targets. No utility classes anywhere.`
+            await log(`🎨 ${expectPath.split('/').pop()} used Tailwind (unsupported here) — regenerating with semantic classes`)
+            await sleep(1200)
+            continue
+          }
+          if (p !== provider) await log(`🤖 Claude stepped in for ${expectPath.split('/').pop()} (Gemini unavailable)`)
+          files.push({ path: expectPath, content: file.content })
+          return true
         }
-        files.push({ path: expectPath, content: file.content })
-        return true
+        await sleep(2000)
       }
-      await sleep(2000)
     }
     await log(`⚠️ Could not generate ${expectPath} after retrying`)
     return false
@@ -3928,7 +3953,7 @@ export async function generateMernSite(
 
   // ── Plan ──
   await log('🧠 Planning the app — data models, API, pages…', 10)
-  const plan = await planMernSite(provider, prompt, designBrief)
+  const plan = await planMernSite(provider, prompt, designBrief, enhancer)
   await log(`📐 Plan: model(s) ${plan.models.map((m) => m.name).join(', ')}; page(s) ${plan.pages.map((p) => p.file).join(', ')}`)
 
   const contract = `PROJECT PLAN (follow it exactly):\n${JSON.stringify(plan, null, 1)}\n\nAPI CONVENTION: every model is served at /api/<modelname-lowercase>s with full CRUD — GET / (list), GET /:id, POST /, PUT /:id, DELETE /:id. The React client calls these with axios at relative paths.`
