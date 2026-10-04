@@ -3245,7 +3245,8 @@ async function planMernSite(provider: AIProvider, prompt: string, brief?: string
     } catch { return null }
   }
 
-  const plan = await tryPlan(provider) ?? (enhancer ? await tryPlan(enhancer) : null)
+  // Planning is a reasoning task — try Claude first, fall back to Gemini
+  const plan = (enhancer ? await tryPlan(enhancer) : null) ?? await tryPlan(provider)
   if (plan) return plan
 
   // Hard fallback — at least use the user's prompt to guess the model name
@@ -4639,7 +4640,10 @@ async function buildSite(job: Job) {
     }
 
     await updateTask(task, { progress: 7 }, '🎨 Art-directing a visual identity…')
-    let designBrief = await buildDesignBrief(provider, prompt, siteName, style)
+    // Visual direction is a planning task — Claude runs it so the identity is
+    // specific and intentional, not a generic Gemini first-guess.
+    const visualDirector = createEnhancer() ?? provider
+    let designBrief = await buildDesignBrief(visualDirector, prompt, siteName, style)
     // The brand's real facts ride in the design brief, which is injected verbatim
     // into every file generation — so every page uses their true content.
     if (brandBlock) designBrief += `\n\n${brandBlock}`
