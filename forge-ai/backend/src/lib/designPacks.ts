@@ -501,7 +501,7 @@ textarea { resize: vertical; min-height: 120px; }
   font-size: 1.0rem; line-height: 1.72; color: var(--text);
   font-style: italic; margin-bottom: 22px;
 }
-.testimonial-text::before { content: '\201C'; font-size: 2.5em; line-height: 0; vertical-align: -0.5em; color: var(--primary); opacity: .35; margin-right: 2px; }
+.testimonial-text::before { content: '\\201C'; font-size: 2.5em; line-height: 0; vertical-align: -0.5em; color: var(--primary); opacity: .35; margin-right: 2px; }
 .testimonial-author { font-weight: 700; color: var(--text); font-size: 0.9375rem; }
 .testimonial-role   { color: var(--text-muted); font-size: 0.8125rem; margin-top: 3px; }
 .testimonial-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
@@ -965,7 +965,7 @@ textarea { resize: vertical; min-height: 120px; }
 /* ── Testimonials ── */
 .testimonial { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px 32px; box-shadow: var(--shadow-sm); }
 .testimonial-text { font-size: 1rem; line-height: 1.72; color: var(--text); font-style: italic; margin-bottom: 22px; }
-.testimonial-text::before { content: '\201C'; font-size: 2.5em; line-height: 0; vertical-align: -0.5em; color: var(--primary); opacity: .35; margin-right: 2px; }
+.testimonial-text::before { content: '\\201C'; font-size: 2.5em; line-height: 0; vertical-align: -0.5em; color: var(--primary); opacity: .35; margin-right: 2px; }
 .testimonial-author { font-weight: 700; color: var(--text); font-size: 0.9375rem; }
 .testimonial-role { color: var(--text-muted); font-size: 0.8125rem; margin-top: 3px; }
 .testimonial-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
@@ -1335,7 +1335,7 @@ textarea { resize: vertical; min-height: 120px; }
 .testimonial { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px 32px; }
 .testimonial:hover { border-color: color-mix(in srgb, var(--primary) 28%, transparent); box-shadow: var(--glow); transition: border-color .22s, box-shadow .22s; }
 .testimonial-text { font-size: 1rem; line-height: 1.72; color: var(--text); font-style: italic; margin-bottom: 22px; }
-.testimonial-text::before { content: '\201C'; font-size: 2.5em; line-height: 0; vertical-align: -0.5em; color: var(--primary); opacity: .45; margin-right: 2px; }
+.testimonial-text::before { content: '\\201C'; font-size: 2.5em; line-height: 0; vertical-align: -0.5em; color: var(--primary); opacity: .45; margin-right: 2px; }
 .testimonial-author { font-weight: 700; color: var(--text); font-size: 0.9375rem; }
 .testimonial-role { color: var(--text-muted); font-size: 0.8125rem; margin-top: 3px; }
 .testimonial-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }

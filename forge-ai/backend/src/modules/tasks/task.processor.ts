@@ -2549,16 +2549,39 @@ async function generateStaticSite(
   const builderSystem = `${BUILDER_SYSTEM_PROMPT}\n\n${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}`
 
   const genFile = async (instruction: string, expectPath: string, useProvider: AIProvider = provider): Promise<string | null> => {
-    // one retry per file — transient chatter happens (truncation is handled
-    // by chatWithContinuation: the file is CONTINUED, never regenerated). A
-    // provider error returns null (safeChat) and counts as a failed attempt.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await safeChat(useProvider, instruction, builderSystem)
+    // 2 attempts on the main provider, then 1 attempt on Claude as fallback.
+    // This handles: (a) transient Gemini rate limits / network errors,
+    // (b) Gemini not wrapping the response in <file path="..."> tags.
+    const providers: Array<{ p: AIProvider; label: string }> = [
+      { p: useProvider, label: 'main' },
+      { p: useProvider, label: 'main-retry' },
+    ]
+    const fallback = createEnhancer()
+    if (fallback) providers.push({ p: fallback, label: 'Claude' })
+
+    for (const { p, label } of providers) {
+      // Add explicit format reminder to every attempt so the model never
+      // returns raw HTML without the <file> wrapper
+      const wrappedInstruction = `${instruction}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag and nothing else — no markdown fences around it.`
+      const res = await safeChat(p, wrappedInstruction, builderSystem)
       if (!res) { await sleep(2000); continue }
-      const file = parseAIChanges(res.content).find(
+
+      // Try exact path match first, fall back to first parsed file
+      let file = parseAIChanges(res.content).find(
         (f) => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase(),
       ) ?? parseAIChanges(res.content)[0]
+
+      // Last-resort: if the model returned raw HTML without <file> tags,
+      // treat the whole response content as the file
+      const raw = res.content.trim()
+      if (!file?.content?.trim() && (raw.startsWith('<!DOCTYPE') || raw.startsWith('<html'))) {
+        file = { path: expectPath, content: raw }
+      }
+
       if (file?.content?.trim()) {
+        if (label === 'Claude') {
+          await updateTask(task, {}, `🤖 Claude stepped in to generate ${expectPath}`)
+        }
         generated.push({ path: expectPath, content: file.content })
         return res.content
       }
