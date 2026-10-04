@@ -3221,17 +3221,30 @@ function sanitizeMernPlan(raw: any): MernPlan | null {
 }
 
 async function planMernSite(provider: AIProvider, prompt: string, brief?: string, enhancer?: AIProvider | null): Promise<MernPlan> {
-  // Extract just the Pages & Data Models sections from the PRD to keep the
-  // planning prompt focused — the full PRD can be 3-5k chars which confuses
-  // JSON-only generation.
+  // Extract Pages & Data Models from PRD — handle numbered headings like "## 3. Data Models (MERN Stack)"
   const prdPagesSection = brief
-    ? (brief.match(/##\s*Pages[\s\S]*?(?=##\s*(?:Brand|User|Data|Copy)|═══|$)/i)?.[0] ?? '').slice(0, 1200)
+    ? (brief.match(/##\s*(?:\d+\.\s*)?Pages(?:\s*\([^)]*\))?[\s\S]*?(?=##\s*(?:\d+\.\s*)?(?:Brand|User|Data|Copy|Seo|Suc)|═══|$)/i)?.[0] ?? '').slice(0, 1200)
     : ''
   const prdModelsSection = brief
-    ? (brief.match(/##\s*Data Models[\s\S]*?(?=##\s*(?:Brand|User|Pages|Copy)|═══|$)/i)?.[0] ?? '').slice(0, 600)
+    ? (brief.match(/##\s*(?:\d+\.\s*)?Data Models(?:\s*\([^)]*\))?[\s\S]*?(?=##\s*(?:\d+\.\s*)?(?:Brand|User|Pages|Copy|Seo|Suc)|═══|$)/i)?.[0] ?? '').slice(0, 800)
     : ''
+
+  // Parse explicit model names from the PRD (e.g. "### `Topic` Schema" or "### Topic")
+  const prdModelNames: string[] = []
+  if (prdModelsSection) {
+    const nameRe = /###\s+`?([A-Z][A-Za-z0-9]+)`?/g
+    let m: RegExpExecArray | null
+    while ((m = nameRe.exec(prdModelsSection)) !== null) {
+      prdModelNames.push(m[1])
+    }
+  }
+
+  const mandatoryModels = prdModelNames.length
+    ? `\n\nCRITICAL — use EXACTLY these model names from the PRD (no renaming, no substitutions): ${prdModelNames.join(', ')}.`
+    : ''
+
   const conventions = (prdPagesSection || prdModelsSection)
-    ? `\n\nCONTENT PLAN (use these pages and models — don't invent new ones):\n${prdModelsSection}\n${prdPagesSection}`
+    ? `\n\nCONTENT PLAN (use these pages and models exactly — don't invent new ones):\n${prdModelsSection}\n${prdPagesSection}${mandatoryModels}`
     : brief
       ? `\n\nMatch this site's CATEGORY CONVENTIONS:\n${brief.slice(0, 800)}`
       : ''
