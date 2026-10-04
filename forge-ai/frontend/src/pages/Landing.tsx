@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Zap, GitBranch, FileCode2, ArrowRight, Rocket,
@@ -24,8 +25,118 @@ const stats = [
   { value: '4', label: 'AI models integrated' },
 ]
 
+// ─── Before: generic AI slop site ──────────────────────────────────────────
+function BeforeSite() {
+  return (
+    <div style={{ fontFamily: 'Arial, sans-serif', background: '#0f0020', color: '#fff', minHeight: 340, fontSize: 13 }}>
+      {/* nav */}
+      <div style={{ background: 'rgba(255,255,255,0.04)', padding: '11px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <span style={{ fontWeight: 'bold', color: '#a78bfa', fontSize: 13 }}>FitApp</span>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          {['Home', 'Features', 'Pricing'].map(l => (
+            <span key={l} style={{ fontSize: 11, color: '#6b7280' }}>{l}</span>
+          ))}
+          <button style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', color: '#fff', padding: '5px 12px', borderRadius: 6, fontSize: 10, cursor: 'pointer' }}>Get Started</button>
+        </div>
+      </div>
+      {/* hero */}
+      <div style={{ background: 'linear-gradient(160deg,#1a0040 0%,#0f1035 60%,#0a0a1a 100%)', padding: '34px 18px 28px', textAlign: 'center' }}>
+        <div style={{ display: 'inline-block', background: 'rgba(124,58,237,0.18)', border: '1px solid rgba(124,58,237,0.28)', borderRadius: 20, padding: '3px 11px', fontSize: 9, color: '#a78bfa', marginBottom: 12, letterSpacing: 1 }}>✨ AI-POWERED FITNESS</div>
+        <h1 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 10px', background: 'linear-gradient(135deg,#7c3aed,#3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Welcome to FitApp</h1>
+        <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 18px', lineHeight: 1.6 }}>Your AI-powered fitness companion for a healthier lifestyle</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+          <button style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>Get Started Free</button>
+          <button style={{ background: 'transparent', border: '1px solid rgba(124,58,237,0.4)', color: '#a78bfa', padding: '8px 16px', borderRadius: 8, fontSize: 11, cursor: 'pointer' }}>Learn More</button>
+        </div>
+      </div>
+      {/* cards */}
+      <div style={{ padding: '18px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+        {['Track Workouts', 'AI Coach', 'Progress Charts'].map(t => (
+          <div key={t} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: 14 }}>
+            <div style={{ width: 28, height: 28, background: 'rgba(124,58,237,0.2)', borderRadius: 8, marginBottom: 8 }} />
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#e5e7eb', margin: '0 0 5px' }}>{t}</p>
+            <p style={{ fontSize: 10, color: '#4b5563', margin: 0, lineHeight: 1.5 }}>Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod.</p>
+          </div>
+        ))}
+      </div>
+      {/* stats row */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 28, padding: '12px 18px 18px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        {['10k+ Users', '99% Uptime', '4.9 Rating'].map(s => (
+          <div key={s} style={{ textAlign: 'center' }}>
+            <p style={{ fontSize: 16, fontWeight: 700, color: '#7c3aed', margin: 0 }}>{s.split(' ')[0]}</p>
+            <p style={{ fontSize: 9, color: '#4b5563', margin: 0 }}>{s.split(' ').slice(1).join(' ')}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── After: ForgeAI design system site ─────────────────────────────────────
+function AfterSite() {
+  return (
+    <div style={{ fontFamily: "'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", background: '#ffffff', color: '#18130f', minHeight: 340, fontSize: 13 }}>
+      {/* nav */}
+      <div style={{ background: '#fff', borderBottom: '1px solid rgba(0,0,0,0.09)', padding: '11px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontWeight: 800, fontSize: 13, letterSpacing: '-0.5px' }}>FitCore</span>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          {['Program', 'Results', 'Coaches'].map(l => (
+            <span key={l} style={{ fontSize: 11, color: '#6b6460', fontWeight: 500 }}>{l}</span>
+          ))}
+          <button style={{ background: '#e85d04', border: 'none', color: '#fff', padding: '5px 13px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.2px' }}>Start free →</button>
+        </div>
+      </div>
+      {/* hero */}
+      <div style={{ background: 'linear-gradient(160deg,#fff8f0 0%,#fef3e8 60%,#ffffff 100%)', padding: '30px 18px 22px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #ffd8b2', borderRadius: 20, padding: '3px 10px', fontSize: 9, color: '#e85d04', marginBottom: 12, fontWeight: 700, letterSpacing: '0.3px' }}>
+          <span style={{ width: 6, height: 6, background: '#e85d04', borderRadius: '50%', display: 'inline-block' }} />
+          30-DAY RESULTS OR IT'S FREE
+        </div>
+        <h1 style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.12, margin: '0 0 10px', letterSpacing: '-0.8px' }}>
+          Train hard.<br />
+          <span style={{ color: '#e85d04' }}>See results.</span><br />
+          No excuses.
+        </h1>
+        <p style={{ fontSize: 11, color: '#6b6460', margin: '0 0 16px', lineHeight: 1.65, maxWidth: 280 }}>
+          Science-backed programs by elite coaches. Your body, your goals, your timeline.
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={{ background: '#e85d04', border: 'none', color: '#fff', padding: '8px 18px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '-0.1px' }}>Build my program →</button>
+          <button style={{ background: 'transparent', border: '1px solid rgba(0,0,0,0.13)', color: '#18130f', padding: '8px 14px', borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: 'pointer' }}>See results</button>
+        </div>
+      </div>
+      {/* cards */}
+      <div style={{ padding: '16px 18px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+        {[
+          { label: 'Daily Programs', sub: 'New workout drops every morning at 6am' },
+          { label: 'Expert Coaches', sub: 'Certified trainers, 10+ years each' },
+          { label: 'Track Progress', sub: 'Weekly scan + visual results history' },
+        ].map(({ label, sub }) => (
+          <div key={label} style={{ background: '#f7f5f2', border: '1px solid rgba(0,0,0,0.07)', borderRadius: 10, padding: 14, transition: 'box-shadow .2s' }}>
+            <div style={{ width: 26, height: 26, background: '#ffecd9', borderRadius: 7, marginBottom: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 10, height: 10, background: '#e85d04', borderRadius: 2 }} />
+            </div>
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#18130f', margin: '0 0 4px', letterSpacing: '-0.2px' }}>{label}</p>
+            <p style={{ fontSize: 10, color: '#6b6460', margin: 0, lineHeight: 1.55 }}>{sub}</p>
+          </div>
+        ))}
+      </div>
+      {/* stats row */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 28, padding: '12px 18px 18px', borderTop: '1px solid rgba(0,0,0,0.07)' }}>
+        {[['12k+', 'Members'], ['98%', 'Complete programs'], ['4.9★', 'App rating']].map(([v, l]) => (
+          <div key={l} style={{ textAlign: 'center' }}>
+            <p style={{ fontSize: 16, fontWeight: 800, color: '#e85d04', margin: 0, letterSpacing: '-0.5px' }}>{v}</p>
+            <p style={{ fontSize: 9, color: '#6b6460', margin: 0, fontWeight: 500 }}>{l}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Landing() {
   const navigate = useNavigate()
+  const [showAfter, setShowAfter] = useState(false)
 
   return (
     <div className="min-h-screen bg-surface-950 flex flex-col relative overflow-hidden">
@@ -85,6 +196,71 @@ export default function Landing() {
               <p className="text-xs text-zinc-500 mt-1">{s.label}</p>
             </div>
           ))}
+        </div>
+
+        {/* ── Before / After ── */}
+        <style>{BEFORE_AFTER_STYLES}</style>
+        <div className="max-w-3xl w-full mb-28 animate-fade-up" style={{ animationDelay: '0.22s' }}>
+          {/* heading */}
+          <p className="text-xs font-semibold tracking-widest text-zinc-500 uppercase mb-3">AI Website Builder</p>
+          <h2 className="text-4xl md:text-5xl font-bold leading-tight mb-4">
+            <span className="text-gradient">Stop building</span>{' '}
+            <span className="text-zinc-100">AI slop.</span>
+          </h2>
+          <p className="text-zinc-400 text-base max-w-xl mx-auto mb-10">
+            ForgeAI generates sites with a real design identity — specific brand colors, intentional typography, and layouts that don't look like every other vibecoded site.
+          </p>
+
+          {/* Toggle pill */}
+          <div className="inline-flex items-center gap-0 bg-zinc-900 border border-white/10 rounded-full p-1 mb-8">
+            <button
+              onClick={() => setShowAfter(false)}
+              className={`ba-pill ${!showAfter ? 'ba-pill-active' : 'ba-pill-inactive'}`}
+            >
+              Before <span className={`ba-sub ${!showAfter ? 'ba-sub-active' : ''}`}>(AI slop default)</span>
+            </button>
+            <button
+              onClick={() => setShowAfter(true)}
+              className={`ba-pill ${showAfter ? 'ba-pill-active' : 'ba-pill-inactive'}`}
+            >
+              After <span className={`ba-sub ${showAfter ? 'ba-sub-active' : ''}`}>(With ForgeAI)</span>
+            </button>
+          </div>
+
+          {/* Browser mock */}
+          <div className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl ba-browser">
+            {/* chrome bar */}
+            <div className="flex items-center gap-1.5 px-4 py-2.5 bg-zinc-900 border-b border-white/5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
+              <span className="ml-3 text-[10px] text-zinc-500 font-mono">
+                {showAfter ? 'fitcore.onrender.com' : 'fitapp.onrender.com'}
+              </span>
+            </div>
+            {/* site content — cross-fade */}
+            <div className="relative overflow-hidden" style={{ minHeight: 340 }}>
+              <div className={`ba-panel ${!showAfter ? 'ba-panel-visible' : 'ba-panel-hidden'}`}>
+                <BeforeSite />
+              </div>
+              <div className={`ba-panel ${showAfter ? 'ba-panel-visible' : 'ba-panel-hidden'}`}>
+                <AfterSite />
+              </div>
+            </div>
+          </div>
+
+          {/* label strip below browser */}
+          <div className="flex items-center justify-center gap-2 mt-5">
+            {!showAfter ? (
+              <p className="text-xs text-zinc-500">
+                Generic purple gradient · lorem ipsum copy · no brand identity
+              </p>
+            ) : (
+              <p className="text-xs text-emerald-400 font-medium">
+                ✓ Real headline copy · intentional palette · designed for its category
+              </p>
+            )}
+          </div>
         </div>
 
         {/* ── AI Website Builder showcase ── */}
@@ -195,6 +371,56 @@ export default function Landing() {
     </div>
   )
 }
+
+const BEFORE_AFTER_STYLES = `
+.ba-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 16px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all .2s ease;
+}
+.ba-pill-active {
+  background: #ffffff;
+  color: #0a0a0a;
+}
+.ba-pill-inactive {
+  background: transparent;
+  color: #71717a;
+}
+.ba-pill-inactive:hover {
+  color: #a1a1aa;
+}
+.ba-sub {
+  font-weight: 400;
+  font-size: 11px;
+  color: #71717a;
+}
+.ba-sub-active {
+  color: #52525b;
+}
+.ba-browser {
+  box-shadow: 0 32px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06);
+}
+.ba-panel {
+  position: absolute;
+  inset: 0;
+  transition: opacity .3s ease;
+}
+.ba-panel-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.ba-panel-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+`
 
 // Animations for the AI Builder showcase
 const BUILDER_STYLES = `
