@@ -278,6 +278,7 @@ export default function Builder() {
   const busy = isBuilding || buildMutation.isPending
 
   return (
+    <>
     <div className="h-full overflow-y-auto">
       <div className="max-w-3xl mx-auto px-6 py-10">
 
@@ -1344,5 +1345,6 @@ export default function Builder() {
         </div>
       </div>
     )}
+    </>
   )
 }
