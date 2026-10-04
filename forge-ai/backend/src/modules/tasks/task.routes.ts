@@ -74,6 +74,15 @@ router.get('/:id', async (req, res) => {
   res.json({ task })
 })
 
+// Get the build report (PRD, design brief, plan) for a build-site task
+router.get('/:id/build-report', async (req, res) => {
+  const task = await Task.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
+  if (!task) return res.status(404).json({ message: 'Not found' })
+  const report = (task.metadata as any)?.buildReport
+  if (!report) return res.status(404).json({ message: 'No build report for this task' })
+  res.json(report)
+})
+
 
 // ═══ REBUILD PROPOSAL ════════════════════════════════════════
 router.post('/rebuild-proposal', checkQuota('reviews'), async (req, res) => {

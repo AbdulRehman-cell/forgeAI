@@ -3907,7 +3907,7 @@ export async function generateMernSite(
   siteName: string,
   designBrief: string,
   log: (message: string, progress?: number) => Promise<unknown>,
-): Promise<{ files: ParsedChange[]; summary: string; adminPassword: string }> {
+): Promise<{ files: ParsedChange[]; summary: string; adminPassword: string; plan?: MernPlan }> {
   const files: ParsedChange[] = []
   const adminPassword = generateAdminPassword()
   // Injected into the VISUAL files (App shell, pages, stylesheet) so the whole
@@ -4264,7 +4264,7 @@ export async function generateMernSite(
     console.warn('[seed] seed data generation failed (non-fatal):', e)
   }
 
-  return { files, summary: plan.summary, adminPassword }
+  return { files, summary: plan.summary, adminPassword, plan }
 }
 
 // ═══ CLAUDE QA / ENHANCEMENT PASS ═════════════════════════════
@@ -4671,6 +4671,9 @@ async function buildSite(job: Job) {
     // Phase 2 (here): page-by-page content plan with real copy via Claude.
     // This separation is what prevents "vibe-coded" generic output — Gemini
     // follows a precise script instead of inventing content from scratch.
+    // Snapshot the visual design brief before PRD is appended (used in build report)
+    const visualDesignBrief = designBrief
+
     if (!importUrl) {
       await updateTask(task, { progress: 9 }, '📋 Claude is writing the content blueprint (pages, copy, data models)…')
       const enhancer = createEnhancer()
@@ -4678,6 +4681,13 @@ async function buildSite(job: Job) {
       if (contentPRD) {
         designBrief += `\n\n═══ CONTENT PRD — FOLLOW THIS BLUEPRINT EXACTLY ═══\n${contentPRD}\n══════════════════════════════════════════════════`
         await updateTask(task, {}, '✅ Content blueprint ready — coding now begins')
+        // Save PRD to metadata for the Build Report feature
+        task.metadata = {
+          ...task.metadata,
+          buildReport: { ...((task.metadata as any)?.buildReport ?? {}), prd: contentPRD, designBrief: visualDesignBrief, prompt, siteName, stack },
+        }
+        task.markModified('metadata')
+        await task.save()
       }
     }
 
@@ -4701,6 +4711,17 @@ async function buildSite(job: Job) {
       generated.push(...result.files)
       summaryLine = result.summary
       mernAdminPwd = result.adminPassword
+      if (result.plan) {
+        task.metadata = {
+          ...task.metadata,
+          buildReport: {
+            ...((task.metadata as any)?.buildReport ?? {}),
+            plan: { summary: result.plan.summary, models: result.plan.models, pages: result.plan.pages },
+          },
+        }
+        task.markModified('metadata')
+        await task.save()
+      }
     } else {
       // A rebuild must out-do the site it replaces, so the generator is told
       // exactly how rich the original is (pages, imagery, its own sections).

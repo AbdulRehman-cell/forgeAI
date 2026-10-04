@@ -90,6 +90,8 @@ export default function Builder() {
   // ── Add-ons ──
   const [addons, setAddons] = useState<string[]>([])
   const [waTestState, setWaTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [buildReport, setBuildReport] = useState<any>(null)
+  const [reportTab, setReportTab] = useState<'prd' | 'brief' | 'plan'>('prd')
   const logEndRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -1156,6 +1158,22 @@ export default function Builder() {
                       <FileText size={13} /> Download report (PDF)
                     </button>
                   )}
+                  {buildDone && task?._id && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const r = await api.get(`/tasks/${task._id}/build-report`)
+                          setBuildReport(r.data)
+                          setReportTab('prd')
+                        } catch {
+                          toast.error('No build report for this task')
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-surface-600 text-xs font-medium text-zinc-300 hover:border-brand-500/50 transition-colors"
+                    >
+                      <FileText size={13} /> Build Report
+                    </button>
+                  )}
                   {repoId && (
                     <button
                       onClick={() => navigate(`/repositories/${repoId}/workspace`)}
@@ -1208,5 +1226,123 @@ export default function Builder() {
         )}
       </div>
     </div>
+
+    {/* ── Build Report Modal ── */}
+    {buildReport && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        onClick={() => setBuildReport(null)}
+      >
+        <div
+          className="bg-zinc-900 border border-surface-700 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-surface-700">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-100">Build Report</h2>
+              {buildReport.siteName && (
+                <p className="text-xs text-zinc-500 mt-0.5">{buildReport.siteName} · {buildReport.stack?.toUpperCase()}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const sections: string[] = [`# Build Report — ${buildReport.siteName ?? 'Site'}\n`]
+                  if (buildReport.prompt) sections.push(`## Prompt\n${buildReport.prompt}\n`)
+                  if (buildReport.prd) sections.push(`## Content PRD\n${buildReport.prd}\n`)
+                  if (buildReport.designBrief) sections.push(`## Design Brief\n${buildReport.designBrief}\n`)
+                  if (buildReport.plan) {
+                    sections.push(`## Data Models\n${buildReport.plan.models.map((m: any) => `### ${m.name}\n${m.fields.map((f: any) => `- ${f.name}: ${f.type}`).join('\n')}`).join('\n\n')}\n`)
+                    sections.push(`## Pages\n${buildReport.plan.pages.map((p: any) => `- **${p.file}** (\`${p.route}\`) — ${p.purpose}`).join('\n')}\n`)
+                  }
+                  const blob = new Blob([sections.join('\n')], { type: 'text/markdown' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `${buildReport.siteName ?? 'build'}-report.md`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-surface-600 text-xs font-medium text-zinc-300 hover:border-brand-500/50 transition-colors"
+              >
+                <FileText size={12} /> Download .md
+              </button>
+              <button onClick={() => setBuildReport(null)} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none px-1">×</button>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 px-5 pt-3">
+            {[
+              { key: 'prd', label: 'Content PRD', disabled: !buildReport.prd },
+              { key: 'brief', label: 'Design Brief', disabled: !buildReport.designBrief },
+              { key: 'plan', label: 'Data Plan', disabled: !buildReport.plan },
+            ].map(({ key, label, disabled }) => (
+              <button
+                key={key}
+                disabled={disabled}
+                onClick={() => setReportTab(key as any)}
+                className={clsx(
+                  'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  reportTab === key
+                    ? 'bg-brand-600/20 text-brand-400 border border-brand-500/30'
+                    : 'text-zinc-500 hover:text-zinc-300',
+                  disabled && 'opacity-30 cursor-not-allowed',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 text-xs leading-relaxed">
+            {reportTab === 'prd' && buildReport.prd && (
+              <pre className="whitespace-pre-wrap text-zinc-300 font-mono text-[11px]">{buildReport.prd}</pre>
+            )}
+            {reportTab === 'brief' && buildReport.designBrief && (
+              <pre className="whitespace-pre-wrap text-zinc-300 font-mono text-[11px]">{buildReport.designBrief}</pre>
+            )}
+            {reportTab === 'plan' && buildReport.plan && (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-zinc-200 font-semibold mb-2">Data Models</h3>
+                  <div className="grid grid-cols-1 gap-3">
+                    {buildReport.plan.models.map((m: any) => (
+                      <div key={m.name} className="border border-surface-600 rounded-xl p-3">
+                        <p className="text-brand-400 font-semibold mb-1">{m.name}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {m.fields.map((f: any) => (
+                            <span key={f.name} className="bg-surface-700 rounded px-2 py-0.5 text-zinc-400">
+                              {f.name}: <span className="text-zinc-500">{f.type}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-zinc-200 font-semibold mb-2">Pages</h3>
+                  <div className="space-y-1.5">
+                    {buildReport.plan.pages.map((p: any) => (
+                      <div key={p.file} className="flex items-start gap-2 border border-surface-700 rounded-lg px-3 py-2">
+                        <code className="text-brand-400 shrink-0">{p.route}</code>
+                        <span className="text-zinc-500">·</span>
+                        <span className="text-zinc-300">{p.purpose}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {reportTab === 'prd' && !buildReport.prd && (
+              <p className="text-zinc-500">No PRD generated for this build (import/enhance mode, or PRD generation failed).</p>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
   )
 }
