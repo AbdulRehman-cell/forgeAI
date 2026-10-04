@@ -3139,6 +3139,8 @@ RULES:
 - FOLLOW CATEGORY CONVENTIONS: build the sections, layout, and structure that best-in-class REAL sites in this site's CATEGORY use — the DESIGN BRIEF's REFERENCE names the category and its conventions. A hotel must feel like a hotel site (rooms, amenities, gallery, offers, location), a restaurant like a restaurant site (menu, reservations, gallery), etc. — not a generic template.
 - SUBSTANCE & DENSITY: build RICH, full pages — never thin one-section pages. Every major page MUST have 6–8 distinct sections. Landing/Home: hero → stats/social-proof → feature highlights (3-col grid) → how-it-works (step-row) → gallery or showcase → testimonials → CTA banner → footer. Listing pages: filter-bar + category-btn chips → grid of cards → pagination. Detail/single-item pages: hero image → key details + action button → description → related items grid. Form/booking pages: a prominent booking-card search bar → results → booking confirmation. Each section must have a real eyebrow label, a strong h2, a sub-paragraph, and the appropriate visual treatment. Pages that match what Lovable would build — never sparse.
 - No placeholders, no "...", no TODOs — complete working code only.
+- ONLY import from packages that exist in client/package.json: react, react-dom, react-router-dom, axios. NEVER import "framer-motion", "react-icons", "react-serif", "styled-components", "chakra-ui", "@mui/material", "date-fns", "lodash", or ANY other npm package — they are NOT installed and will crash the build. All styling is done via CSS classes; all utilities are written inline.
+- In CSS files, ALL @import rules (e.g. Google Fonts @import url(...)) MUST be the very first lines of the file — before any :root, *, or other rules. An @import after any other CSS rule is invalid and fails the build.
 
 Return ONLY the requested file, in exactly this format:
 <file path="relative/path">
@@ -3837,6 +3839,49 @@ function healRoute(name: string): string {
  *    - router.get('/:id', requireAdmin, ...)
  *    - router.post('/', requireAdmin, ...)
  *  No AI needed — pure string replacement. Never throws. */
+/** Move any @import rules to the top of CSS files.
+ *  CSS spec requires @import before all other rules — placing them mid-file
+ *  causes Vite to emit a warning AND some browsers silently ignore them. */
+function fixCssImportOrder(files: ParsedChange[]): void {
+  for (const f of files.filter((x) => x.path.endsWith('.css'))) {
+    const lines = f.content.split('\n')
+    const imports = lines.filter((l) => /^\s*@import\b/.test(l))
+    const rest = lines.filter((l) => !/^\s*@import\b/.test(l))
+    if (!imports.length) continue
+    f.content = [...imports, '', ...rest].join('\n')
+    console.log(`[fixCss] moved ${imports.length} @import(s) to top of ${f.path}`)
+  }
+}
+
+/** Strip imports of npm packages that aren't in the generated client's package.json.
+ *  Vite fails the ENTIRE build on one unresolvable import — one hallucinated
+ *  package like "react-serif" or "framer-motion" kills the whole site.
+ *  Relative imports (./foo) and the known installed packages are kept; everything
+ *  else is commented out so the file still parses. */
+function stripHallucinatedPackageImports(files: ParsedChange[]): void {
+  const ALLOWED = new Set([
+    'react', 'react-dom', 'react-router-dom', 'axios',
+    'vite', '@vitejs/plugin-react',
+  ])
+  for (const f of files.filter((x) => /^client\/src\/.+\.(jsx?|tsx?)$/.test(x.path.replace(/\\/g, '/')))) {
+    const lines = f.content.split('\n')
+    let changed = false
+    for (let i = 0; i < lines.length; i++) {
+      // Match bare package imports: import ... from 'pkg' where pkg is NOT relative
+      const m = lines[i].match(/^(\s*import\b[^'"]*['"])([^./][^'"]*)(["'].*)$/)
+      if (!m) continue
+      const rawPkg = m[2]
+      // Scoped packages: @scope/name — use full @scope/name as key
+      const pkg = rawPkg.startsWith('@') ? rawPkg.split('/').slice(0, 2).join('/') : rawPkg.split('/')[0]
+      if (ALLOWED.has(pkg)) continue
+      console.warn(`[auditImports] removed hallucinated import "${rawPkg}" from ${f.path}`)
+      lines[i] = `// [ForgeAI removed] import "${rawPkg}" — package not in client/package.json`
+      changed = true
+    }
+    if (changed) f.content = lines.join('\n')
+  }
+}
+
 function auditPublicPostRoutes(files: ParsedChange[]): void {
   const routeFiles = files.filter((f) => /^server\/routes\/.+\.routes\.js$/.test(f.path.replace(/\\/g, '/')))
   for (const f of routeFiles) {
@@ -4085,6 +4130,8 @@ export async function generateMernSite(
   // a public page calls. Runs after all route files are finalized so it catches
   // both AI-generated and heal-generated routes. No AI, no prompts — pure scan.
   auditPublicPostRoutes(files)
+  fixCssImportOrder(files)
+  stripHallucinatedPackageImports(files)
 
   // ── Import sanity pass ──
   // Vite fails the ENTIRE build on one unresolvable import. Strip imports of
