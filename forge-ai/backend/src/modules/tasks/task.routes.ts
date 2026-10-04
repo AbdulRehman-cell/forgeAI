@@ -19,7 +19,7 @@ import {
   addRenderDomain, listRenderDomains, verifyRenderDomain, removeRenderDomain, dnsRecordFor,
 } from '../../lib/deployers'
 import { resolveAttachments } from '../../lib/imageAttachments'
-import { createProvider } from '../ai/ai.factory'
+import { createProvider, resolveProvider } from '../ai/ai.factory'
 import { VALID_PALETTE_IDS } from '../../lib/designPacks'
 
 
@@ -84,7 +84,7 @@ router.post('/enhance-prompt', async (req, res) => {
   try {
     const enhancerName = process.env.ENHANCER_AI_PROVIDER
     const providerName = process.env.BUILDER_AI_PROVIDER ?? 'gemini'
-    const ai = createProvider(enhancerName ?? providerName)
+    const ai = createProvider(resolveProvider(enhancerName ?? providerName))
 
     const isMern = stack === 'mern'
     const systemPrompt = `You are a senior product manager and technical architect. Expand a brief website description into a detailed, specific build specification. Keep the same intent but add concrete detail: exact pages and their sections, key features, data that needs to be stored${isMern ? ', API endpoints, Mongoose models' : ''}, user flows, and any edge cases worth handling. Write in plain prose paragraphs — no bullet lists, no markdown headers. Aim for 150–220 words. Sound like a real PRD, not a template.`
