@@ -19,6 +19,7 @@ import {
   addRenderDomain, listRenderDomains, verifyRenderDomain, removeRenderDomain, dnsRecordFor,
 } from '../../lib/deployers'
 import { resolveAttachments } from '../../lib/imageAttachments'
+import { createProvider } from '../ai/ai.factory'
 
 
 const router = Router()
@@ -72,6 +73,29 @@ router.get('/:id', async (req, res) => {
   const task = await Task.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!task) return res.status(404).json({ message: 'Not found' })
   res.json({ task })
+})
+
+// Enhance a user's raw prompt into a detailed technical specification
+router.post('/enhance-prompt', async (req, res) => {
+  const { prompt, stack, name } = req.body
+  if (!prompt?.trim()) return res.status(400).json({ message: 'prompt is required' })
+
+  try {
+    const enhancerName = process.env.ENHANCER_AI_PROVIDER
+    const providerName = process.env.BUILDER_AI_PROVIDER ?? 'gemini'
+    const ai = createProvider(enhancerName ?? providerName)
+
+    const isMern = stack === 'mern'
+    const systemPrompt = `You are a senior product manager and technical architect. Expand a brief website description into a detailed, specific build specification. Keep the same intent but add concrete detail: exact pages and their sections, key features, data that needs to be stored${isMern ? ', API endpoints, Mongoose models' : ''}, user flows, and any edge cases worth handling. Write in plain prose paragraphs — no bullet lists, no markdown headers. Aim for 150–220 words. Sound like a real PRD, not a template.`
+
+    const userMsg = `Enhance this website prompt into a detailed spec:\n\n"${prompt.trim()}"${name ? `\n\nSite name: ${name}` : ''}\n\nStack: ${isMern ? 'Full-stack MERN (MongoDB, Express, React, Node)' : 'Static HTML/CSS/JS website'}`
+
+    const result = await ai.chat([{ role: 'user', content: userMsg }], systemPrompt)
+    res.json({ enhanced: result.content.trim() })
+  } catch (err: any) {
+    console.error('[enhance-prompt]', err.message)
+    res.status(500).json({ message: 'Enhancement failed — try again' })
+  }
 })
 
 // Get the build report (PRD, design brief, plan) for a build-site task

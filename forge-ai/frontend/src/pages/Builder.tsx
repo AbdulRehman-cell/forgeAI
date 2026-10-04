@@ -90,6 +90,7 @@ export default function Builder() {
   // ── Add-ons ──
   const [addons, setAddons] = useState<string[]>([])
   const [waTestState, setWaTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [enhancing, setEnhancing] = useState(false)
   const [buildReport, setBuildReport] = useState<any>(null)
   const [reportTab, setReportTab] = useState<'prd' | 'brief' | 'plan'>('prd')
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -512,13 +513,39 @@ export default function Builder() {
               {flow === 'existing' ? 'Anything specific to change?' : 'Describe your website'}
             </label>
             <textarea
-              className="input resize-none leading-relaxed mb-3"
+              className="input resize-none leading-relaxed mb-2"
               rows={5}
               placeholder="What should it be? Who is it for? What pages and sections? Any style preferences (dark, playful, minimal)?"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={busy}
             />
+
+            {/* Enhance prompt button */}
+            {prompt.trim().length > 10 && !busy && (
+              <div className="flex justify-end mb-3">
+                <button
+                  onClick={async () => {
+                    setEnhancing(true)
+                    try {
+                      const r = await api.post('/tasks/enhance-prompt', { prompt, stack, name })
+                      setPrompt(r.data.enhanced)
+                      toast.success('Prompt enhanced!')
+                    } catch {
+                      toast.error('Enhancement failed — try again')
+                    } finally {
+                      setEnhancing(false)
+                    }
+                  }}
+                  disabled={enhancing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/30 bg-violet-500/5 text-xs font-medium text-violet-300 hover:border-violet-400/50 hover:bg-violet-500/10 transition-colors disabled:opacity-50"
+                >
+                  {enhancing
+                    ? <><Loader2 size={11} className="animate-spin" /> Enhancing…</>
+                    : <><Sparkles size={11} /> Enhance prompt</>}
+                </button>
+              </div>
+            )}
 
             {flow === 'new' && (
               <div className="flex flex-wrap gap-2 mb-5">
