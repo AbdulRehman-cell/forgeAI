@@ -4,6 +4,7 @@
 // streaming every step to the UI through the existing task log websocket.
 
 import os from 'os'
+import simpleGit from 'simple-git'
 import axios from 'axios'
 import { Task, IFileChange } from '../tasks/task.model'
 import { Repository } from '../repository/repository.model'
@@ -461,8 +462,13 @@ Begin now. Reply with your first tool call(s) — a reply without a tool call do
 
   task.changes = [...changesByPath.values()]
 
-  // Auto-deploy: this repo was previously deployed to Render → push the
-  // agent's changes and rebuild, so the live site picks them up
+  // Push changes to GitHub (always, for cloned repos that have a GitHub remote)
+  if (task.changes.length) {
+    await pushAgentChangesToGitHub(job, task, instruction as string, log)
+  }
+
+  // Auto-deploy: this repo was previously deployed to Render → rebuild the
+  // live site after the push so it picks up the new changes
   if (task.changes.length) {
     const deployNote = await autoRedeployRender(job, task, log)
     if (deployNote) finalSummary = `${deployNote}\n\n---\n\n${finalSummary}`
@@ -473,6 +479,46 @@ Begin now. Reply with your first tool call(s) — a reply without a tool call do
   task.summary = finalSummary
   await task.save()
   emitTaskUpdate(taskId, task.toObject())
+}
+
+/**
+ * Commit and push the agent's changes to the GitHub remote.
+ * Only runs for repos cloned by ForgeAI (source !== 'local') that have a
+ * GitHub fullName — local folders manage their own git workflow.
+ * Best-effort: a push failure is logged as a warning, not a hard error.
+ */
+async function pushAgentChangesToGitHub(
+  job: Job,
+  task: any,
+  instruction: string,
+  log: (msg: string, level?: 'info' | 'warn' | 'error') => Promise<void>,
+): Promise<void> {
+  const { repositoryId, userId, localPath } = job.data
+  try {
+    const repo = await Repository.findById(repositoryId)
+    if (!repo || repo.source === 'local' || !repo.fullName) return
+
+    const fullUser = await User.findById(userId).select('+githubAccessToken')
+    if (!fullUser?.githubAccessToken) {
+      await log('No GitHub token on file — changes saved locally but not pushed to GitHub', 'warn')
+      return
+    }
+
+    const git = simpleGit(localPath)
+    const changedPaths = task.changes.map((c: IFileChange) => c.path)
+
+    await git.addConfig('user.email', 'agent@forgeai.app')
+    await git.addConfig('user.name', 'ForgeAI Agent')
+    await git.add(changedPaths)
+    await git.commit(`ForgeAI Agent: ${instruction.slice(0, 72)}`)
+
+    const pushUrl = `https://${fullUser.githubAccessToken}@github.com/${repo.fullName}.git`
+    await git.push([pushUrl, 'HEAD:main'])
+    await log(`✅ Pushed ${changedPaths.length} file(s) to GitHub (${repo.fullName})`)
+  } catch (err: any) {
+    const clean = (err.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')
+    await log(`⚠️ Could not push to GitHub: ${clean}`, 'warn')
+  }
 }
 
 /**
