@@ -19,6 +19,7 @@ import { auditSite, type SiteAudit } from '../../lib/siteAudit'
 import { stripCodeFence } from '../agent/agent.tools'
 import type { AIProvider, AIMessage, AIResponse } from '../ai/providers/base'
 import { selectPack, getPackCss, getPackPromptNote, PALETTE_PRESETS } from '../../lib/designPacks'
+import { getReactPackFiles, getReactPackCss, getReactPackPromptNote } from '../../lib/reactPack'
 
 const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
@@ -1537,17 +1538,28 @@ const BUILDER_SYSTEM_PROMPT = `You are ForgeAI Builder, an elite web designer an
 
 QUALITY BAR — the site must look like a designer built it (think Linear, Stripe, Vercel, Lovable), never "AI-generated filler":
 - Follow the DESIGN BRIEF you are given EXACTLY — its palette, fonts, type scale, spacing, and motifs. Never fall back to a generic default (never violet #8b5cf6 on slate #0f172a unless the brief says so).
-- A REAL type scale: big, confident headings using clamp() (hero h1 ~clamp(2.5rem, 6vw, 4.5rem), tight line-height ~1.05), a clear step down to body. Gradient text on the hero headline when it fits the brand.
-- DEPTH, not flat: layered box-shadows, subtle gradients or a soft radial "mesh" backdrop on the hero, 1px translucent borders on cards (rgba(255,255,255,.06)), rounded-2xl corners. Nothing should look like an unstyled block.
+- A REAL type scale: big, confident headings using clamp() (hero h1 ~clamp(2.5rem, 6vw, 4.5rem), tight line-height ~1.05), a clear step down to body. Gradient text on ONE accent word of the hero headline when it fits the brand.
+- DEPTH, not flat: layered box-shadows, subtle gradients or a soft radial "mesh" backdrop on the hero, 1px translucent borders on cards, rounded corners. Nothing should look like an unstyled block.
 - RHYTHM: generous section padding (clamp(64px,10vw,120px) vertical), consistent spacing scale, aligned grids, a max-width content column.
-- Micro-interactions: smooth transitions (~180ms ease), hover/focus states on every interactive element (lift, glow, or color shift), tasteful scroll-reveal or keyframe accents — never gratuitous.
+- Micro-interactions: smooth transitions (~180ms ease), hover/focus states on every interactive element (lift, glow, or color shift), tasteful scroll-reveal — never gratuitous.
 - Typography: link the brief's Google Font pairing in each page's <head> (a display font for headings + a clean body font). Load the weights you use.
-- Favicon: every page's <head> MUST include an inline emoji favicon so the browser never 404s requesting /favicon.ico, e.g. <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>"> (pick an emoji matching the site's theme).
-- CONTRAST IS NON-NEGOTIABLE: never light text on light backgrounds or dark on dark. Verify body text against its background.
-- MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, gallery2, feature3) so each image is distinct and STABLE across reloads (sizes hero ≥ 1600 wide, gallery/cards ≥ 600 wide); avatars via https://i.pravatar.cc/300?img={n}. The HOME hero MUST have a full-bleed background image (a positioned <img> covering the section, or CSS background-image) WITH a dark gradient overlay so the light headline stays perfectly legible — always do this on the home page UNLESS the request says no hero image. Put PLENTY of images across every page (gallery/showcase/feature/testimonial sections). Include at least one VIDEO from the web — a relevant YouTube embed (<iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen> in a responsive 16:9 wrapper), or a muted autoplay looping <video autoplay muted loop playsinline>. Present images CLEANLY: object-fit: cover, tidy rounded corners, consistent aspect ratios — NEVER rotate/tilt/skew/overlap. Explicit width & height + descriptive alt on every <img>. Inline SVG only for small icons. Never reference local files that don't exist.
-- DYNAMIC & ANIMATED: make the site feel alive — smooth entrance/scroll-reveal animations as sections come into view, hover/focus micro-interactions on every interactive element, and a loading animation on page load (a spinner preloader is already provided; tasteful CSS entrance keyframes welcome). Rich and lively, never gratuitous.
-- Every section earns its place: a real hero with a clear headline + subhead + primary CTA, a sticky translucent (backdrop-blur) nav, meaningful content sections, and a rich footer. Working links between all pages.
+- Favicon: every page's <head> MUST include an inline emoji favicon, e.g. <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>"> (pick an emoji matching the site's theme).
+- CONTRAST IS NON-NEGOTIABLE: never light text on light backgrounds or dark on dark.
+- MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, gallery2, feature3) so each image is distinct and STABLE across reloads (sizes hero ≥ 1600 wide, gallery/cards ≥ 600 wide); avatars via https://i.pravatar.cc/300?img={n}. The HOME hero MUST have a full-bleed background image (a positioned <img> covering the section, or CSS background-image) WITH a dark gradient overlay so the headline stays perfectly legible. Put PLENTY of images across every page. Include at least one VIDEO — a relevant YouTube embed (<iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen> in a responsive 16:9 wrapper), or a muted autoplay <video autoplay muted loop playsinline>. Present images CLEANLY: object-fit: cover, tidy rounded corners — NEVER rotate/tilt/skew/overlap. Explicit width & height + descriptive alt on every <img>. Never reference local files that don't exist.
+- DYNAMIC & ANIMATED: make the site feel alive — smooth entrance/scroll-reveal animations, hover/focus micro-interactions, and a loading animation on page load. Rich and lively, never gratuitous.
+- Every section earns its place: a real hero with headline + subhead + primary CTA, a sticky translucent (backdrop-blur) nav, meaningful content sections, and a rich footer. Working links between all pages.
 - Semantic HTML5; interactivity lives in script.js, styles live in styles.css — do NOT inline <style> or <script> blocks in HTML pages beyond tiny critical snippets.
+
+⚠️ DESIGN SYSTEM RULES — BREAKS THAT MAKE SITES LOOK AMATEUR:
+- NEVER use border-style: dashed or border-style: dotted ANYWHERE — not on nav links, not on cards, not on buttons, not on any element. Dashed borders make sites look vibe-coded instantly. All borders must be solid or none.
+- NEVER add any border to nav anchor tags (<a> inside nav/header) — the design pack already styles them with no border. Adding dashed/dotted/solid borders to nav links is the #1 dead giveaway of AI-generated sites.
+- NEVER write border-style: dashed anywhere in styles.css. Search your output before returning it.
+- Sections should alternate visually — use the pack's .section class and set background: var(--surface) on every other section for visual rhythm. Never leave a long stretch of identical white.
+- The .cta-section class creates a beautiful gradient call-to-action block — use it instead of a plain white CTA.
+- Nav must have BOTH a semi-opaque background (≥80% opacity) AND backdrop-filter: blur() — a blurred nav with no background lets content smear through and looks broken.
+- GALLERY IMAGES: Use a subtle gradient overlay (linear-gradient from rgba(0,0,0,0.5) at bottom to transparent) that only appears ON HOVER. NEVER write a flat dark overlay that covers the whole image at full opacity — it makes photos look black and kills the gallery. Structure: <div class="gallery-item"><img src="..." alt="..."/><div class="gallery-overlay"><span>caption</span></div></div>
+- GALLERY GRID: When a gallery has an uneven number of items (e.g. 5 items in 3 columns), the last item should NOT be lonely — use grid-column: span 2 on the last odd item, or use an even number of items.
+- TEXT CONTRAST: If a section has a light background (var(--bg), var(--surface), or any white/cream color), text MUST use var(--text) or var(--text-muted) — NEVER white (#fff) or rgba(255,255,255,*). White text on a cream background is invisible. Only use white text inside .hero, .cta-section, .dark, or elements with a dark background.
 
 Return ONLY the requested file, in exactly this format (complete content, no placeholders, no "..."):
 <file path="relative/path">
@@ -1850,30 +1862,93 @@ section[id*="hero" i] *, section[class*="hero" i] * {
 }
 `
 
-const FINAL_FIXES_CSS = `/* ── Final deterministic fixes (win over generated CSS) ── */
+const FINAL_FIXES_CSS = `/* ── Final deterministic fixes — appended LAST so they always win ── */
+
+/* Gradient text fix — AI often forgets background-clip */
 .gradient-text, .text-gradient { background-image: linear-gradient(100deg, var(--primary, #6d5efb), var(--accent, #22d3ee)); }
 .gradient-text, .text-gradient {
   -webkit-background-clip: text !important; background-clip: text !important;
   -webkit-text-fill-color: transparent !important; color: transparent !important;
   padding: 0 !important; box-shadow: none !important; border-radius: 0 !important;
 }
+
+/* ── Anti-dashed-border hard lock ── */
+/* The #1 "vibe-coded" tell: AI-injected dashed/dotted nav borders.
+   This rule wins over any AI-generated border-style on nav elements. */
+nav a, nav button, nav li a,
+header a, header button, header li a,
+.nav-links a, .nav-menu a, .navbar a,
+.nav-links button, .nav-menu button {
+  border-style: solid !important;
+}
+nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]),
+header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand),
+.nav-links a:not([class*="btn"]),
+.nav-menu a:not([class*="btn"]) {
+  border: none !important;
+  outline-style: solid !important;
+}
+
+/* ── Gallery overlay cap ── */
+/* AI often writes rgba(0,0,0,0.7+) covering the whole image — images look black.
+   Force a subtle bottom-fade gradient that only appears on hover. */
+.gallery-item .overlay,
+.gallery-item .gallery-overlay,
+.gallery-item .gallery-item-overlay,
+.gallery-item::after {
+  background: linear-gradient(to top, rgba(0,0,0,0.52) 0%, transparent 65%) !important;
+  opacity: 0;
+  transition: opacity .3s ease !important;
+}
+.gallery-item:hover .overlay,
+.gallery-item:hover .gallery-overlay,
+.gallery-item:hover .gallery-item-overlay,
+.gallery-item:hover::after { opacity: 1 !important; }
+/* Prevent always-on dark overlay on gallery images */
+.gallery-grid img, .gallery-item img, .photo-grid img {
+  filter: none !important;
+}
+
+/* ── Gallery overlay text always white ── */
+/* The text-contrast rule below resets color to var(--text) on sections —
+   but gallery overlays sit on dark gradients and MUST stay white. */
+.gallery-overlay, .gallery-item-overlay,
+.gallery-overlay *, .gallery-item-overlay * {
+  color: #fff !important;
+}
+
+/* ── Text contrast safety ── */
+/* White text on a light section background is invisible.
+   Force text-color reset on non-hero, non-dark, non-cta sections.
+   Exempt gallery overlays (handled above). */
+.section:not(.hero):not(.hero-section):not(.cta-section):not(.cta-banner):not([class*="dark"]):not([class*="bg-dark"]) {
+  color: var(--text);
+}
+.section:not(.hero):not(.hero-section):not(.cta-section):not(.cta-banner):not([class*="dark"]):not([class*="bg-dark"]) h1,
+.section:not(.hero):not(.hero-section):not(.cta-section):not(.cta-banner):not([class*="dark"]):not([class*="bg-dark"]) h2,
+.section:not(.hero):not(.hero-section):not(.cta-section):not(.cta-banner):not([class*="dark"]):not([class*="bg-dark"]) h3,
+.section:not(.hero):not(.hero-section):not(.cta-section):not(.cta-banner):not([class*="dark"]):not([class*="bg-dark"]) p:not(.gallery-overlay p):not(.gallery-item-overlay p) {
+  color: var(--text);
+}
 `
 
-const BASE_CSS = `/* ═══ ForgeAI Design System — themable component baseline ═══ */
+const BASE_CSS = `/* ═══ ForgeAI Design System — component baseline ═══════════════════
+   Color/font/radius vars are owned by the design pack loaded above this.
+   BASE_CSS only adds layout helpers and semantic component classes.
+   ═══════════════════════════════════════════════════════════════════ */
 :root {
-  /* Type scale (theme may override) */
-  --h1: clamp(2.75rem, 6vw, 4.75rem); --h2: clamp(1.9rem, 3.6vw, 2.9rem); --h3: clamp(1.25rem, 2vw, 1.6rem);
-  --font: 'Poppins', system-ui, -apple-system, sans-serif; --font-heading: var(--font); --font-body: var(--font);
-  /* Palette (theme overrides in its own :root) */
-  --bg: #0b0a12; --surface: #15121f; --surface-2: #1e1a2c;
-  --text: #f5f2ec; --muted: #a49db2; --on-primary: #ffffff;
-  --primary: #7c5cff; --primary-hover: #9a80ff; --secondary: #22d3ee; --accent: #ffb020;
-  --border: rgba(255,255,255,0.10);
-  /* Shape, depth, layout */
-  --radius: 18px; --radius-sm: 11px; --radius-pill: 999px;
-  --shadow-sm: 0 2px 10px rgba(0,0,0,.25); --shadow: 0 18px 44px -18px rgba(0,0,0,.55); --shadow-lg: 0 40px 80px -32px rgba(0,0,0,.7);
-  --ring: 0 0 0 3px color-mix(in srgb, var(--primary) 35%, transparent);
-  --maxw: 1140px; --section-pad: clamp(56px, 9vw, 112px); --gap: clamp(1.25rem, 2.5vw, 2rem);
+  /* Layout helpers — not in design packs */
+  --maxw: 1140px;
+  --section-pad: clamp(56px, 9vw, 112px);
+  --gap: clamp(1.25rem, 2.5vw, 2rem);
+  --h1: clamp(2.6rem, 5.5vw, 4.5rem);
+  --h2: clamp(1.7rem, 3.4vw, 2.8rem);
+  --h3: clamp(1.2rem, 2vw, 1.5rem);
+  /* Aliases so BASE_CSS component classes can reference pack vars by either name */
+  --on-primary: #fff;
+  --muted: var(--text-muted, #888);
+  --radius-pill: 999px;
+  --ring: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
@@ -2552,21 +2627,26 @@ SITE SUMMARY: one sentence describing the site`,
 
   // 2. extra pages FIRST — styles.css must see EVERY page's markup before
   // it is written, or page-specific elements render browser-default
+  const generatedPages: string[] = []
   for (const page of extraPages) {
     await updateTask(task, { progress: 20 }, `📄 Generating ${page}…`)
     await sleep(1500)
-    if (!(await genFile(
+    const ok = await genFile(
       `Here is the site's index.html for reference (reuse its exact header, nav, footer, and linked styles.css/script.js):\n\`\`\`html\n${indexHtml.slice(0, 6000)}\n\`\`\`\n\nGenerate the COMPLETE ${page} page for this site (original request: ${prompt.slice(0, 300)}). Full, polished content — no placeholders.`,
       page,
-    ))) {
-      await updateTask(task, {}, `⚠️ Could not generate ${page} — nav link may 404`, 'warn')
+    )
+    if (ok) {
+      generatedPages.push(page)
     }
+    // If generation failed, silently skip — don't add the page to the nav
+    // so the user never sees a broken 404 link
   }
 
-  // Guarantee responsiveness (viewport meta) and that EVERY page is reachable
-  // from every page's nav — the floor behind the ">= 4 pages" requirement.
+  // Guarantee responsiveness (viewport meta) and that EVERY GENERATED page is
+  // reachable from the nav. Only include pages that were actually generated —
+  // failed pages are excluded so they never appear as broken nav links.
   ensureViewport(generated)
-  ensureNavLinks(generated, ['index.html', ...extraPages])
+  ensureNavLinks(generated, ['index.html', ...generatedPages])
 
   // All pages' markup — the context for styles.css and script.js. This is
   // a long input: the hybrid provider routes it to Gemini automatically.
@@ -3121,26 +3201,28 @@ const MERN_SYSTEM_PROMPT = `You are ForgeAI Builder, an elite full-stack MERN en
 RULES:
 - JavaScript only, no TypeScript. React function components with hooks. The server uses CommonJS (require/module.exports); the client uses ES modules.
 - The client calls the API with axios at RELATIVE paths ("/api/…") — never hardcode a host.
-- Server code is defensive: validate input, try/catch every async handler, return proper status codes, never crash on bad data.
-- Client code is defensive too: in JSX, NEVER call methods on possibly-missing API fields — write (user.bio || '').slice(0, 60), items?.map, value ?? fallback. Missing data must never crash a render.
+- Server code is defensive: validate input, ALWAYS wrap every async route handler in try/catch and call next(err) on failure — example: router.get('/', async (req,res,next)=>{ try{ const docs=await Model.find(); res.json(docs) }catch(e){ next(e) } }). Return proper status codes (400 validation, 404 not found, 500 server error), never crash on bad data.
+- Client code is defensive too: in JSX, NEVER call methods on possibly-missing API fields — write (user.bio || '').slice(0, 60), items?.map, value ?? fallback. Missing data must never crash a render. When an API call fails (catch block), set an error state and render a visible error message — NEVER silently swallow errors or leave the user staring at an empty/blank section. Example: catch(e){ setError(e.response?.data?.error || 'Failed to load data. Please check your connection.') }.
 - main.jsx already renders <App /> inside <BrowserRouter>. NEVER import or render BrowserRouter/Router yourself — a nested router crashes React at runtime. Use only Routes, Route, NavLink, Link, useParams, useNavigate.
 - HOOKS RULES (critical — breaking these crashes the WHOLE app with "Invalid hook call" / "Cannot read properties of null (reading 'useEffect')"): call hooks (useState, useEffect, useRef, useContext, useNavigate, useParams, custom hooks) ONLY at the top level of a React component function — NEVER at module scope / top of the file, NEVER conditionally, NEVER inside loops or ordinary non-component functions. In EVERY file that uses hooks, import them explicitly, e.g. import { useState, useEffect } from 'react'. Component names must be PascalCase and must return JSX.
 - STYLING — READ CAREFULLY: there is NO Tailwind here. NEVER write utility classes like "flex", "grid", "p-6", "px-4", "mx-auto", "gap-4", "text-lg", "text-center", "font-bold", "bg-white", "rounded-xl", "shadow-md", "max-w-6xl", "md:flex". They render COMPLETELY UNSTYLED. Instead, a global DESIGN SYSTEM is already loaded that styles this exact class VOCABULARY — build your markup out of it so it looks polished with zero extra CSS:
-  • Layout: wrap page content in <div class="container">; group sections as <section class="section">…; use "grid grid-2 | grid-3 | grid-4" for card rows; center intros with "section-head".
-  • Hero (landing): <section class="hero"><img class="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""><div class="container"> <span class="eyebrow">…</span> <h1>… use <span class="gradient-text">ONE accent word</span> (never the whole headline — it must stay high-contrast/legible)</h1> <p class="hero-subtitle">…</p> <div class="hero-actions"><a class="btn btn-primary">…</a><a class="btn btn-secondary">…</a></div> </div></section>
-  • Buttons: "btn btn-primary" / "btn btn-secondary" / "btn btn-ghost" (on <a> or <button>).
-  • Cards & content: "card" or "feature-card" (with "feature-icon"), "stats"+"stat-value"/"stat-label", "step-row"+"step"+"step-num", "testimonial-card", "badge"/"pill"/"tag", "card.featured" (data-badge="Most Popular") for a highlighted plan.
-  • Filtering: "filters"/"filter-bar" wrapping "filter-btn" buttons — add class "active" on the selected one.
-  • Media: "gallery-grid" + "gallery-item" (with "gallery-item-overlay") for image grids. "aspect-video" for 16:9 embeds. "avatar avatar-md/lg" for circular profile photos.
-  • Feature splits: "feature-split" (add class "reverse" on alternating rows) for image-beside-text layouts.
-  • Booking/search: "booking-card" or "search-bar" for a combined search/filter form row.
-  • Loading: use "skeleton skeleton-card" / "skeleton skeleton-text" placeholder blocks while data is fetching — replace with real content when loaded.
-  • Feedback: "alert alert-success" / "alert-error" / "alert-info" for inline messages. "progress-bar"+"progress-bar-fill" for capacity/progress.
-  • CTA sections: wrap in <div class="cta-section"> for a gradient-tinted call-to-action block.
-  • Reveal: add class "reveal" to sections/cards — the design system auto-animates them into view on scroll.
-  • Nav lives in <header> with a "brand" and a <nav> of links (add class="active" on the current one). Footer is <footer> with "footer-links".
-  You MAY add extra semantic classes for page-specific bits (the stylesheet covers them too), but ALWAYS build on this vocabulary — never bare unstyled <div>s for structural things.
-- QUALITY BAR: the UI must look like a designer built it (Linear/Stripe/Vercel/Lovable tier), never "AI-generated filler". Follow the DESIGN BRIEF you are given EXACTLY — its palette, fonts, type scale, spacing, and motifs — and never fall back to a generic default (never violet #8b5cf6 on slate #0f172a unless the brief says so). Big confident headings with a clamp() type scale; DEPTH via layered shadows, subtle gradients / soft mesh hero backdrop, and 1px translucent card borders; generous section padding and a max-width content column; smooth ~180ms hover/focus micro-interactions on every interactive element; a sticky nav that has BOTH a semi-opaque --bg background (~82% opacity) AND backdrop-blur (a blurred nav with no background lets content smear through it — always give it the background). CONTRAST IS NON-NEGOTIABLE — the hero headline must read with strong contrast against its background; use gradient-text on AT MOST one accent word (never the whole headline), and never let words fade into the background. No heavy text-shadow/glow that ghosts the text. MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, feature2, gallery3) so each image is distinct and STABLE (sizes hero/showcase ≥ 1200 wide, cards ≥ 600 wide), avatars via https://i.pravatar.cc/300?img={n}. The LANDING hero MUST START with a full-bleed background image — <img class="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""> as the FIRST child of <section class="hero"> — UNLESS the request explicitly says no hero image. Put PLENTY of images across every page (feature/gallery/showcase/testimonial sections). Include at least one VIDEO from the web: a relevant YouTube embed inside <div class="video-embed"><iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen></iframe></div>, or a muted autoplay looping <video class="hero-bg" autoplay muted loop playsinline>. Present images cleanly (object-fit: cover, rounded corners) — NEVER rotate/tilt/skew/overlap them. Explicit width/height + descriptive alt on every <img>. Never reference local files that don't exist.
+  ⚠️ THIS IS REACT JSX — ALWAYS use className="..." not class="...". Using class= silently breaks ALL styling. Every single element must use className.
+  • Layout: wrap page content in <div className="container">; group sections as <section className="section">…; use "grid grid-2 | grid-3 | grid-4" for card rows; center intros with className="section-head".
+  • Hero (landing): <section className="hero"><img className="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""/><div className="container"> <span className="eyebrow">…</span> <h1>… use <span className="gradient-text">ONE accent word</span> (never the whole headline — it must stay high-contrast/legible)</h1> <p className="hero-subtitle">…</p> <div className="hero-actions"><a className="btn-primary">…</a><a className="btn-secondary">…</a></div> </div></section>
+  • Buttons: className="btn-primary" / "btn-secondary" / "btn-ghost" (on <a> or <button>).
+  • Cards & content: className="card" or "feature-card" (with className="feature-icon"), "stats"+"stat-value"/"stat-label", "step"+"step-num", "testimonial", "badge", "card-elevated" for highlighted plans.
+  • Filtering: className="filter-bar" wrapping buttons — add className="active" on the selected one.
+  • Media: className="gallery-grid" + "gallery-item" for image grids. Gallery structure: <div className="gallery-item"><img src="..." alt=""/><div className="gallery-overlay"><span>caption</span></div></div>. NEVER add a flat dark overlay — it makes images look black. The overlay is subtle (bottom-fade, hover-only). className="aspect-hero" for 16:9 embeds. className="avatar" for circular profile photos.
+  • GALLERY GRID COUNT: use even numbers of items (4, 6, 8) to prevent an orphaned last item. If odd items, give the last one className="gallery-item" style={{gridColumn:'span 2'}}.
+  • TEXT CONTRAST: On light-background sections (bg, surface, white), ALWAYS use className with var(--text) coloring — never write inline style={{color:'white'}} or style={{color:'#fff'}} unless the parent has a dark background. White text on cream = invisible.
+  • Feature splits: use a "grid grid-2" with an image + text column.
+  • Loading: inline spinner/skeleton with inline style while data is fetching — replace with real content when loaded.
+  • Feedback: className="alert alert-success" / "alert-error" / "alert-info" for inline messages.
+  • CTA sections: wrap in <div className="cta-section"> for a gradient call-to-action block.
+  • Reveal: add className="animate-in" to sections/cards — the design system animates them in.
+  • Nav lives in <header> with a className="nav-logo" and a <nav> of links (add className="active" on the current one). Footer is <footer className="footer"> with className="footer-grid" inside.
+  You MAY add extra semantic classNames for page-specific bits (the stylesheet covers them too), but ALWAYS build on this vocabulary — never bare unstyled <div>s for structural things.
+- QUALITY BAR: the UI must look like a designer built it (Linear/Stripe/Vercel/Lovable tier), never "AI-generated filler". Follow the DESIGN BRIEF you are given EXACTLY — its palette, fonts, type scale, spacing, and motifs — and never fall back to a generic default (never violet #8b5cf6 on slate #0f172a unless the brief says so). Big confident headings with a clamp() type scale; DEPTH via layered shadows, subtle gradients / soft mesh hero backdrop, and 1px translucent card borders; generous section padding and a max-width content column; smooth ~180ms hover/focus micro-interactions on every interactive element; a sticky nav that has BOTH a semi-opaque --bg background (~82% opacity) AND backdrop-blur (a blurred nav with no background lets content smear through it — always give it the background). CONTRAST IS NON-NEGOTIABLE — the hero headline must read with strong contrast against its background; use gradient-text on AT MOST one accent word (never the whole headline), and never let words fade into the background. No heavy text-shadow/glow that ghosts the text. MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, feature2, gallery3) so each image is distinct and STABLE (sizes hero/showcase ≥ 1200 wide, cards ≥ 600 wide), avatars via https://i.pravatar.cc/300?img={n}. The LANDING hero MUST START with a full-bleed background image — <img className="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""/> as the FIRST child of <section className="hero"> — UNLESS the request explicitly says no hero image. Put PLENTY of images across every page (feature/gallery/showcase/testimonial sections). Include at least one VIDEO from the web: a relevant YouTube embed inside <div className="video-embed"><iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen></iframe></div>, or a muted autoplay looping <video className="hero-bg" autoPlay muted loop playsInline/>. Present images cleanly (object-fit: cover, rounded corners) — NEVER rotate/tilt/skew/overlap them. Explicit width/height + descriptive alt on every <img>. Never reference local files that don't exist.
 - DYNAMIC & ANIMATED: make the app feel alive — entrance/scroll-reveal animations, hover/focus micro-interactions, and loading states (a spinner or skeleton placeholders) while data is fetching. A page loader is shown until the app mounts. Lively, never static.
 - FOLLOW CATEGORY CONVENTIONS: build the sections, layout, and structure that best-in-class REAL sites in this site's CATEGORY use — the DESIGN BRIEF's REFERENCE names the category and its conventions. A hotel must feel like a hotel site (rooms, amenities, gallery, offers, location), a restaurant like a restaurant site (menu, reservations, gallery), etc. — not a generic template.
 - SUBSTANCE & DENSITY: build RICH, full pages — never thin one-section pages. Every major page MUST have 6–8 distinct sections. Landing/Home: hero → stats/social-proof → feature highlights (3-col grid) → how-it-works (step-row) → gallery or showcase → testimonials → CTA banner → footer. Listing pages: filter-bar + category-btn chips → grid of cards → pagination. Detail/single-item pages: hero image → key details + action button → description → related items grid. Form/booking pages: a prominent booking-card search bar → results → booking confirmation. Each section must have a real eyebrow label, a strong h2, a sub-paragraph, and the appropriate visual treatment. Pages that match what Lovable would build — never sparse.
@@ -3493,8 +3575,21 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     '  res.json({ token })',
     '})',
     '',
+    '// ── DB readiness guard — keeps 500s from leaking when Mongo is not connected ──',
+    'function dbReady(req, res, next) {',
+    '  if (mongoose.connection.readyState === 1) return next()',
+    "  res.status(503).json({ error: 'Database not connected. Set the MONGODB_URI environment variable to a valid MongoDB connection string (e.g. MongoDB Atlas) and redeploy.' })",
+    '}',
+    "app.use('/api', dbReady)",
+    '',
     '// ── Data routes (GET+POST public; PUT+DELETE require admin token) ───────────',
     mounts,
+    '',
+    '// ── Global error handler ─────────────────────────────────────────────────────',
+    'app.use(function (err, req, res, _next) {',
+    "  console.error('[API error]', err.message)",
+    '  res.status(err.status || 500).json({ error: err.message || \'Internal server error\' })',
+    '})',
     '',
     '// ── Serve the built React client ─────────────────────────────────────────────',
     "const dist = path.join(__dirname, '..', 'client', 'dist')",
@@ -3507,13 +3602,16 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     'const PORT = process.env.PORT || 4000',
     `const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/${siteName}'`,
     '',
-    "app.listen(PORT, function () { console.log('Server + client on http://localhost:' + PORT) })",
-    '',
-    "mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 })",
-    "  .then(function () { console.log('MongoDB connected') })",
+    "mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 8000 })",
+    "  .then(function () {",
+    "    console.log('MongoDB connected')",
+    "    app.listen(PORT, function () { console.log('Server ready on port ' + PORT) })",
+    "  })",
     '  .catch(function (err) {',
     "    console.error('MongoDB connection failed: ' + err.message)",
-    "    console.error('The site works, but API routes will fail until MONGODB_URI points at a running MongoDB.')",
+    "    console.error('Set MONGODB_URI to a valid MongoDB Atlas connection string.')",
+    "    // Start server anyway so healthcheck / static assets still work",
+    "    app.listen(PORT, function () { console.log('Server on port ' + PORT + ' (DB unavailable — API routes return 503)') })",
     '  })',
     '',
   ].join('\n')
@@ -3979,7 +4077,7 @@ export async function generateMernSite(
   const packCss = getPackCss(pack)
   // Injected into the VISUAL files (App shell, pages, stylesheet) so the whole
   // UI shares one identity. Backend files (models/routes/server) skip it.
-  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n`
+  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n${getReactPackPromptNote()}\n\n`
 
   const enhancer = createEnhancer()
 
@@ -4130,8 +4228,8 @@ export async function generateMernSite(
     await sleep(1500)
     const isLanding = p.route === '/'
     const richness = isLanding
-      ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. Include, IN ORDER: (1) a full hero (eyebrow + big headline with a <span class="gradient-text"> accent + subhead + two CTAs), then AT LEAST SIX more full <section class="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stats + stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial-card), a pricing/plans row, an FAQ, and a final call-to-action band — and a rich footer. Every section wrapped in <div class="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance/scroll-reveal animations and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
-      : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section class="section"> blocks of real content (not one thin block).`
+      ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. ⚠️ THIS IS REACT JSX — use className= everywhere, NEVER class=. Include, IN ORDER: (1) a full hero (eyebrow + big headline with a <span className="gradient-text"> accent + subhead + two CTAs), then AT LEAST SIX more full <section className="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial), a pricing/plans row, an FAQ, and a final cta-section — and a rich footer. Every section wrapped in <div className="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance animations (className="animate-in") and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
+      : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content (not one thin block). ⚠️ REACT JSX: always className= never class=.`
     await gen(
       `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\nWrite REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page fetches data (GET), show a loading skeleton or spinner while loading, then render the data. FORMS: if this page has any form, you MUST implement: (1) const [loading, setLoading] = useState(false) — disable submit button and show "Submitting…" text while true, (2) const [success, setSuccess] = useState(false) — when true, hide the form and show a large green success message (e.g. "✓ Your application was received! We'll be in touch within 48 hours."), (3) const [error, setError] = useState('') — show it in red below the form if the request fails. Always reset the form fields on success. CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it EXCEPT for user submissions (forms, bookings, applications, registrations, contact, orders). Never make admin-style writes. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
       `client/src/pages/${p.file}`,
@@ -4233,8 +4331,9 @@ export async function generateMernSite(
   // AI theme + shell → per-page rules → batched safety-net pass.
   // Pack CSS is the deterministic foundation; BASE_CSS element baseline follows;
   // AI theme and per-page rules are appended on top of both.
-  const cssEntry: ParsedChange = { path: 'client/src/index.css', content: packCss + '\n' + BASE_CSS }
+  const cssEntry: ParsedChange = { path: 'client/src/index.css', content: packCss + '\n' + getReactPackCss() + '\n' + BASE_CSS }
   files.push(cssEntry)
+  for (const f of getReactPackFiles()) files.push(f)
 
   const askCss = async (instruction: string): Promise<string> => {
     for (let attempt = 0; attempt < 2; attempt++) {
