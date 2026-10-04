@@ -8,6 +8,56 @@
 
 export type PackName = 'clean' | 'bold' | 'dark'
 
+// ─── Palette presets ─────────────────────────────────────────────────────────
+// Client-selectable color schemes. When a user picks one, its cssVars string
+// replaces the AI-generated PALETTE line in the design brief — giving them
+// deterministic color control while the AI still invents vibe, fonts, and copy.
+export interface PalettePreset {
+  name: string
+  emoji: string
+  primaryColor: string  // for UI swatch
+  bgColor: string       // for UI swatch
+  isDark: boolean       // drives swatch text contrast
+  cssVars: string       // full PALETTE line value injected into design brief
+}
+
+export const PALETTE_PRESETS: Record<string, PalettePreset> = {
+  ember: {
+    name: 'Ember', emoji: '🔥', primaryColor: '#e85d04', bgColor: '#ffffff', isDark: false,
+    cssVars: '--bg #ffffff; --surface #f7f5f2; --surface-2 #edeae5; --text #18130f; --text-muted #6b6460; --primary #e85d04; --primary-hover #c44c00; --secondary #219ebc; --accent #ffb703; --border rgba(0,0,0,0.1)',
+  },
+  ocean: {
+    name: 'Ocean', emoji: '🌊', primaryColor: '#0077b6', bgColor: '#ffffff', isDark: false,
+    cssVars: '--bg #ffffff; --surface #f0f8ff; --surface-2 #ddf0fa; --text #03045e; --text-muted #4a6b80; --primary #0077b6; --primary-hover #005f8e; --secondary #00b4d8; --accent #48cae4; --border rgba(0,0,0,0.1)',
+  },
+  forest: {
+    name: 'Forest', emoji: '🌿', primaryColor: '#2d6a4f', bgColor: '#f8faf9', isDark: false,
+    cssVars: '--bg #f8faf9; --surface #eef5f1; --surface-2 #daeee4; --text #1b3a2e; --text-muted #4d7260; --primary #2d6a4f; --primary-hover #1e4d38; --secondary #52b788; --accent #95d5b2; --border rgba(0,0,0,0.1)',
+  },
+  plum: {
+    name: 'Plum', emoji: '🍇', primaryColor: '#7c3aed', bgColor: '#ffffff', isDark: false,
+    cssVars: '--bg #ffffff; --surface #f5f3ff; --surface-2 #ede9fe; --text #1e1b4b; --text-muted #6b7280; --primary #7c3aed; --primary-hover #6d28d9; --secondary #a78bfa; --accent #c4b5fd; --border rgba(0,0,0,0.1)',
+  },
+  rose: {
+    name: 'Rose', emoji: '🌹', primaryColor: '#e63946', bgColor: '#fffaf9', isDark: false,
+    cssVars: '--bg #fffaf9; --surface #fff0f0; --surface-2 #ffe2e2; --text #2d0a12; --text-muted #7a4d50; --primary #e63946; --primary-hover #c1121f; --secondary #ff758c; --accent #ffc2ca; --border rgba(0,0,0,0.1)',
+  },
+  slate: {
+    name: 'Slate', emoji: '💎', primaryColor: '#4f46e5', bgColor: '#f8fafc', isDark: false,
+    cssVars: '--bg #f8fafc; --surface #f1f5f9; --surface-2 #e2e8f0; --text #0f172a; --text-muted #64748b; --primary #4f46e5; --primary-hover #4338ca; --secondary #06b6d4; --accent #818cf8; --border rgba(0,0,0,0.1)',
+  },
+  midnight: {
+    name: 'Midnight', emoji: '🌙', primaryColor: '#06b6d4', bgColor: '#0a0a0f', isDark: true,
+    cssVars: '--bg #0a0a0f; --surface #13131c; --surface-2 #1c1c2a; --text #f0eef8; --text-muted #8888aa; --primary #06b6d4; --primary-hover #0891b2; --secondary #7c3aed; --accent #22d3ee; --border rgba(255,255,255,0.08)',
+  },
+  obsidian: {
+    name: 'Obsidian', emoji: '⚡', primaryColor: '#f59e0b', bgColor: '#111111', isDark: true,
+    cssVars: '--bg #111111; --surface #1a1a1a; --surface-2 #252525; --text #f5f5f5; --text-muted #999999; --primary #f59e0b; --primary-hover #d97706; --secondary #ef4444; --accent #fbbf24; --border rgba(255,255,255,0.08)',
+  },
+}
+
+export const VALID_PALETTE_IDS = Object.keys(PALETTE_PRESETS)
+
 // ─── Pack selection ─────────────────────────────────────────────────────────
 // Reads the design brief to pick the right pack. Dark bg → dark pack.
 // Bold/vivid/energy keywords → bold pack. Default → clean.

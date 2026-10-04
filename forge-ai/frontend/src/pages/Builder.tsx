@@ -62,6 +62,7 @@ export default function Builder() {
   const [name, setName] = useState('')
   const [stack, setStack] = useState<'static' | 'mern'>('static')
   const [style, setStyle] = useState<'auto' | 'minimal' | 'bold' | 'elegant'>('auto')
+  const [paletteId, setPaletteId] = useState<string>('')
   const [importUrl, setImportUrl] = useState('')
   const [audit, setAudit] = useState<any>(null)
   // Two distinct jobs: build something new, or work on a site that already exists
@@ -135,6 +136,7 @@ export default function Builder() {
       name: name.trim(),
       stack: flow === 'existing' ? 'static' : stack,
       style,
+      ...(paletteId ? { paletteId } : {}),
       ...(flow === 'existing' ? { importUrl: importUrl.trim(), force } : {}),
       ...(flow === 'new' && stack === 'mern' && mongoUri.trim() ? { mongoUri: mongoUri.trim() } : {}),
       ...(analyticsProvider ? { analyticsProvider, analyticsId: analyticsId.trim() } : {}),
@@ -396,6 +398,55 @@ export default function Builder() {
               ))}
             </div>
 
+            <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
+              Color palette <span className="text-zinc-600 normal-case font-normal tracking-normal">— or let AI choose</span>
+            </label>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {/* AI pick — default, no paletteId sent */}
+              <button
+                onClick={() => setPaletteId('')}
+                disabled={busy}
+                className={clsx(
+                  'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
+                  paletteId === ''
+                    ? 'border-brand-500/60 bg-brand-600/10 text-zinc-200'
+                    : 'border-surface-600 text-zinc-500 hover:border-brand-500/40 hover:text-zinc-300',
+                )}
+              >
+                <Sparkles size={11} />
+                AI Pick
+              </button>
+              {([
+                { id: 'ember',    name: 'Ember',    emoji: '🔥', bg: '#ffffff', primary: '#e85d04' },
+                { id: 'ocean',    name: 'Ocean',    emoji: '🌊', bg: '#ffffff', primary: '#0077b6' },
+                { id: 'forest',   name: 'Forest',   emoji: '🌿', bg: '#f8faf9', primary: '#2d6a4f' },
+                { id: 'plum',     name: 'Plum',     emoji: '🍇', bg: '#ffffff', primary: '#7c3aed' },
+                { id: 'rose',     name: 'Rose',     emoji: '🌹', bg: '#fffaf9', primary: '#e63946' },
+                { id: 'slate',    name: 'Slate',    emoji: '💎', bg: '#f8fafc', primary: '#4f46e5' },
+                { id: 'midnight', name: 'Midnight', emoji: '🌙', bg: '#0a0a0f', primary: '#06b6d4' },
+                { id: 'obsidian', name: 'Obsidian', emoji: '⚡', bg: '#111111', primary: '#f59e0b' },
+              ]).map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setPaletteId(p.id)}
+                  disabled={busy}
+                  title={p.name}
+                  className={clsx(
+                    'flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                    paletteId === p.id
+                      ? 'border-brand-500/60 bg-brand-600/10 text-zinc-200'
+                      : 'border-surface-600 text-zinc-400 hover:border-brand-500/40 hover:text-zinc-300',
+                  )}
+                >
+                  {/* Two-tone swatch: bg color + primary color */}
+                  <span className="flex rounded-full overflow-hidden w-4 h-4 shrink-0 ring-1 ring-white/10">
+                    <span className="w-1/2 h-full" style={{ background: p.bg }} />
+                    <span className="w-1/2 h-full" style={{ background: p.primary }} />
+                  </span>
+                  {p.name}
+                </button>
+              ))}
+            </div>
 
             <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
               Site name
@@ -1226,7 +1277,7 @@ export default function Builder() {
               )}
               {(task.status === 'completed' || task.status === 'failed') && (
                 <button
-                  onClick={() => { setTask(null); setRepoId(null); setPrompt(''); setName(''); setMongoUri(''); setStyle('auto'); setImportUrl(''); setAudit(null); setDomain(''); setDomainInfo(null); setVerifyMsg(''); setTokenPlatform(null) }}
+                  onClick={() => { setTask(null); setRepoId(null); setPrompt(''); setName(''); setMongoUri(''); setStyle('auto'); setPaletteId(''); setImportUrl(''); setAudit(null); setDomain(''); setDomainInfo(null); setVerifyMsg(''); setTokenPlatform(null) }}
                   className="px-4 py-2 rounded-xl text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
                   Build another site

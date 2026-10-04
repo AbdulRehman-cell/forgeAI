@@ -18,7 +18,7 @@ import {
 import { auditSite, type SiteAudit } from '../../lib/siteAudit'
 import { stripCodeFence } from '../agent/agent.tools'
 import type { AIProvider, AIMessage, AIResponse } from '../ai/providers/base'
-import { selectPack, getPackCss, getPackPromptNote } from '../../lib/designPacks'
+import { selectPack, getPackCss, getPackPromptNote, PALETTE_PRESETS } from '../../lib/designPacks'
 
 const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
@@ -4623,7 +4623,7 @@ async function validateAndHeal(
 }
 
 async function buildSite(job: Job) {
-  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, importUrl, mode } = job.data
+  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, paletteId, importUrl, mode } = job.data
   let { prompt } = job.data
   const task = await Task.findById(taskId)
   if (!task) throw new Error('Task not found')
@@ -4714,6 +4714,21 @@ async function buildSite(job: Job) {
     // specific and intentional, not a generic Gemini first-guess.
     const visualDirector = createEnhancer() ?? provider
     let designBrief = await buildDesignBrief(visualDirector, prompt, siteName, style)
+
+    // ── User-chosen palette override ──
+    // If the client picked a preset palette, replace the AI-generated PALETTE
+    // line so colors are deterministic. VIBE, fonts, and motifs stay AI-generated.
+    if (paletteId && PALETTE_PRESETS[paletteId]) {
+      const preset = PALETTE_PRESETS[paletteId]
+      const paletteLine = `PALETTE: ${preset.cssVars}`
+      if (/^PALETTE:/m.test(designBrief)) {
+        designBrief = designBrief.replace(/^PALETTE:.*$/m, paletteLine)
+      } else {
+        designBrief += `\n${paletteLine}`
+      }
+      await updateTask(task, {}, `🎨 Using "${preset.name}" color palette`)
+    }
+
     // The brand's real facts ride in the design brief, which is injected verbatim
     // into every file generation — so every page uses their true content.
     if (brandBlock) designBrief += `\n\n${brandBlock}`

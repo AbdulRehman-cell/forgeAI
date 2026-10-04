@@ -20,6 +20,7 @@ import {
 } from '../../lib/deployers'
 import { resolveAttachments } from '../../lib/imageAttachments'
 import { createProvider } from '../ai/ai.factory'
+import { VALID_PALETTE_IDS } from '../../lib/designPacks'
 
 
 const router = Router()
@@ -283,7 +284,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
 // deployable with Blitz Deploy like any other repository.
 router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   const user = req.user as any
-  let { prompt, name, stack, mongoUri, style, importUrl, mode, analyticsProvider, analyticsId, addons } = req.body
+  let { prompt, name, stack, mongoUri, style, paletteId, importUrl, mode, analyticsProvider, analyticsId, addons } = req.body
   prompt += ' Generate a complete website with all necessary files Ensure the code is well-structured and ready for deployment and the ui and styling should be outstanding.The website should have atleast four pages and the home page should atleast ahve five sections.'
 
   if (!prompt?.trim()) return res.status(400).json({ message: 'Describe the website you want to build' })
@@ -302,6 +303,8 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   // Optional theme vibe that steers the design director (on top of the
   // automatic industry-matching). Anything else → 'auto' (no extra steering).
   const siteStyle = ['minimal', 'bold', 'elegant'].includes(String(style)) ? String(style) : 'auto'
+  // Optional user-chosen color palette — overrides the AI-generated palette.
+  const sitePaletteId = VALID_PALETTE_IDS.includes(String(paletteId ?? '')) ? String(paletteId) : undefined
 
   // Optional: rebuild an existing brand site from its real content. Only public
   // http(s) URLs are accepted (isPublicHttpUrl blocks private/loopback hosts).
@@ -388,6 +391,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     siteName,
     stack: siteStack,
     style: siteStyle,
+    paletteId: sitePaletteId,
     importUrl: normalizedImport || undefined,
     mode: siteMode,
     audit: siteAudit, // already computed — the pipeline reuses it instead of re-crawling
