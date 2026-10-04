@@ -18,6 +18,7 @@ import {
 import { auditSite, type SiteAudit } from '../../lib/siteAudit'
 import { stripCodeFence } from '../agent/agent.tools'
 import type { AIProvider, AIMessage, AIResponse } from '../ai/providers/base'
+import { selectPack, getPackCss, getPackPromptNote } from '../../lib/designPacks'
 
 const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
@@ -2468,7 +2469,9 @@ async function generateStaticSite(
   // re-sent inside each user message. Combined they clear Claude's ~1–2k-token
   // cache minimum, so every per-file call after the first reads this whole
   // prefix at ~0.1x input price rather than paying for it again.
-  const builderSystem = `${BUILDER_SYSTEM_PROMPT}\n\n${briefHeader}\n${designBrief}`
+  const pack = selectPack(designBrief)
+  const packCss = getPackCss(pack)
+  const builderSystem = `${BUILDER_SYSTEM_PROMPT}\n\n${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}`
 
   const genFile = async (instruction: string, expectPath: string, useProvider: AIProvider = provider): Promise<string | null> => {
     // one retry per file — transient chatter happens (truncation is handled
@@ -2620,7 +2623,10 @@ SITE SUMMARY: one sentence describing the site`,
   // ever" guarantee.
   ensureRevealSafety(generated)
   const stylesEntry = generated.find((f) => f.path === 'styles.css')
-  if (stylesEntry) stylesEntry.content += `\n${LOADING_CSS}\n${FINAL_FIXES_CSS}\n${HAMBURGER_CSS}\n${REVEAL_SAFETY_CSS}\n${HERO_CONTRAST_SAFETY_CSS}`
+  if (stylesEntry) {
+    // Pack CSS is the deterministic foundation layer — AI rules override on top
+    stylesEntry.content = `${packCss}\n/* ── Site Styles ── */\n${stylesEntry.content}\n${LOADING_CSS}\n${FINAL_FIXES_CSS}\n${HAMBURGER_CSS}\n${REVEAL_SAFETY_CSS}\n${HERO_CONTRAST_SAFETY_CSS}`
+  }
   const scriptEntry = generated.find((f) => f.path === 'script.js')
   // Preloader scrub — the model often invents its OWN preloader (#preloader,
   // .preloader, body.loading-state) expecting matching JS handlers we didn't
@@ -3969,9 +3975,11 @@ export async function generateMernSite(
 ): Promise<{ files: ParsedChange[]; summary: string; adminPassword: string; plan?: MernPlan }> {
   const files: ParsedChange[] = []
   const adminPassword = generateAdminPassword()
+  const pack = selectPack(designBrief)
+  const packCss = getPackCss(pack)
   // Injected into the VISUAL files (App shell, pages, stylesheet) so the whole
   // UI shares one identity. Backend files (models/routes/server) skip it.
-  const briefBlock = `${briefHeader}\n${designBrief}\n\n`
+  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n`
 
   const enhancer = createEnhancer()
 
@@ -4223,7 +4231,9 @@ export async function generateMernSite(
   // fraction of the classes across several pages. Order: deterministic
   // element baseline (nothing ever renders with raw browser defaults) →
   // AI theme + shell → per-page rules → batched safety-net pass.
-  const cssEntry: ParsedChange = { path: 'client/src/index.css', content: BASE_CSS }
+  // Pack CSS is the deterministic foundation; BASE_CSS element baseline follows;
+  // AI theme and per-page rules are appended on top of both.
+  const cssEntry: ParsedChange = { path: 'client/src/index.css', content: packCss + '\n' + BASE_CSS }
   files.push(cssEntry)
 
   const askCss = async (instruction: string): Promise<string> => {
