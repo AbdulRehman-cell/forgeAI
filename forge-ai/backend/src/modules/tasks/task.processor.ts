@@ -1749,6 +1749,14 @@ const HAMBURGER_JS = `(function(){
   }
   if (document.readyState !== 'loading') enhance(); else document.addEventListener('DOMContentLoaded', enhance);
   try { new MutationObserver(enhance).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+  // Add scrolled class to nav-pill and nav-minimal headers for scroll-triggered styles
+  function watchScroll(){
+    var headers = document.querySelectorAll('header.nav-minimal, .site-header.nav-minimal, header.nav-pill, .site-header.nav-pill');
+    if (!headers.length) return;
+    function onScroll(){ var y = window.scrollY || window.pageYOffset; for (var i=0;i<headers.length;i++){ headers[i].classList.toggle('scrolled', y > 40); } }
+    window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+  }
+  if (document.readyState !== 'loading') watchScroll(); else document.addEventListener('DOMContentLoaded', watchScroll);
 })();`
 
 // Many older business sites are DESKTOP-ONLY: no viewport tag, no mobile
@@ -1863,6 +1871,14 @@ section[id*="hero" i] *, section[class*="hero" i] * {
 `
 
 const FINAL_FIXES_CSS = `/* ── Final deterministic fixes — appended LAST so they always win ── */
+
+/* ── Overflow / responsive safety ── */
+/* Prevent horizontal scroll caused by AI writing pixel widths on mobile */
+html, body { overflow-x: hidden; max-width: 100%; }
+*, *::before, *::after { box-sizing: border-box; }
+img, video, iframe, table, pre, canvas, svg { max-width: 100%; }
+/* Ensure images inside cards and grids never break layout */
+.card img, .feature-card img, .grid img, .grid-2 img, .grid-3 img, .grid-4 img { max-width: 100%; height: auto; }
 
 /* Gradient text fix — AI often forgets background-clip */
 .gradient-text, .text-gradient { background-image: linear-gradient(100deg, var(--primary, #6d5efb), var(--accent, #22d3ee)); }
@@ -3223,6 +3239,7 @@ const MERN_SYSTEM_PROMPT = `You are ForgeAI Builder, an elite full-stack MERN en
 
 RULES:
 - JavaScript only, no TypeScript. React function components with hooks. The server uses CommonJS (require/module.exports); the client uses ES modules.
+- JSX ATTRIBUTE QUOTING: NEVER use backslash-escaped quotes inside a double-quoted JSX attribute — e.g. value="36.5\"" is INVALID JSX and crashes the build. If an attribute value contains a double-quote character (like inch marks), use single quotes: value='36.5"'. This is a hard esbuild parse error.
 - The client calls the API with axios at RELATIVE paths ("/api/…") — never hardcode a host.
 - Server code is defensive: validate input, ALWAYS wrap every async route handler in try/catch and call next(err) on failure — example: router.get('/', async (req,res,next)=>{ try{ const docs=await Model.find(); res.json(docs) }catch(e){ next(e) } }). Return proper status codes (400 validation, 404 not found, 500 server error), never crash on bad data.
 - Client code is defensive too: in JSX, NEVER call methods on possibly-missing API fields — write (user.bio || '').slice(0, 60), items?.map, value ?? fallback. Missing data must never crash a render. When an API call fails (catch block), set an error state and render a visible error message — NEVER silently swallow errors or leave the user staring at an empty/blank section. Example: catch(e){ setError(e.response?.data?.error || 'Failed to load data. Please check your connection.') }.
@@ -3276,6 +3293,25 @@ function looksTailwind(jsx: string): boolean {
     /^(?:(?:sm|md|lg|xl|2xl|hover|focus|active|group-hover|dark)?:)?(?:(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|w|h|min-w|max-w|min-h|max-h|gap|space-x|space-y|text|font|leading|tracking|bg|from|via|to|border|rounded|shadow|ring|opacity|z|top|left|right|bottom|inset|col|row|grid-cols|grid-rows|basis|flex|divide)-[a-z0-9.\/\[\]#-]+|flex|grid|hidden|block|inline|inline-block|inline-flex|container|relative|absolute|fixed|sticky|truncate|uppercase|lowercase|capitalize|italic|underline|antialiased|items-center|items-start|items-end|justify-center|justify-between|justify-around|justify-end|self-center|overflow-hidden|overflow-auto|cursor-pointer|mx-auto)$/
   const hits = tokens.filter((t) => util.test(t)).length
   return hits >= 6 || hits / tokens.length > 0.3
+}
+
+/** Fix JSX attribute quoting bugs the AI commonly produces:
+ *  1. Backslash-escaped quotes inside double-quoted attributes: value="36.5\""
+ *     → convert to single-quoted: value='36.5"'
+ *  2. Unescaped < or > inside JSX attribute string values (rare but fatal)
+ *  These cause a hard esbuild parse error and a failed Render deploy. */
+function sanitizeJsx(src: string): string {
+  // Replace value="...\""  →  value='..."'
+  // Matches any JSX attribute whose double-quoted value contains \" anywhere
+  return src.replace(/(\w[\w-]*)="([^"]*\\"[^"]*)"/g, (_match, attr, val) => {
+    // Unescape the backslash-escaped quotes, then wrap in single quotes
+    const fixed = val.replace(/\\"/g, '"')
+    // If the value itself contains single quotes we can't use them — use &quot; instead
+    if (fixed.includes("'")) {
+      return `${attr}="${fixed.replace(/"/g, '&quot;')}"`
+    }
+    return `${attr}='${fixed}'`
+  })
 }
 
 // Default pages used to pad a plan up to the >= 4-page floor. PascalCase files
@@ -3601,6 +3637,13 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     '// ── DB readiness guard — keeps 500s from leaking when Mongo is not connected ──',
     'function dbReady(req, res, next) {',
     '  if (mongoose.connection.readyState === 1) return next()',
+    '  // Auto-reconnect if the connection dropped (e.g. seed script disconnect)',
+    '  if (mongoose.connection.readyState === 0) {',
+    "    mongoose.connect(process.env.MONGODB_URI || MONGODB_URI, { serverSelectionTimeoutMS: 8000 })",
+    '      .then(function () { next() })',
+    "      .catch(function () { res.status(503).json({ error: 'Database not connected. Set the MONGODB_URI environment variable.' }) })",
+    '    return',
+    '  }',
     "  res.status(503).json({ error: 'Database not connected. Set the MONGODB_URI environment variable to a valid MongoDB connection string (e.g. MongoDB Atlas) and redeploy.' })",
     '}',
     "app.use('/api', dbReady)",
@@ -3625,6 +3668,11 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     'const PORT = process.env.PORT || 4000',
     `const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/${siteName}'`,
     '',
+    "mongoose.connection.on('disconnected', function () {",
+    "  console.warn('[DB] connection lost — reconnecting...')",
+    "  mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 8000 }).catch(function(e){ console.error('[DB] reconnect failed:', e.message) })",
+    "})",
+    "",
     "mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 8000 })",
     "  .then(function () {",
     "    console.log('MongoDB connected')",
@@ -4129,7 +4177,10 @@ export async function generateMernSite(
             continue
           }
           if (p !== provider) await log(`🤖 Claude stepped in for ${expectPath.split('/').pop()} (Gemini unavailable)`)
-          files.push({ path: expectPath, content: file.content })
+          // Sanitize JSX attribute quoting bugs (e.g. value="36.5\"") that
+          // cause a hard esbuild parse error and a failed Render deploy
+          const content = isJsx ? sanitizeJsx(file.content) : file.content
+          files.push({ path: expectPath, content })
           return true
         }
         await sleep(2000)
@@ -4434,7 +4485,7 @@ export async function generateMernSite(
         return `${m.name}: ${src.slice(0, 600)}`
       }).join('\n\n')
       const seedResp = await safeChat(provider,
-        `${briefBlock}You are seeding a MongoDB database for "${siteName}" (${prompt.slice(0, 200)}).\n\nGenerate realistic, on-brand seed data. Output a single server/seed.js file (CommonJS) that:\n1. requires mongoose and each model from ../models/ModelName\n2. For each model below, inserts 4-6 realistic records using Model.insertMany([...]) BUT ONLY IF the collection is empty (check with Model.countDocuments() first)\n3. Connects to MONGODB_URI from process.env then runs the seed, then disconnects\n4. Has realistic, specific copy — real names, real prices, real descriptions — nothing lorem ipsum\n\nModels:\n${modelSchemas}\n\nOutput ONLY the file wrapped in <file path="server/seed.js">...</file>`,
+        `${briefBlock}You are seeding a MongoDB database for "${siteName}" (${prompt.slice(0, 200)}).\n\nGenerate realistic, on-brand seed data. Output a single server/seed.js file (CommonJS) that:\n1. requires mongoose and each model from ./models/ModelName (NOT ../models — it runs from the server/ directory)\n2. For each model below, inserts 4-6 realistic records using Model.insertMany([...]) BUT ONLY IF the collection is empty (check with Model.countDocuments() first)\n3. CRITICAL: Do NOT call mongoose.connect() or mongoose.disconnect() — the server already manages the connection. The seed runs inside the server process on the existing connection. Just require the models and insert data directly — no connection code at all.\n4. Export the seed logic as a default export or run it immediately as an async IIFE that does NOT manage the connection\n5. Has realistic, specific copy — real names, real prices, real descriptions — nothing lorem ipsum\n\nModels:\n${modelSchemas}\n\nOutput ONLY the file wrapped in <file path="server/seed.js">...</file>`,
         MERN_SYSTEM_PROMPT,
       )
       if (seedResp?.content) {
@@ -4444,9 +4495,14 @@ export async function generateMernSite(
           // Mount the seed runner in server/index.js so it auto-runs on startup
           const serverEntry = files.find((f) => f.path.replace(/\\/g, '/') === 'server/index.js')
           if (serverEntry && !serverEntry.content.includes('seed.js')) {
+            // Run seed INSIDE the .then() block so it reuses the already-open
+            // Mongoose connection. Running it before mongoose.connect() caused
+            // seed.js to open its own connection, call mongoose.disconnect() at
+            // the end, and silently kill the server's shared connection —
+            // making every subsequent /api/* call return 503.
             serverEntry.content = serverEntry.content.replace(
-              "mongoose.connect(MONGODB_URI",
-              "try { require('./seed') } catch(e) { console.warn('Seed skipped:', e.message) }\nmongoose.connect(MONGODB_URI",
+              "    console.log('MongoDB connected')\n    app.listen",
+              "    console.log('MongoDB connected')\n    // Suppress any mongoose.disconnect() the AI wrote in seed — server owns the connection\n    ;(function(){ var _d = mongoose.disconnect.bind(mongoose); mongoose.disconnect = function(){ return Promise.resolve(); }; try { require('./seed') } catch(e) { console.warn('Seed skipped:', e.message) } setTimeout(function(){ mongoose.disconnect = _d; }, 8000); })()\n    app.listen",
             )
           }
         }
@@ -4525,7 +4581,7 @@ async function claudeFix(
   ) ?? parsed[0]
   // Never trade a working file for an empty/truncated reply.
   if (fixed?.content && fixed.content.trim().length > Math.max(80, file.content.length * 0.5)) {
-    file.content = fixed.content
+    file.content = file.path.endsWith('.jsx') ? sanitizeJsx(fixed.content) : fixed.content
     return true
   }
   return false

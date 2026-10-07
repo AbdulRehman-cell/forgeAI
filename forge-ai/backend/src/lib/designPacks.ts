@@ -120,7 +120,11 @@ USE its classes and variables — never recreate what is already defined.
   Buttons:      .btn-primary  .btn-secondary  .btn-ghost
   Cards:        .card  .feature-card  .card-white  .card-elevated  .card-glass (DARK only)
   Card icon:    .card-icon  .feature-icon  (inside .card)
-  Nav:          nav or header — sticky + blur already applied; DO NOT add border to nav a links
+  Nav (default):  header or nav — sticky + frosted glass; logo left, links right
+  Nav variants:   add ONE class to <header>: nav-pill (floating capsule), nav-dark (inverted dark bg), nav-minimal (transparent→solid on scroll)
+                  DARK pack only: nav-accent (primary-color background)
+                  Choose the variant that best matches the site's personality. DO NOT use multiple variants at once.
+                  For nav-minimal: add a tiny inline <script> that adds class "scrolled" to the header when window.scrollY > 40
   Layout:       .section (auto-alternates bg/surface)  .container  .container-narrow
   Section head: .section-head (centered intro block)  .section-label / .eyebrow
   Hero:         .hero  .hero-eyebrow  .hero-actions  .hero-bg (full-bleed photo img)
@@ -280,6 +284,50 @@ nav.scrolled, header.scrolled { box-shadow: var(--shadow-sm); }
 nav a:not(.nav-logo):not(.logo):not(.btn-primary):hover,
 .nav-links a.active, .nav-menu a.active { color: var(--text) !important; background: var(--surface-2); }
 .nav-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* ── Nav design variants — add class to <header> or <nav> to switch style ── */
+/* Floating pill nav — modern SaaS / Vercel-style */
+header.nav-pill, .site-header.nav-pill, nav.nav-pill {
+  margin: 12px 28px 0;
+  border-radius: var(--radius-xl);
+  top: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 28px -8px rgba(0,0,0,.10);
+}
+/* Dark header — inverted color scheme */
+header.nav-dark, .site-header.nav-dark, nav.nav-dark {
+  background: var(--text);
+  border-bottom-color: rgba(255,255,255,.07);
+}
+header.nav-dark .nav-logo, header.nav-dark .logo,
+.site-header.nav-dark .nav-logo { color: #fff !important; }
+header.nav-dark nav a:not(.btn-primary):not(.nav-logo):not(.logo),
+.site-header.nav-dark nav a:not(.btn-primary):not(.nav-logo):not(.logo) { color: rgba(255,255,255,.6) !important; }
+header.nav-dark nav a:hover:not(.btn-primary),
+.site-header.nav-dark nav a:hover:not(.btn-primary) { color: #fff !important; background: rgba(255,255,255,.08); }
+/* Minimal / editorial — transparent until scrolled */
+header.nav-minimal, .site-header.nav-minimal, nav.nav-minimal {
+  background: transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-bottom-color: transparent;
+  transition: background .28s, border-color .28s, box-shadow .28s, backdrop-filter .28s;
+}
+header.nav-minimal.scrolled, .site-header.nav-minimal.scrolled {
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(180%); -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border-bottom-color: var(--border); box-shadow: var(--shadow-sm);
+}
+/* Underline active indicator — works for all variants */
+header.nav-minimal .nav-links a, .site-header.nav-minimal .nav-links a { position: relative; }
+header.nav-minimal .nav-links a::after, .site-header.nav-minimal .nav-links a::after {
+  content: ''; position: absolute; bottom: 3px; left: 50%; right: 50%;
+  height: 2px; background: var(--primary); border-radius: 2px;
+  transition: left .22s ease, right .22s ease;
+}
+header.nav-minimal .nav-links a:hover::after, header.nav-minimal .nav-links a.active::after,
+.site-header.nav-minimal .nav-links a:hover::after, .site-header.nav-minimal .nav-links a.active::after {
+  left: 10px; right: 10px;
+}
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 .btn-primary, a.btn-primary, button.btn-primary {
@@ -800,6 +848,39 @@ nav a:hover, .nav-links a:hover, .nav-menu a:hover,
 nav a.active, .nav-links a.active { color: var(--text) !important; background: var(--surface-2); }
 .nav-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
+/* ── Nav design variants — add class to <header> or <nav> to switch style ── */
+header.nav-pill, .site-header.nav-pill, nav.nav-pill {
+  margin: 12px 28px 0; border-radius: var(--radius-xl); top: 12px;
+  border: 2px solid var(--border); box-shadow: 0 8px 32px -8px rgba(0,0,0,.14);
+}
+header.nav-dark, .site-header.nav-dark, nav.nav-dark {
+  background: var(--text); border-bottom-color: rgba(255,255,255,.07);
+}
+header.nav-dark .nav-logo, header.nav-dark .logo,
+.site-header.nav-dark .nav-logo { color: #fff !important; }
+header.nav-dark nav a:not(.btn-primary):not(.nav-logo),
+.site-header.nav-dark nav a:not(.btn-primary):not(.nav-logo) { color: rgba(255,255,255,.6) !important; }
+header.nav-dark nav a:hover:not(.btn-primary),
+.site-header.nav-dark nav a:hover:not(.btn-primary) { color: #fff !important; background: rgba(255,255,255,.08); }
+header.nav-minimal, .site-header.nav-minimal, nav.nav-minimal {
+  background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-bottom-color: transparent;
+  transition: background .28s, border-color .28s, box-shadow .28s, backdrop-filter .28s;
+}
+header.nav-minimal.scrolled, .site-header.nav-minimal.scrolled {
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom-color: var(--border); box-shadow: var(--shadow-sm);
+}
+header.nav-minimal .nav-links a, .site-header.nav-minimal .nav-links a { position: relative; }
+header.nav-minimal .nav-links a::after, .site-header.nav-minimal .nav-links a::after {
+  content: ''; position: absolute; bottom: 3px; left: 50%; right: 50%;
+  height: 2px; background: var(--primary); border-radius: 2px;
+  transition: left .22s, right .22s;
+}
+header.nav-minimal .nav-links a:hover::after, header.nav-minimal .nav-links a.active::after,
+.site-header.nav-minimal .nav-links a:hover::after { left: 10px; right: 10px; }
+
 /* ── Buttons ── */
 .btn-primary, a.btn-primary, button.btn-primary {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -1180,6 +1261,40 @@ nav a:not(.btn-primary):not(.nav-logo):not(.logo):not(.brand) { border: none !im
 nav a:hover, .nav-links a:hover, .nav-menu a:hover,
 nav a.active, .nav-links a.active { color: var(--text) !important; background: var(--surface-2); }
 .nav-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* ── Nav design variants — add class to <header> or <nav> to switch style ── */
+header.nav-pill, .site-header.nav-pill, nav.nav-pill {
+  margin: 12px 28px 0; border-radius: var(--radius-xl); top: 12px;
+  border: 1px solid var(--border); box-shadow: var(--glow);
+}
+/* Accent nav — primary color background */
+header.nav-accent, .site-header.nav-accent, nav.nav-accent {
+  background: var(--primary); border-bottom-color: var(--primary-hover);
+}
+header.nav-accent .nav-logo, .site-header.nav-accent .nav-logo { color: #fff !important; }
+header.nav-accent nav a:not(.btn-primary):not(.nav-logo),
+.site-header.nav-accent nav a:not(.btn-primary):not(.nav-logo) { color: rgba(255,255,255,.72) !important; }
+header.nav-accent nav a:hover:not(.btn-primary),
+.site-header.nav-accent nav a:hover:not(.btn-primary) { color: #fff !important; background: rgba(255,255,255,.12); }
+/* Minimal / editorial — transparent until scrolled */
+header.nav-minimal, .site-header.nav-minimal, nav.nav-minimal {
+  background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-bottom-color: transparent;
+  transition: background .28s, border-color .28s, box-shadow .28s, backdrop-filter .28s;
+}
+header.nav-minimal.scrolled, .site-header.nav-minimal.scrolled {
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-bottom-color: var(--border); box-shadow: var(--shadow-sm);
+}
+header.nav-minimal .nav-links a, .site-header.nav-minimal .nav-links a { position: relative; }
+header.nav-minimal .nav-links a::after, .site-header.nav-minimal .nav-links a::after {
+  content: ''; position: absolute; bottom: 3px; left: 50%; right: 50%;
+  height: 2px; background: var(--primary); border-radius: 2px;
+  transition: left .22s, right .22s;
+}
+header.nav-minimal .nav-links a:hover::after, header.nav-minimal .nav-links a.active::after,
+.site-header.nav-minimal .nav-links a:hover::after { left: 10px; right: 10px; }
 
 /* ── Buttons ── */
 .btn-primary, a.btn-primary, button.btn-primary {
