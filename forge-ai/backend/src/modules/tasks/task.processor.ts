@@ -4177,6 +4177,73 @@ function auditPublicPostRoutes(files: ParsedChange[]): void {
   }
 }
 
+/**
+ * Audit all generated JSX/JS frontend files and auto-fix the patterns that
+ * reliably crash generated sites at runtime. Pure string transforms — no AI,
+ * no prompts. Runs after every generation pass so bugs never reach the user.
+ *
+ * Fixes applied:
+ *  1. images.split(',') — Mongoose stores images as [String]; .split crashes
+ *  2. src={x.images} — renders "[object Array]"; extract first element
+ *  3. image: x.images in object literals (cart/API payloads) — same issue
+ *  4. Nested <BrowserRouter> / <Router> — crashes React with "invalid hook call"
+ *  5. Hardcoded localhost API URLs — break in production containers
+ */
+function auditFrontendJsx(files: ParsedChange[]): void {
+  const jsxFiles = files.filter((f) => /^client\/.*\.[jt]sx?$/.test(f.path.replace(/\\/g, '/')))
+  for (const f of jsxFiles) {
+    const before = f.content
+
+    // 1. .images.split(',')[0]  →  safe first-element extraction
+    f.content = f.content.replace(
+      /(\w+)\.images\.split\s*\(\s*['",]\s*['"]\s*\)\s*\[0\]/g,
+      "(Array.isArray($1.images) ? $1.images[0] : ($1.images || '').split(',')[0])",
+    )
+    // Also handle .images?.split(...)
+    f.content = f.content.replace(
+      /(\w+)\.images\?\s*\.\s*split\s*\(\s*['",]\s*['"]\s*\)/g,
+      "(Array.isArray($1.images) ? $1.images : ($1.images || '').split(','))",
+    )
+
+    // 2. src={x.images}  and  src={x.images || fallback}
+    //    Replace bare `x.images` used as an img src with safe first-element access.
+    //    Match: src={expr.images} or src={expr.images || 'fallback'}
+    f.content = f.content.replace(
+      /src=\{(\w+)\.images(\s*\|\|\s*['"`][^'"` ]*['"`])?\}/g,
+      (_, varName, fallback) => {
+        const fb = fallback ? fallback.trim() : "|| 'https://picsum.photos/seed/img/400/400'"
+        return `src={(Array.isArray(${varName}.images) ? ${varName}.images[0] : ${varName}.images) ${fb}}`
+      },
+    )
+
+    // 3. image: x.images  inside object literals (cart payloads, API bodies)
+    //    Only fix bare assignment — leave already-guarded expressions alone.
+    f.content = f.content.replace(
+      /\bimage\s*:\s*(\w+)\.images(?!\s*\?|\s*&&|\s*\[|\s*\.)/g,
+      'image: (Array.isArray($1.images) ? $1.images[0] : $1.images)',
+    )
+
+    // 4. Nested BrowserRouter / Router — crashes React entirely
+    //    Remove import and JSX wrapper; BrowserRouter is already in main.jsx
+    f.content = f.content.replace(
+      /import\s*\{[^}]*\bBrowserRouter\b[^}]*\}\s*from\s*['"]react-router-dom['"]\s*;?\n?/g,
+      (m) => `// [ForgeAI] BrowserRouter removed — already in main.jsx\n`,
+    )
+    f.content = f.content.replace(/<BrowserRouter>([\s\S]*?)<\/BrowserRouter>/g, '$1')
+    f.content = f.content.replace(/<Router>([\s\S]*?)<\/Router>/g, '$1')
+
+    // 5. Hardcoded http://localhost:PORT/api — breaks in Docker / production
+    f.content = f.content.replace(
+      /['"`]https?:\/\/localhost:\d+\/api\//g,
+      "'/api/",
+    )
+
+    if (f.content !== before) {
+      console.log(`[auditFrontend] auto-fixed JSX anti-patterns in ${f.path}`)
+    }
+  }
+}
+
 /** Self-heal API mismatches: any `/api/<x>` the client calls but the server never
  *  mounted gets a flexible model + CRUD route generated and mounted — so a page
  *  never 404s against its own backend. Deterministic; never throws. */
@@ -4413,6 +4480,7 @@ export async function generateMernSite(
   // a public page calls. Runs after all route files are finalized so it catches
   // both AI-generated and heal-generated routes. No AI, no prompts — pure scan.
   auditPublicPostRoutes(files)
+  auditFrontendJsx(files)
   fixCssImportOrder(files)
   stripHallucinatedPackageImports(files)
 
