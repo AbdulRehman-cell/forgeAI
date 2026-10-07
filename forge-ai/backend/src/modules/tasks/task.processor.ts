@@ -3243,6 +3243,7 @@ RULES:
 - JSX ATTRIBUTE QUOTING: NEVER use backslash-escaped quotes inside a double-quoted JSX attribute — e.g. value="36.5\"" is INVALID JSX and crashes the build. If an attribute value contains a double-quote character (like inch marks), use single quotes: value='36.5"'. This is a hard esbuild parse error.
 - The client calls the API with axios at RELATIVE paths ("/api/…") — never hardcode a host.
 - Server code is defensive: validate input, ALWAYS wrap every async route handler in try/catch and call next(err) on failure — example: router.get('/', async (req,res,next)=>{ try{ const docs=await Model.find(); res.json(docs) }catch(e){ next(e) } }). Return proper status codes (400 validation, 404 not found, 500 server error), never crash on bad data.
+- MONGOOSE UNIQUE INDEXES — CRITICAL: NEVER use `unique: true` alone on an optional field (one without `required: true`). Optional unique fields MUST also have `sparse: true` — e.g. `sku: { type: String, unique: true, sparse: true }`. Without `sparse: true`, every document that omits the field stores `null`, and the second insert crashes with "E11000 duplicate key error … dup key: { field: null }". Only `slug` and similar required identifiers are safe with `unique: true` alone.
 - API RESPONSE SHAPE — CRITICAL: GET / (list route) MUST return a plain JSON array — e.g. res.json(docs). NEVER return a paginated wrapper like res.json({ items: docs, total: N }) or res.json({ products: docs, totalCount: N }). The frontend does docs.map(...) directly — a wrapped object crashes every page with "TypeError: x.map is not a function".
 - AUTH RULES — CRITICAL: GET / GET /:id / POST / are always PUBLIC (no requireAdmin). PUT /:id is also PUBLIC — users update their own cart, booking or form without an admin token. ONLY router.delete('/:id') requires requireAdmin. NEVER put requireAdmin on GET, POST, or PUT routes.
 - IMAGES FIELD IS AN ARRAY — CRITICAL: Mongoose stores `images` as `[String]` (an array of URLs). NEVER call `.split(',')` on it — it is NOT a string. To show one image: `src={(Array.isArray(item.images) ? item.images[0] : item.images) || fallbackUrl}`. To build a gallery: `(item.images || []).map(...)`. When sending a single image URL to an API (e.g. cart payload): `image: Array.isArray(product.images) ? product.images[0] : product.images`. Violating this crashes the page with "TypeError: x.split is not a function" or shows "[object Array]" as the src.
@@ -4149,6 +4150,34 @@ function stripHallucinatedPackageImports(files: ParsedChange[]): void {
   }
 }
 
+/**
+ * Scan generated Mongoose model files and add `sparse: true` to any
+ * `unique: true` field that is NOT marked `required: true`.
+ * Without sparse, every doc that omits the field stores null and the
+ * second insert crashes with E11000 duplicate key { field: null }.
+ */
+function auditMongooseModels(files: ParsedChange[]): void {
+  const modelFiles = files.filter((f) => /^server\/models\/.+\.js$/.test(f.path.replace(/\\/g, '/')))
+  for (const f of modelFiles) {
+    const before = f.content
+    // Match field definition blocks that have unique:true but NOT required:true and NOT sparse:true
+    // Pattern: find object literals containing `unique: true` but missing `required: true` and `sparse`
+    f.content = f.content.replace(
+      /\{([^{}]*\bunique\s*:\s*true\b[^{}]*)\}/g,
+      (block, inner) => {
+        // Skip if already sparse or if required:true is present (slug-style fields are safe)
+        if (/sparse\s*:\s*true/.test(inner)) return block
+        if (/required\s*:\s*true/.test(inner)) return block
+        // Inject sparse: true after unique: true
+        return `{${inner.replace(/(\bunique\s*:\s*true)/, '$1,\n      sparse: true')}}`
+      },
+    )
+    if (f.content !== before) {
+      console.log(`[auditModels] added sparse:true to optional unique fields in ${f.path}`)
+    }
+  }
+}
+
 function auditPublicPostRoutes(files: ParsedChange[]): void {
   const routeFiles = files.filter((f) => /^server\/routes\/.+\.routes\.js$/.test(f.path.replace(/\\/g, '/')))
   for (const f of routeFiles) {
@@ -4479,6 +4508,7 @@ export async function generateMernSite(
   // Deterministic route audit: strip requireAdmin from any POST endpoint that
   // a public page calls. Runs after all route files are finalized so it catches
   // both AI-generated and heal-generated routes. No AI, no prompts — pure scan.
+  auditMongooseModels(files)
   auditPublicPostRoutes(files)
   auditFrontendJsx(files)
   fixCssImportOrder(files)
