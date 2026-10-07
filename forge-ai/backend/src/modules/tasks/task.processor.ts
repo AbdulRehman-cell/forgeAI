@@ -2565,12 +2565,13 @@ async function generateStaticSite(
   const builderSystem = `${BUILDER_SYSTEM_PROMPT}\n\n${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}`
 
   const genFile = async (instruction: string, expectPath: string, useProvider: AIProvider = provider): Promise<string | null> => {
-    // 2 attempts on the main provider, then 1 attempt on Claude as fallback.
+    // 3 attempts on the main provider (Gemini), then 1 attempt on Claude as fallback.
     // This handles: (a) transient Gemini rate limits / network errors,
     // (b) Gemini not wrapping the response in <file path="..."> tags.
     const providers: Array<{ p: AIProvider; label: string }> = [
       { p: useProvider, label: 'main' },
       { p: useProvider, label: 'main-retry' },
+      { p: useProvider, label: 'main-retry-2' },
     ]
     const fallback = createEnhancer()
     if (fallback) providers.push({ p: fallback, label: 'Claude' })
@@ -2580,7 +2581,7 @@ async function generateStaticSite(
       // returns raw HTML without the <file> wrapper
       const wrappedInstruction = `${instruction}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag and nothing else — no markdown fences around it.`
       const res = await safeChat(p, wrappedInstruction, builderSystem)
-      if (!res) { await sleep(2000); continue }
+      if (!res) { await sleep(label === 'main' ? 3000 : 5000); continue }
 
       // Try exact path match first, fall back to first parsed file
       let file = parseAIChanges(res.content).find(
@@ -4155,12 +4156,13 @@ export async function generateMernSite(
   const gen = async (instruction: string, expectPath: string): Promise<boolean> => {
     const isJsx = expectPath.endsWith('.jsx')
     let nudge = ''
-    // Try primary provider (Gemini) first, then fall back to Claude if it fails
+    // Try primary provider (Gemini) 3 times before falling back to Claude
     const providers: AIProvider[] = [provider, ...(enhancer ? [enhancer] : [])]
     for (const p of providers) {
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const maxAttempts = p === provider ? 3 : 2
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const res = await safeChat(p, instruction + nudge, MERN_SYSTEM_PROMPT)
-        if (!res) { await sleep(2000); continue }
+        if (!res) { await sleep(attempt === 0 ? 3000 : 5000); continue }
         const parsed = parseAIChanges(res.content)
         const file = parsed.find(
           (f) => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase(),
