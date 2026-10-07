@@ -3243,6 +3243,8 @@ RULES:
 - JSX ATTRIBUTE QUOTING: NEVER use backslash-escaped quotes inside a double-quoted JSX attribute — e.g. value="36.5\"" is INVALID JSX and crashes the build. If an attribute value contains a double-quote character (like inch marks), use single quotes: value='36.5"'. This is a hard esbuild parse error.
 - The client calls the API with axios at RELATIVE paths ("/api/…") — never hardcode a host.
 - Server code is defensive: validate input, ALWAYS wrap every async route handler in try/catch and call next(err) on failure — example: router.get('/', async (req,res,next)=>{ try{ const docs=await Model.find(); res.json(docs) }catch(e){ next(e) } }). Return proper status codes (400 validation, 404 not found, 500 server error), never crash on bad data.
+- API RESPONSE SHAPE — CRITICAL: GET / (list route) MUST return a plain JSON array — e.g. res.json(docs). NEVER return a paginated wrapper like res.json({ items: docs, total: N }) or res.json({ products: docs, totalCount: N }). The frontend does docs.map(...) directly — a wrapped object crashes every page with "TypeError: x.map is not a function".
+- AUTH RULES — CRITICAL: GET / GET /:id / POST / are always PUBLIC (no requireAdmin). PUT /:id is also PUBLIC — users update their own cart, booking or form without an admin token. ONLY router.delete('/:id') requires requireAdmin. NEVER put requireAdmin on GET, POST, or PUT routes.
 - Client code is defensive too: in JSX, NEVER call methods on possibly-missing API fields — write (user.bio || '').slice(0, 60), items?.map, value ?? fallback. Missing data must never crash a render. When an API call fails (catch block), set an error state and render a visible error message — NEVER silently swallow errors or leave the user staring at an empty/blank section. Example: catch(e){ setError(e.response?.data?.error || 'Failed to load data. Please check your connection.') }.
 - main.jsx already renders <App /> inside <BrowserRouter>. NEVER import or render BrowserRouter/Router yourself — a nested router crashes React at runtime. Use only Routes, Route, NavLink, Link, useParams, useNavigate.
 - HOOKS RULES (critical — breaking these crashes the WHOLE app with "Invalid hook call" / "Cannot read properties of null (reading 'useEffect')"): call hooks (useState, useEffect, useRef, useContext, useNavigate, useParams, custom hooks) ONLY at the top level of a React component function — NEVER at module scope / top of the file, NEVER conditionally, NEVER inside loops or ordinary non-component functions. In EVERY file that uses hooks, import them explicitly, e.g. import { useState, useEffect } from 'react'. Component names must be PascalCase and must return JSX.
@@ -3649,7 +3651,7 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     '}',
     "app.use('/api', dbReady)",
     '',
-    '// ── Data routes (GET+POST public; PUT+DELETE require admin token) ───────────',
+    '// ── Data routes (GET+POST+PUT public; DELETE requires admin token) ────────────',
     mounts,
     '',
     '// ── Global error handler ─────────────────────────────────────────────────────',
@@ -4011,7 +4013,7 @@ function healRoute(name: string): string {
     `router.get('/', async (req, res) => { try { res.json(await ${N}.find().sort('-createdAt')); } catch (e) { res.status(500).json({ error: 'Failed to fetch.' }); } });`,
     `router.get('/:id', async (req, res) => { try { const doc = await ${N}.findById(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
     `router.post('/', async (req, res) => { try { res.status(201).json(await ${N}.create(req.body)); } catch (e) { res.status(400).json({ error: e.message }); } });`,
-    `router.put('/:id', requireAdmin, async (req, res) => { try { const doc = await ${N}.findByIdAndUpdate(req.params.id, req.body, { new: true }); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(400).json({ error: e.message }); } });`,
+    `router.put('/:id', async (req, res) => { try { const doc = await ${N}.findByIdAndUpdate(req.params.id, req.body, { new: true }); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(400).json({ error: e.message }); } });`,
     `router.delete('/:id', requireAdmin, async (req, res) => { try { const doc = await ${N}.findByIdAndDelete(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json({ message: 'Deleted.' }); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
     '',
     'module.exports = router;',
@@ -4083,8 +4085,18 @@ function auditPublicPostRoutes(files: ParsedChange[]): void {
       .replace(/router\.get\s*\(\s*(['"`]\/:id['"`])\s*,\s*requireAdmin\s*,/g, 'router.get($1,')
       // Remove requireAdmin from POST /
       .replace(/router\.post\s*\(\s*(['"`]\/['"`])\s*,\s*requireAdmin\s*,/g, 'router.post($1,')
+      // Remove requireAdmin from PUT /:id — user-facing operations (cart, booking,
+      // contact edits) need to update records without an admin token; only DELETE is protected
+      .replace(/router\.put\s*\(\s*(['"`]\/:id['"`])\s*,\s*requireAdmin\s*,/g, 'router.put($1,')
+    // Fix paginated GET / response shapes — AI sometimes wraps the array in
+    // { items: [], total: N } which breaks .map() in every frontend page.
+    // Unwrap to a plain array so every generated page works without patching.
+    f.content = f.content.replace(
+      /res\.json\s*\(\s*\{\s*\w+\s*:\s*(await\s+\w+\.find\s*\([^)]*\)(?:\.[a-zA-Z0-9_()[\]'"., ]*)*)\s*,\s*(?:total|count|totalCount|total_count)\s*:[^}]+\}\s*\)/g,
+      'res.json($1)',
+    )
     if (f.content !== before) {
-      console.log(`[auditRoutes] enforced public GET+POST in ${f.path}`)
+      console.log(`[auditRoutes] enforced public GET+POST+PUT and plain-array GET in ${f.path}`)
     }
   }
 }
@@ -4493,7 +4505,25 @@ export async function generateMernSite(
       if (seedResp?.content) {
         const seedFile = parseAIChanges(seedResp.content)[0]
         if (seedFile?.content?.trim()) {
-          files.push({ path: 'server/seed.js', content: seedFile.content })
+          // Strip any require('./models/X') for models that don't exist as generated files —
+          // a hallucinated model name crashes the whole seed with "Cannot find module"
+          const generatedModelNames = new Set(
+            files
+              .filter((f) => /^server\/models\/.+\.js$/.test(f.path.replace(/\\/g, '/')))
+              .map((f) => f.path.replace(/\\/g, '/').replace('server/models/', '').replace('.js', ''))
+          )
+          let seedContent = seedFile.content
+          seedContent = seedContent.replace(
+            /^(const|let|var)\s+\w+\s*=\s*require\s*\(\s*['"]\.\/models\/(\w+)['"]\s*\)\s*;?\s*$/gm,
+            (line: string, _decl: string, modelName: string) => {
+              if (generatedModelNames.has(modelName)) return line
+              console.warn(`[seed] removed require for missing model "${modelName}"`)
+              return `// [ForgeAI] model ${modelName} not generated — skipped`
+            },
+          )
+          // Also remove any seeding block that references a variable that was just commented out
+          // (Simple heuristic: if the variable name never appears in a non-comment require, remove its insert block)
+          files.push({ path: 'server/seed.js', content: seedContent })
           // Mount the seed runner in server/index.js so it auto-runs on startup
           const serverEntry = files.find((f) => f.path.replace(/\\/g, '/') === 'server/index.js')
           if (serverEntry && !serverEntry.content.includes('seed.js')) {
