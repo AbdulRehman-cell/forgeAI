@@ -3585,12 +3585,87 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
   ].join('\n')
   const dockerignore = ['node_modules', 'client/node_modules', 'client/dist', '.git', '.env', ''].join('\n')
 
+  // Deterministic ui.jsx — every named export that AI pages commonly import.
+  // Generated here so it is always complete and never left to the AI, which
+  // reliably forgets toast / Card / Badge and breaks the Vite build.
+  const uiJsx = `import React from 'react'
+
+function _showToast(message, type = 'info') {
+  if (typeof document === 'undefined') return
+  const colors = { success: '#16a34a', error: '#dc2626', warning: '#d97706', info: '#374151' }
+  const el = document.createElement('div')
+  el.textContent = message
+  el.style.cssText = \`position:fixed;bottom:24px;right:24px;z-index:9999;padding:12px 20px;border-radius:10px;color:#fff;font-size:14px;font-weight:500;background:\${colors[type]||colors.info};box-shadow:0 4px 16px rgba(0,0,0,.18);transition:opacity .3s;\`
+  document.body.appendChild(el)
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300) }, 3000)
+}
+export const toast = Object.assign(
+  (message, type) => _showToast(message, type),
+  { success: (m) => _showToast(m, 'success'), error: (m) => _showToast(m, 'error'), warning: (m) => _showToast(m, 'warning'), info: (m) => _showToast(m, 'info') }
+)
+
+export function Button({ children, onClick, type = 'button', variant = 'primary', disabled = false, className = '', ...props }) {
+  const cls = variant === 'secondary' ? 'btn-secondary' : variant === 'ghost' ? 'btn-ghost' : 'btn-primary'
+  return <button type={type} onClick={onClick} disabled={disabled} className={\`\${cls} \${className}\`} style={{ opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }} {...props}>{children}</button>
+}
+
+export function Card({ children, className = '', style = {}, ...props }) {
+  return <div className={\`card \${className}\`} style={{ background: 'var(--surface,#fff)', border: '1px solid var(--border,rgba(0,0,0,.08))', borderRadius: '12px', padding: '24px', ...style }} {...props}>{children}</div>
+}
+
+export function Spinner({ className = '', ...props }) {
+  return (
+    <div className={\`spinner-container \${className}\`} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', padding:'1rem', width:'100%' }} {...props}>
+      <div style={{ width:'2.5rem', height:'2.5rem', border:'3px solid rgba(var(--primary-rgb,99,102,241),.15)', borderTopColor:'var(--primary,#6366f1)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
+      <style dangerouslySetInnerHTML={{__html:'@keyframes spin{to{transform:rotate(360deg)}}'}} />
+    </div>
+  )
+}
+
+export function Badge({ children, variant = 'primary', className = '', ...props }) {
+  const styles = {
+    primary: { background:'rgba(99,102,241,.15)', color:'#6366f1', border:'1px solid rgba(99,102,241,.3)' },
+    success: { background:'rgba(34,197,94,.15)', color:'#22c55e', border:'1px solid rgba(34,197,94,.3)' },
+    warning: { background:'rgba(234,179,8,.15)', color:'#eab308', border:'1px solid rgba(234,179,8,.3)' },
+    secondary: { background:'rgba(100,116,139,.15)', color:'#94a3b8', border:'1px solid rgba(100,116,139,.3)' },
+  }
+  return <span className={\`badge \${className}\`} style={{ display:'inline-block', padding:'.25rem .6rem', fontSize:'.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', borderRadius:'9999px', ...(styles[variant]||styles.primary) }} {...props}>{children}</span>
+}
+
+export function Alert({ children, variant = 'error', className = '', ...props }) {
+  const cls = variant === 'success' ? 'alert alert-success' : variant === 'info' ? 'alert alert-info' : 'alert alert-error'
+  return <div className={\`\${cls} \${className}\`} style={{ margin:'1rem 0', padding:'1rem', borderRadius:'6px', borderLeft:'4px solid currentColor' }} {...props}>{children}</div>
+}
+
+export function Input({ className = '', style = {}, ...props }) {
+  return <input className={className} style={{ width:'100%', padding:'10px 14px', border:'1px solid var(--border,rgba(0,0,0,.12))', borderRadius:'8px', fontSize:'.9375rem', background:'var(--surface,#fff)', color:'var(--text,#111)', outline:'none', ...style }} {...props} />
+}
+
+export function Textarea({ className = '', style = {}, ...props }) {
+  return <textarea className={className} style={{ width:'100%', padding:'10px 14px', border:'1px solid var(--border,rgba(0,0,0,.12))', borderRadius:'8px', fontSize:'.9375rem', background:'var(--surface,#fff)', color:'var(--text,#111)', outline:'none', resize:'vertical', minHeight:'100px', ...style }} {...props} />
+}
+
+export function Modal({ isOpen, onClose, title, children }) {
+  if (!isOpen) return null
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.5)' }} onClick={onClose}>
+      <div className="card" style={{ maxWidth:'500px', width:'90%', maxHeight:'80vh', overflowY:'auto' }} onClick={(e) => e.stopPropagation()}>
+        {title && <h3 style={{ marginBottom:'1rem' }}>{title}</h3>}
+        {children}
+        <button className="btn-ghost" onClick={onClose} style={{ marginTop:'1rem' }}>Close</button>
+      </div>
+    </div>
+  )
+}
+`
+
   return [
     { path: 'package.json', content: JSON.stringify(rootPkg, null, 2) + '\n' },
     { path: 'client/package.json', content: JSON.stringify(clientPkg, null, 2) + '\n' },
     { path: 'client/vite.config.js', content: viteConfig },
     { path: 'client/index.html', content: indexHtml },
     { path: 'client/src/main.jsx', content: mainJsx },
+    { path: 'client/src/components/ui.jsx', content: uiJsx },
     { path: 'Dockerfile', content: dockerfile },
     { path: '.dockerignore', content: dockerignore },
     { path: '.gitignore', content: gitignore },
@@ -4472,6 +4547,10 @@ export async function generateMernSite(
   // Final deterministic fixes appended LAST so they win over any generated CSS
   // (e.g. a broken .gradient-text rendering as a solid rectangle).
   cssEntry.content += `\n${FINAL_FIXES_CSS}`
+  // Re-run @import order fix NOW, after all CSS chunks are assembled.
+  // The earlier fixCssImportOrder ran before assembly — AI chunks appended
+  // afterwards can have @import mid-file, which Vite rejects as a hard error.
+  fixCssImportOrder(files)
 
   // Vite only bundles CSS that is IMPORTED. The missing-import sanitizer runs
   // before index.css exists and may have stripped the import from main.jsx —
