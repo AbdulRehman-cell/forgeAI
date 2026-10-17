@@ -756,8 +756,11 @@ async function pushRepoToGitHub(
       ghRepo = data
     } catch (err: any) {
       const status = err.response?.status
-      if (status === 401 || status === 403) {
+      if (status === 401) {
         throw new Error('GitHub token was rejected — reconnect GitHub in Settings, then re-run Blitz Deploy.')
+      }
+      if (status === 403) {
+        throw new Error('GitHub returned 403 — this may be a rate limit or insufficient token scope. Wait a minute and re-run Blitz Deploy, or reconnect GitHub in Settings if the problem persists.')
       }
       if (status !== 422) throw new Error(err.response?.data?.message ?? err.message)
       await log(`GitHub repo name "${name}" is taken — trying another…`, 'warn')

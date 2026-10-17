@@ -271,8 +271,13 @@ export default function Settings() {
             <Github size={14} /> GitHub Integration
           </h2>
           {user?.githubConnected ? (
-            <div className="flex items-center gap-2 text-emerald-400 text-sm">
-              <Github size={15} /> GitHub connected
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                <Github size={15} /> GitHub connected
+              </div>
+              <button onClick={connectGithub} className="btn-secondary flex items-center gap-2 text-xs py-1 px-2">
+                <Github size={13} /> Reconnect
+              </button>
             </div>
           ) : (
             <button onClick={connectGithub} className="btn-secondary flex items-center gap-2">
