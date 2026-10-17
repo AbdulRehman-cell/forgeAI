@@ -793,34 +793,47 @@ async function pushRepoToGitHub(
 
   await log(`Uploading ${filesToPush.length} files to GitHub…`)
 
+  // GitHub initializes the new repo's git backend asynchronously; retry on 409
+  // (repo not ready) with exponential backoff before giving up.
+  const ghGitPost = async (url: string, body: any): Promise<any> => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        const { data } = await axios.post(url, body, { headers })
+        return data
+      } catch (err: any) {
+        if (err.response?.status === 409 && attempt < 5) {
+          await new Promise(r => setTimeout(r, (attempt + 1) * 2000)) // 2s 4s 6s 8s 10s
+          continue
+        }
+        throw err
+      }
+    }
+  }
+
   const blobs: { sha: string; path: string }[] = []
   for (let i = 0; i < filesToPush.length; i += 5) {
     const batch = filesToPush.slice(i, i + 5)
     const results = await Promise.all(batch.map(async (file) => {
-      const { data } = await axios.post(
+      const blobData = await ghGitPost(
         `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/blobs`,
         { content: Buffer.from(file.content, 'utf-8').toString('base64'), encoding: 'base64' },
-        { headers },
       )
-      return { sha: data.sha, path: file.path }
+      return { sha: blobData.sha, path: file.path }
     }))
     blobs.push(...results)
   }
-  const { data: treeData } = await axios.post(
+  const treeData = await ghGitPost(
     `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/trees`,
     { tree: blobs.map((b) => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })) },
-    { headers },
   )
-  const { data: commitData } = await axios.post(
+  const commitData = await ghGitPost(
     `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/commits`,
     { message: `ForgeAI Blitz Deploy: ${repoName} — initial push`, tree: treeData.sha, parents: [],
       author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
-    { headers },
   )
-  await axios.post(
+  await ghGitPost(
     `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/refs`,
     { ref: `refs/heads/${branch}`, sha: commitData.sha },
-    { headers },
   )
 
   // Keep a local git remote pointing at the public URL for future operations
@@ -5659,40 +5672,53 @@ async function buildSite(job: Job) {
 
           if (filesToPush.length === 0) throw new Error('No files to push')
 
+          // GitHub initializes the new repo's git backend asynchronously; retry on
+          // 409 (repo not ready yet) with exponential backoff.
+          const bsGhPost = async (url: string, body: any): Promise<any> => {
+            for (let attempt = 0; attempt < 6; attempt++) {
+              try {
+                const { data } = await axios.post(url, body, { headers })
+                return data
+              } catch (err: any) {
+                if (err.response?.status === 409 && attempt < 5) {
+                  await new Promise(r => setTimeout(r, (attempt + 1) * 2000))
+                  continue
+                }
+                throw err
+              }
+            }
+          }
+
           // Create blobs (5 at a time to stay within rate limits)
           const blobs: { sha: string; path: string }[] = []
           for (let i = 0; i < filesToPush.length; i += 5) {
             const batch = filesToPush.slice(i, i + 5)
             const results = await Promise.all(batch.map(async (file) => {
-              const { data } = await axios.post(
+              const blobData = await bsGhPost(
                 `https://api.github.com/repos/${owner}/${repoName}/git/blobs`,
                 { content: Buffer.from(file.content, 'utf-8').toString('base64'), encoding: 'base64' },
-                { headers },
               )
-              return { sha: data.sha, path: file.path }
+              return { sha: blobData.sha, path: file.path }
             }))
             blobs.push(...results)
           }
 
           // Create tree
-          const { data: treeData } = await axios.post(
+          const treeData = await bsGhPost(
             `https://api.github.com/repos/${owner}/${repoName}/git/trees`,
             { tree: blobs.map((b) => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })) },
-            { headers },
           )
 
           // Create commit
-          const { data: commitData } = await axios.post(
+          const commitData = await bsGhPost(
             `https://api.github.com/repos/${owner}/${repoName}/git/commits`,
             { message: `ForgeAI Builder: ${siteName} — initial site`, tree: treeData.sha, parents: [], author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
-            { headers },
           )
 
           // Point main branch at the new commit
-          await axios.post(
+          await bsGhPost(
             `https://api.github.com/repos/${owner}/${repoName}/git/refs`,
             { ref: 'refs/heads/main', sha: commitData.sha },
-            { headers },
           )
 
           // Set git remote so subsequent agent/fix tasks can push
