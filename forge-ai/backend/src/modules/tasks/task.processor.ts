@@ -4976,7 +4976,8 @@ async function claudePolishCss(
   )
   const add = res ? parseAIChanges(res.content)[0]?.content : undefined
   if (add && add.trim().length > 40) {
-    css.content += `\n/* ── Claude QA polish ── */\n${stripCodeFence(add.trim())}\n`
+    const addStripped = stripCodeFence(add.trim()).split('\n').filter((l) => !/^\s*@import\b/.test(l)).join('\n')
+    css.content += `\n/* ── Claude QA polish ── */\n${addStripped}\n`
     sanitizeCss(files, cssPath)
     await log('🎨 Claude QA — appended UI polish')
   }
@@ -5027,6 +5028,7 @@ ROUTES (*.routes.js) — full CRUD only, CommonJS, module.exports router:
   const frontendFiles = files.filter(
     (f) => /^client\/src\//.test(norm(f.path))
       && norm(f.path) !== 'client/src/pages/Admin.jsx'
+      && norm(f.path) !== 'client/src/components/ui.jsx'
       && !norm(f.path).endsWith('.css'),
   )
   if (frontendFiles.length > 0) {
@@ -5362,6 +5364,27 @@ async function buildSite(job: Job) {
       await updateTask(task, {}, '✅ Claude QA pass complete')
     } else {
       await updateTask(task, {}, 'ℹ️ Claude QA pass skipped (enhancer key not configured) — shipping the free-stack build')
+    }
+
+    // ── Post-QA hardening ── runs after ALL AI passes so nothing can reintroduce
+    // the two most common deploy-breaking bugs: @import mid-file and a broken ui.jsx
+    if (stack === 'mern') {
+      // 1. @imports must be at the very top of index.css — claudePolishCss strips
+      //    them from its own chunk, but run fixCssImportOrder as a final guarantee.
+      fixCssImportOrder(generated)
+      // 2. ui.jsx must match the deterministic scaffold — Claude QA never sees it
+      //    (excluded above), but de-dupe any duplicate entries and ensure the last
+      //    written copy is the scaffold's exact content.
+      const uiPath = 'client/src/components/ui.jsx'
+      const uiEntries = generated.filter((f) => f.path.replace(/\\/g, '/') === uiPath)
+      if (uiEntries.length > 1) {
+        // Multiple entries: keep only the scaffold one (first pushed)
+        for (let i = generated.length - 1; i >= 0; i--) {
+          if (generated[i].path.replace(/\\/g, '/') === uiPath && generated[i] !== uiEntries[0]) {
+            generated.splice(i, 1)
+          }
+        }
+      }
     }
 
     // ── Write everything to disk ──
