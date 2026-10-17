@@ -5534,7 +5534,9 @@ async function buildSite(job: Job) {
 
     // ── Local git history ──
     await updateTask(task, { progress: 55 }, '📦 Initializing git repository…')
-    const git = simpleGit(sitePath).env(gitEnv())
+    // GIT_CEILING_DIRECTORIES prevents git from walking up to the parent ForgeAI
+    // checkout and accidentally picking up its objects as delta bases when packing.
+    const git = simpleGit(sitePath).env({ ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(sitePath) })
     await git.init()
     await git.addConfig('user.name', 'ForgeAI')
     await git.addConfig('user.email', 'bot@forgeai.dev')
@@ -5601,7 +5603,7 @@ async function buildSite(job: Job) {
         // Store the token-authenticated remote but never expose it in task logs
         const authRemote = `https://${fullUser.githubAccessToken}@github.com/${ghRepo.full_name}.git`
         try {
-          await git.push([authRemote, 'main:main'])
+          await git.push([authRemote, 'main:main', '--force', '--no-thin'])
           // Store origin WITHOUT the token so the URL is safe to display
           await git.addRemote('origin', `https://github.com/${ghRepo.full_name}.git`).catch(() => {})
           pushedFullName = ghRepo.full_name
