@@ -347,7 +347,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
 
   const siteName = String(name ?? '')
     .toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-    || `forgeai-site-${Date.now().toString(36)}`
+    || 'my-site'
 
   const validAddons = ['whatsapp', 'leads', 'seo', 'booking', 'reviews', 'chatbot']
   const siteAddons = Array.isArray(addons) ? addons.filter((a: string) => validAddons.includes(a)) : []

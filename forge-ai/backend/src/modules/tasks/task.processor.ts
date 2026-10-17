@@ -5547,9 +5547,10 @@ async function buildSite(job: Job) {
       const headers = { Authorization: `token ${fullUser.githubAccessToken}`, Accept: 'application/vnd.github+json' }
       let ghRepo: any
       let githubAuthFailed = false
-      const baseSlug = siteName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'forgeai-site'
-      // Two attempts: exact name first, then a timestamp suffix that is always unique
-      const namesToTry = [baseSlug, `${baseSlug}-${Date.now().toString(36)}`]
+      const baseSlug = siteName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'site'
+      // Second attempt uses a completely fresh prefix so it never collides even if baseSlug is reserved/deleted on GitHub
+      const uniqueFallback = `fg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      const namesToTry = [baseSlug, uniqueFallback]
       for (const name of namesToTry) {
         try {
           const { data } = await axios.post('https://api.github.com/user/repos', {
@@ -5564,7 +5565,8 @@ async function buildSite(job: Job) {
           const status = err.response?.status
           if (status === 401 || status === 403) { githubAuthFailed = true; break }
           if (status !== 422) throw err
-          await updateTask(task, {}, `Repository name "${name}" is taken — trying with unique suffix…`, 'warn')
+          const ghMsg = err.response?.data?.message ?? 'name conflict'
+          await updateTask(task, {}, `Repository name "${name}" unavailable (${ghMsg}) — trying with unique name…`, 'warn')
         }
       }
 
