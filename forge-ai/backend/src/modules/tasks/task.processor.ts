@@ -771,34 +771,65 @@ async function pushRepoToGitHub(
   }
   await log(`Created GitHub repo: ${ghRepo.full_name}`)
 
-  // Ensure the local directory is a git repo with at least one commit
+  // Push via GitHub Trees API — avoids thin-pack delta corruption that occurs
+  // when the local repo sits inside the ForgeAI checkout and git pack-objects
+  // borrows ForgeAI objects as delta bases that the empty target repo lacks.
+  const [ghOwner, ghRepoName] = ghRepo.full_name.split('/')
+  const BLITZ_SKIP = new Set(['.git', 'node_modules', 'dist', '.env', 'build', '__pycache__', '.venv', '.DS_Store'])
+  const filesToPush: { path: string; content: string }[] = []
+  ;(function collectFiles(dir: string) {
+    let entries: fs.Dirent[]
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      if (BLITZ_SKIP.has(entry.name)) continue
+      const abs = path.join(dir, entry.name)
+      const rel = path.relative(localPath, abs).replace(/\\/g, '/')
+      if (entry.isDirectory()) { collectFiles(abs) }
+      else {
+        try { filesToPush.push({ path: rel, content: fs.readFileSync(abs, 'utf-8') }) } catch {}
+      }
+    }
+  })(localPath)
+
+  await log(`Uploading ${filesToPush.length} files to GitHub…`)
+
+  const blobs: { sha: string; path: string }[] = []
+  for (let i = 0; i < filesToPush.length; i += 5) {
+    const batch = filesToPush.slice(i, i + 5)
+    const results = await Promise.all(batch.map(async (file) => {
+      const { data } = await axios.post(
+        `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/blobs`,
+        { content: Buffer.from(file.content, 'utf-8').toString('base64'), encoding: 'base64' },
+        { headers },
+      )
+      return { sha: data.sha, path: file.path }
+    }))
+    blobs.push(...results)
+  }
+  const { data: treeData } = await axios.post(
+    `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/trees`,
+    { tree: blobs.map((b) => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })) },
+    { headers },
+  )
+  const { data: commitData } = await axios.post(
+    `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/commits`,
+    { message: `ForgeAI Blitz Deploy: ${repoName} — initial push`, tree: treeData.sha, parents: [],
+      author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
+    { headers },
+  )
+  await axios.post(
+    `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/refs`,
+    { ref: `refs/heads/${branch}`, sha: commitData.sha },
+    { headers },
+  )
+
+  // Keep a local git remote pointing at the public URL for future operations
   const git = simpleGit(localPath).env(gitEnv())
   const isRepo = await git.checkIsRepo().catch(() => false)
-  if (!isRepo) await git.init()
-  await git.addConfig('user.name', 'ForgeAI')
-  await git.addConfig('user.email', 'bot@forgeai.dev')
-
-  let hasHead = true
-  try { await git.revparse(['HEAD']) } catch { hasHead = false }
-
-  if (!hasHead) {
-    await git.add('.')
-    await git.commit('ForgeAI: initial commit')
-  } else {
-    const status = await git.status()
-    if (status.files.length > 0) {
-      await git.add('.')
-      await git.commit('ForgeAI: prepare for deployment')
-    }
-  }
-
-  // Push — use token-authenticated URL but store the public URL as origin
-  const authRemote = `https://${fullUser.githubAccessToken}@github.com/${ghRepo.full_name}.git`
-  try {
-    await git.push([authRemote, `HEAD:refs/heads/${branch}`, '--force'])
-  } catch (pushErr: any) {
-    // Scrub credentials from the error message before surfacing it
-    throw new Error(pushErr.message.replace(/https?:\/\/[^@]+@/g, 'https://'))
+  if (!isRepo) {
+    await git.init()
+    await git.addConfig('user.name', 'ForgeAI')
+    await git.addConfig('user.email', 'bot@forgeai.dev')
   }
   await git.removeRemote('origin').catch(() => {})
   await git.addRemote('origin', `https://github.com/${ghRepo.full_name}.git`).catch(() => {})
