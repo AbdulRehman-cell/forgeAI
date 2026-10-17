@@ -140,35 +140,54 @@ async function ensureLocalPath(job: Job) {
   const repo = await Repository.findById(repositoryId)
   if (!repo) return
 
-  // Only GitHub-sourced repos can be re-cloned automatically.
-  // Local folders can't be recovered — the user must re-import them.
-  if (repo.source === 'local' || !repo.cloneUrl) {
-    throw new Error(
-      'The local workspace was lost (server restart / redeploy). ' +
-      'Please re-import this repository from the Repositories page to restore it.',
-    )
+  // Strategy 1: re-clone from GitHub
+  if (repo.source !== 'local' && repo.cloneUrl) {
+    console.info(`[processor] localPath missing — re-cloning ${repo.fullName}`)
+    const fullUser = await User.findById(userId).select('+githubAccessToken')
+    const authUrl = fullUser?.githubAccessToken
+      ? repo.cloneUrl.replace('https://', `https://${fullUser.githubAccessToken}@`)
+      : repo.cloneUrl
+
+    fs.mkdirSync(localPath, { recursive: true })
+    const git = simpleGit().env(gitEnv())
+    try {
+      await git.clone(authUrl, localPath, ['--depth', '1'])
+      repo.status = 'ready'
+      await repo.save()
+      console.info(`[processor] Re-cloned ${repo.fullName} to ${localPath}`)
+      return
+    } catch {
+      fs.rmSync(localPath, { recursive: true, force: true })
+      // fall through to DB restore
+    }
   }
 
-  console.info(`[processor] localPath missing — re-cloning ${repo.fullName}`)
-  const fullUser = await User.findById(userId).select('+githubAccessToken')
-  const authUrl = fullUser?.githubAccessToken
-    ? repo.cloneUrl.replace('https://', `https://${fullUser.githubAccessToken}@`)
-    : repo.cloneUrl
+  // Strategy 2: restore from task.changes in MongoDB (works even when GitHub push failed)
+  const buildTask = await Task.findOne({
+    repositoryId: repo._id,
+    type: 'build_site',
+    status: 'completed',
+  }).sort({ createdAt: -1 })
 
-  fs.mkdirSync(localPath, { recursive: true })
-  const git = simpleGit().env(gitEnv())
-  try {
-    await git.clone(authUrl, localPath, ['--depth', '1'])
+  if (buildTask?.changes?.length) {
+    console.info(`[processor] Restoring ${repo.fullName} from task ${buildTask._id}`)
+    fs.mkdirSync(localPath, { recursive: true })
+    for (const change of buildTask.changes) {
+      if (!change.after || (change as any).truncated) continue
+      const filePath = path.join(localPath, change.path)
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, change.after, 'utf8')
+    }
     repo.status = 'ready'
     await repo.save()
-    console.info(`[processor] Re-cloned ${repo.fullName} to ${localPath}`)
-  } catch (err: any) {
-    fs.rmSync(localPath, { recursive: true, force: true })
-    throw new Error(
-      `Could not re-clone ${repo.fullName}: ${String(err.message).replace(/\/\/[^@/\s]+@/g, '//***@')}. ` +
-      'Check that your GitHub token is still valid in Settings.',
-    )
+    console.info(`[processor] Restored ${buildTask.changes.length} files from DB`)
+    return
   }
+
+  throw new Error(
+    'The workspace was lost (server restart) and could not be recovered. ' +
+    'Please regenerate this site.',
+  )
 }
 
 // ─── Clone ─────────────────────────────────────────────────

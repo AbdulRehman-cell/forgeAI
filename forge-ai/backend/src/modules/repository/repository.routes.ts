@@ -63,36 +63,61 @@ router.get('/:id/tree', checkRepoAccess, async (req, res) => {
   const repo = await Repository.findOne({ _id: req.params.id, userId: getEffectiveUserId(req) })
   if (!repo || !repo.localPath) return res.status(404).json({ message: 'Not found or not cloned' })
 
-  // Auto-re-clone if Render's ephemeral filesystem wiped the workspace
-  if (!fs.existsSync(repo.localPath) && repo.source !== 'local' && repo.cloneUrl) {
-    try {
-      const fullUser = await User.findById(repo.userId).select('+githubAccessToken')
-      const authUrl = fullUser?.githubAccessToken
-        ? repo.cloneUrl.replace('https://', `https://${fullUser.githubAccessToken}@`)
-        : repo.cloneUrl
-      fs.mkdirSync(repo.localPath, { recursive: true })
+  // Recover workspace if Render's ephemeral disk was wiped
+  if (!fs.existsSync(repo.localPath)) {
+    let recovered = false
+
+    // Strategy 1: re-clone from GitHub (for repos that were successfully pushed)
+    if (repo.source !== 'local' && repo.cloneUrl) {
       try {
-        await simpleGit().clone(authUrl, repo.localPath, ['--depth', '1'])
-      } catch {
-        // Token may have expired — retry as unauthenticated (works for public repos)
-        if (authUrl !== repo.cloneUrl) {
-          fs.rmSync(repo.localPath, { recursive: true, force: true })
-          fs.mkdirSync(repo.localPath, { recursive: true })
-          await simpleGit().clone(repo.cloneUrl, repo.localPath, ['--depth', '1'])
-        } else {
-          throw new Error('Clone failed (repo may be private or deleted)')
+        const fullUser = await User.findById(repo.userId).select('+githubAccessToken')
+        const authUrl = fullUser?.githubAccessToken
+          ? repo.cloneUrl.replace('https://', `https://${fullUser.githubAccessToken}@`)
+          : repo.cloneUrl
+        fs.mkdirSync(repo.localPath, { recursive: true })
+        try {
+          await simpleGit().clone(authUrl, repo.localPath, ['--depth', '1'])
+          recovered = true
+        } catch {
+          // Token may have expired — retry as unauthenticated (works for public repos)
+          if (authUrl !== repo.cloneUrl) {
+            fs.rmSync(repo.localPath, { recursive: true, force: true })
+            fs.mkdirSync(repo.localPath, { recursive: true })
+            await simpleGit().clone(repo.cloneUrl, repo.localPath, ['--depth', '1'])
+            recovered = true
+          }
         }
-      }
-      repo.status = 'ready'
-      await repo.save()
-    } catch (err: any) {
-      fs.rmSync(repo.localPath, { recursive: true, force: true })
-      return res.status(503).json({
-        message: `Workspace was lost (server restart). Re-clone failed: ${err.message ?? 'unknown error'}`,
-      })
+      } catch { /* fall through to DB restore */ }
     }
-  } else if (!fs.existsSync(repo.localPath)) {
-    return res.status(404).json({ message: 'Workspace files are unavailable. Please re-import this repository.' })
+
+    // Strategy 2: restore from task.changes stored in MongoDB (always works, no GitHub needed)
+    if (!recovered) {
+      try {
+        const buildTask = await Task.findOne({
+          repositoryId: repo._id,
+          type: 'build_site',
+          status: 'completed',
+        }).sort({ createdAt: -1 })
+
+        if (buildTask?.changes?.length) {
+          fs.mkdirSync(repo.localPath, { recursive: true })
+          for (const change of buildTask.changes) {
+            if (!change.after || (change as any).truncated) continue
+            const filePath = path.join(repo.localPath, change.path)
+            fs.mkdirSync(path.dirname(filePath), { recursive: true })
+            fs.writeFileSync(filePath, change.after, 'utf8')
+          }
+          recovered = true
+        }
+      } catch { /* fall through */ }
+    }
+
+    if (!recovered) {
+      return res.status(404).json({ message: 'Workspace files are unavailable. Please re-import or regenerate this repository.' })
+    }
+
+    repo.status = 'ready'
+    await repo.save()
   }
 
   // Try Python service first
