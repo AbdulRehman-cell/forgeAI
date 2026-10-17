@@ -600,8 +600,25 @@ async function deployToRender({ localPath, token, repoFullName, branch, name, re
       await axios.patch(`${RENDER_API}/services/${service.id}`, patchPayload, { headers }).catch(() => {})
     }
     await applyEnvVars(service.id)
-    const { data: redeployData } = await axios.post(`${RENDER_API}/services/${service.id}/deploys`, {}, { headers }).catch(rethrowApiError('Render'))
-    const redeployId: string | undefined = redeployData?.deploy?.id ?? redeployData?.id
+    let redeployId: string | undefined
+    try {
+      const { data: redeployData } = await axios.post(`${RENDER_API}/services/${service.id}/deploys`, {}, { headers })
+      redeployId = redeployData?.deploy?.id ?? redeployData?.id
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        // A deploy is already in progress — fetch the latest deploy ID and use it
+        await log('A deploy is already running on Render — waiting for it to finish…', 'warn')
+        try {
+          const { data: deploys } = await axios.get(
+            `${RENDER_API}/services/${service.id}/deploys?limit=1`,
+            { headers },
+          )
+          redeployId = deploys?.[0]?.deploy?.id ?? deploys?.[0]?.id
+        } catch { /* best effort */ }
+      } else {
+        rethrowApiError('Render')(err)
+      }
+    }
     const url = service.serviceDetails?.url
     if (!url) throw new Error('Render redeploy started but the service has no URL — check your Render dashboard')
     await log('Render is rebuilding your app — the URL updates when the build finishes')
