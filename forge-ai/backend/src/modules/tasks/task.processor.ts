@@ -5548,7 +5548,27 @@ async function buildSite(job: Job) {
       let ghRepo: any
       let githubAuthFailed = false
       const baseSlug = siteName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'forgeai-site'
+
+      // Pre-flight: delete any empty ForgeAI-created repos with this base name
+      // (leftovers from previous failed builds that were never cleaned up)
+      try {
+        const { data: existingRepos } = await axios.get(
+          `https://api.github.com/user/repos?per_page=100&type=owner`,
+          { headers }
+        )
+        const staleEmpty = (existingRepos as any[]).filter((r: any) =>
+          r.name === baseSlug || r.name.startsWith(`${baseSlug}-`)
+        )
+        for (const stale of staleEmpty) {
+          if (stale.size === 0 && stale.pushed_at === null) {
+            await axios.delete(`https://api.github.com/repos/${stale.full_name}`, { headers }).catch(() => {})
+            await updateTask(task, {}, `🧹 Cleaned up empty leftover repo: ${stale.name}`, 'warn')
+          }
+        }
+      } catch { /* non-fatal */ }
+
       for (let attempt = 0; attempt < 10 && !ghRepo; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 800)) // avoid secondary rate limit
         const suffix = attempt === 0 ? '' : attempt < 9 ? `-${Math.random().toString(36).slice(2, 7)}` : `-${Date.now().toString(36)}`
         const name = `${baseSlug}${suffix}`
         try {
@@ -5561,9 +5581,16 @@ async function buildSite(job: Job) {
           ghRepo = data
         } catch (err: any) {
           const status = err.response?.status
-          if (status === 401 || status === 403) {
+          const msg: string = err.response?.data?.message ?? ''
+          // 401 = bad credentials; 403 with "secondary rate limit" = throttled (retry); other 403 = permissions
+          if (status === 401 || (status === 403 && !msg.toLowerCase().includes('secondary rate limit'))) {
             githubAuthFailed = true
             break
+          }
+          if (status === 403) {
+            // Secondary rate limit — wait longer then retry
+            await new Promise((r) => setTimeout(r, 3000))
+            continue
           }
           if (status !== 422) throw err
           await updateTask(task, {}, `Repository name "${name}" is taken — trying another…`, 'warn')
@@ -5571,7 +5598,7 @@ async function buildSite(job: Job) {
       }
 
       if (githubAuthFailed) {
-        await updateTask(task, {}, 'GitHub credentials expired — site generated locally. Reconnect GitHub in Settings → GitHub to push it.', 'warn')
+        await updateTask(task, {}, 'GitHub token has expired or lacks repo permissions — site generated locally. Reconnect GitHub in Settings → GitHub to push it.', 'warn')
       } else if (!ghRepo) {
         // All 10 attempts failed — warn and continue (don't kill the whole build)
         await updateTask(task, {}, '⚠️ Could not create a GitHub repo (all name attempts taken). Site is saved locally — use Deploy to push it, or regenerate with a different name.', 'warn')
