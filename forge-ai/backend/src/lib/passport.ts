@@ -30,7 +30,7 @@ export function configurePassport() {
         clientID: process.env.GITHUB_CLIENT_ID ?? '',
         clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
         callbackURL: process.env.GITHUB_CALLBACK_URL ?? 'http://localhost:4000/api/auth/github/callback',
-        scope: ['user:email', 'repo'],
+        scope: ['user:email', 'repo', 'workflow'],
       },
       async (_accessToken: string, _refreshToken: string, profile: any, done: any) => {
         try {

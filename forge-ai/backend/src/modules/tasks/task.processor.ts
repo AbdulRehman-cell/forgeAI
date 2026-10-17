@@ -1288,7 +1288,7 @@ After the files, add a summary starting with "## Deployment Summary" that explai
             await git.commit('ForgeAI Blitz Deploy: configs (CI workflow omitted)')
             await git.push([pushUrl, 'forgeai/blitz-deploy', '--force'])
             pushed = true
-            await updateTask(task, {}, 'GitHub token lacks the "workflow" scope, so the CI workflow was not pushed. Log out and sign in with GitHub again to grant it.', 'warn')
+            await updateTask(task, {}, 'GitHub token lacks the "workflow" scope, so the CI workflow was not pushed. Go to Settings → GitHub → Reconnect to grant it, then re-run Blitz Deploy.', 'warn')
           } catch (err2: any) {
             await updateTask(task, {}, `Could not push configs to GitHub: ${(err2.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')}`, 'warn')
           }
