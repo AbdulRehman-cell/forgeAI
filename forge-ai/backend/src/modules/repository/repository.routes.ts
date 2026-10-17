@@ -71,7 +71,18 @@ router.get('/:id/tree', checkRepoAccess, async (req, res) => {
         ? repo.cloneUrl.replace('https://', `https://${fullUser.githubAccessToken}@`)
         : repo.cloneUrl
       fs.mkdirSync(repo.localPath, { recursive: true })
-      await simpleGit().clone(authUrl, repo.localPath, ['--depth', '1'])
+      try {
+        await simpleGit().clone(authUrl, repo.localPath, ['--depth', '1'])
+      } catch {
+        // Token may have expired — retry as unauthenticated (works for public repos)
+        if (authUrl !== repo.cloneUrl) {
+          fs.rmSync(repo.localPath, { recursive: true, force: true })
+          fs.mkdirSync(repo.localPath, { recursive: true })
+          await simpleGit().clone(repo.cloneUrl, repo.localPath, ['--depth', '1'])
+        } else {
+          throw new Error('Clone failed (repo may be private or deleted)')
+        }
+      }
       repo.status = 'ready'
       await repo.save()
     } catch (err: any) {
