@@ -5573,7 +5573,8 @@ async function buildSite(job: Job) {
       if (githubAuthFailed) {
         await updateTask(task, {}, 'GitHub credentials expired — site generated locally. Reconnect GitHub in Settings → GitHub to push it.', 'warn')
       } else if (!ghRepo) {
-        return await fail('Could not create a GitHub repository (name conflicts). Try a different site name.')
+        // All 10 attempts failed — warn and continue (don't kill the whole build)
+        await updateTask(task, {}, '⚠️ Could not create a GitHub repo (all name attempts taken). Site is saved locally — use Deploy to push it, or regenerate with a different name.', 'warn')
       } else if (!ghRepo.full_name?.includes('/')) {
         await updateTask(task, {}, `GitHub returned an unexpected repo structure (full_name="${ghRepo.full_name}") — site saved locally only.`, 'warn')
       } else {
@@ -5593,13 +5594,9 @@ async function buildSite(job: Job) {
           await repo.save()
           await updateTask(task, {}, `✅ Live on GitHub: https://github.com/${ghRepo.full_name}`)
         } catch (pushErr: any) {
-          await updateTask(task, {}, `GitHub push failed: ${pushErr.message.replace(/https?:\/\/[^@]+@/g, 'https://')} — site saved locally. Reconnect GitHub in Settings if your token expired.`, 'warn')
-          // Still record the GitHub repo that was created even if we couldn't push to it
-          repo.githubId = ghRepo.id
-          repo.fullName = ghRepo.full_name
-          repo.name = ghRepo.name
-          repo.cloneUrl = ghRepo.clone_url
-          await repo.save()
+          // Push failed — delete the empty GitHub repo so it doesn't block future attempts
+          await axios.delete(`https://api.github.com/repos/${ghRepo.full_name}`, { headers }).catch(() => {})
+          await updateTask(task, {}, `GitHub push failed: ${pushErr.message.replace(/https?:\/\/[^@]+@/g, 'https://')} — empty GitHub repo cleaned up. Site saved locally.`, 'warn')
         }
       }
     } else {
