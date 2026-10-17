@@ -5600,12 +5600,70 @@ async function buildSite(job: Job) {
         await updateTask(task, {}, `GitHub returned an unexpected repo structure (full_name="${ghRepo.full_name}") — site saved locally only.`, 'warn')
       } else {
         await updateTask(task, { progress: 82 }, `⬆️ Pushing code to ${ghRepo.full_name}…`)
-        // Store the token-authenticated remote but never expose it in task logs
-        const authRemote = `https://${fullUser.githubAccessToken}@github.com/${ghRepo.full_name}.git`
         try {
-          await git.push([authRemote, 'main:main', '--force', '--no-thin'])
-          // Store origin WITHOUT the token so the URL is safe to display
+          // Use GitHub Trees API instead of git push to avoid thin-pack delta
+          // issues caused by the generated site repo living inside the ForgeAI
+          // git checkout on Render's disk.
+          const [owner, repoName] = ghRepo.full_name.split('/')
+
+          // Collect all files on disk (skip secrets and build artifacts)
+          const PUSH_SKIP = new Set(['.git', 'node_modules', 'dist', '.env', 'build', '__pycache__', '.venv', '.DS_Store'])
+          const filesToPush: { path: string; content: string }[] = []
+          ;(function collectFiles(dir: string) {
+            let entries: fs.Dirent[]
+            try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+            for (const entry of entries) {
+              if (PUSH_SKIP.has(entry.name)) continue
+              const abs = path.join(dir, entry.name)
+              const rel = path.relative(sitePath, abs).replace(/\\/g, '/')
+              if (entry.isDirectory()) { collectFiles(abs) }
+              else {
+                try { filesToPush.push({ path: rel, content: fs.readFileSync(abs, 'utf-8') }) } catch { /* skip unreadable */ }
+              }
+            }
+          })(sitePath)
+
+          if (filesToPush.length === 0) throw new Error('No files to push')
+
+          // Create blobs (5 at a time to stay within rate limits)
+          const blobs: { sha: string; path: string }[] = []
+          for (let i = 0; i < filesToPush.length; i += 5) {
+            const batch = filesToPush.slice(i, i + 5)
+            const results = await Promise.all(batch.map(async (file) => {
+              const { data } = await axios.post(
+                `https://api.github.com/repos/${owner}/${repoName}/git/blobs`,
+                { content: Buffer.from(file.content, 'utf-8').toString('base64'), encoding: 'base64' },
+                { headers },
+              )
+              return { sha: data.sha, path: file.path }
+            }))
+            blobs.push(...results)
+          }
+
+          // Create tree
+          const { data: treeData } = await axios.post(
+            `https://api.github.com/repos/${owner}/${repoName}/git/trees`,
+            { tree: blobs.map((b) => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })) },
+            { headers },
+          )
+
+          // Create commit
+          const { data: commitData } = await axios.post(
+            `https://api.github.com/repos/${owner}/${repoName}/git/commits`,
+            { message: `ForgeAI Builder: ${siteName} — initial site`, tree: treeData.sha, parents: [], author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
+            { headers },
+          )
+
+          // Point main branch at the new commit
+          await axios.post(
+            `https://api.github.com/repos/${owner}/${repoName}/git/refs`,
+            { ref: 'refs/heads/main', sha: commitData.sha },
+            { headers },
+          )
+
+          // Set git remote so subsequent agent/fix tasks can push
           await git.addRemote('origin', `https://github.com/${ghRepo.full_name}.git`).catch(() => {})
+
           pushedFullName = ghRepo.full_name
           repo.githubId = ghRepo.id
           repo.fullName = ghRepo.full_name
@@ -5613,11 +5671,11 @@ async function buildSite(job: Job) {
           repo.cloneUrl = ghRepo.clone_url
           repo.private = false
           await repo.save()
-          await updateTask(task, {}, `✅ Live on GitHub: https://github.com/${ghRepo.full_name}`)
+          await updateTask(task, {}, `✅ Live on GitHub: https://github.com/${ghRepo.full_name} (${filesToPush.length} files)`)
         } catch (pushErr: any) {
           // Push failed — delete the empty GitHub repo so it doesn't block future attempts
           await axios.delete(`https://api.github.com/repos/${ghRepo.full_name}`, { headers }).catch(() => {})
-          await updateTask(task, {}, `GitHub push failed: ${pushErr.message.replace(/https?:\/\/[^@]+@/g, 'https://')} — empty GitHub repo cleaned up. Site saved locally.`, 'warn')
+          await updateTask(task, {}, `GitHub push failed: ${String(pushErr.message)} — empty GitHub repo cleaned up. Site saved locally.`, 'warn')
         }
       }
     } else {
