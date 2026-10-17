@@ -722,11 +722,12 @@ async function pushRepoToGitHub(
 
   const headers = { Authorization: `token ${fullUser.githubAccessToken}`, Accept: 'application/vnd.github+json' }
 
-  // Create the GitHub repo (retry up to 3 times on name collision)
+  // Create the GitHub repo (retry up to 10 times on name collision)
   let ghRepo: any
-  const baseName = repoName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'forgeai-app'
-  for (let attempt = 0; attempt < 3 && !ghRepo; attempt++) {
-    const name = attempt === 0 ? baseName : `${baseName}-${Math.random().toString(36).slice(2, 5)}`
+  const baseName = repoName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'forgeai-app'
+  for (let attempt = 0; attempt < 10 && !ghRepo; attempt++) {
+    const suffix = attempt === 0 ? '' : attempt < 9 ? `-${Math.random().toString(36).slice(2, 7)}` : `-${Date.now().toString(36)}`
+    const name = `${baseName}${suffix}`
     try {
       const { data } = await axios.post(
         'https://api.github.com/user/repos',
@@ -5546,8 +5547,10 @@ async function buildSite(job: Job) {
       const headers = { Authorization: `token ${fullUser.githubAccessToken}`, Accept: 'application/vnd.github+json' }
       let ghRepo: any
       let githubAuthFailed = false
-      for (let attempt = 0; attempt < 3 && !ghRepo; attempt++) {
-        const name = attempt === 0 ? siteName : `${siteName}-${Math.random().toString(36).slice(2, 5)}`
+      const baseSlug = siteName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'forgeai-site'
+      for (let attempt = 0; attempt < 10 && !ghRepo; attempt++) {
+        const suffix = attempt === 0 ? '' : attempt < 9 ? `-${Math.random().toString(36).slice(2, 7)}` : `-${Date.now().toString(36)}`
+        const name = `${baseSlug}${suffix}`
         try {
           const { data } = await axios.post('https://api.github.com/user/repos', {
             name,
