@@ -8,6 +8,13 @@
       "port": 5173,
       "url": "http://localhost:5173",
       "cwd": "forge-ai/frontend"
+    },
+    {
+      "name": "ForgeAI Backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 4000,
+      "cwd": "forge-ai/backend"
     }
   ]
 }
