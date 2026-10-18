@@ -3,23 +3,10 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { useTheme } from '@/hooks/useTheme'
 import {
-  LayoutDashboard,
-  GitBranch,
-  Clock,
-  Settings,
-  LogOut,
-  Zap,
-  CreditCard,
-  Sparkles,
-  BarChart3,
-  Search,
-  Inbox,
-  Users,
-  Send,
-  Menu,
-  X,
-  Lock,
+  LayoutDashboard, GitBranch, Clock, Settings, LogOut, Zap, CreditCard,
+  Sparkles, BarChart3, Search, Inbox, Users, Send, Menu, X, Lock, Sun, Moon,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -40,58 +27,58 @@ function LeadsUnreadBadge() {
 }
 
 const nav = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/builder', icon: Sparkles, label: 'AI Builder', badge: 'NEW' },
-  { to: '/dashboards', icon: BarChart3, label: 'Data Dashboards', locked: true },
-  { to: '/repositories', icon: GitBranch, label: 'Repositories' },
-  { to: '/leads', icon: Inbox, label: 'Leads', locked: true },
-  { to: '/outreach', icon: Send, label: 'Cold Outreach', locked: true },
-  { to: '/search', icon: Search, label: 'Code Search' },
-  { to: '/tasks', icon: Clock, label: 'Task History' },
-  { to: '/team', icon: Users, label: 'Team', locked: true },
-  { to: '/pricing', icon: CreditCard, label: 'Pricing' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/builder',      icon: Sparkles,        label: 'AI Builder',       badge: 'NEW' },
+  { to: '/dashboards',   icon: BarChart3,        label: 'Data Dashboards',  locked: true },
+  { to: '/repositories', icon: GitBranch,        label: 'Repositories' },
+  { to: '/leads',        icon: Inbox,            label: 'Leads',            locked: true },
+  { to: '/outreach',     icon: Send,             label: 'Cold Outreach',    locked: true },
+  { to: '/search',       icon: Search,           label: 'Code Search' },
+  { to: '/tasks',        icon: Clock,            label: 'Task History' },
+  { to: '/team',         icon: Users,            label: 'Team',             locked: true },
+  { to: '/pricing',      icon: CreditCard,       label: 'Pricing' },
+  { to: '/settings',     icon: Settings,         label: 'Settings' },
 ] as { to: string; icon: any; label: string; badge?: string; dynamicBadge?: boolean; locked?: boolean }[]
 
 export default function AppLayout() {
   const { user, clearAuth } = useAuthStore()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { isDark, toggle } = useTheme()
 
-  const handleLogout = () => {
-    clearAuth()
-    navigate('/login')
-  }
-
+  const handleLogout = () => { clearAuth(); navigate('/login') }
   const closeSidebar = () => setSidebarOpen(false)
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden" style={{ background: '#0d0d0d' }}>
+    <div className="flex h-screen w-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
 
       {/* Mobile overlay */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
-          onClick={closeSidebar}
-        />
+        <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={closeSidebar} />
       )}
 
       {/* Sidebar */}
-      <aside className={clsx(
-        'fixed inset-y-0 left-0 z-50 w-64 flex flex-col overflow-hidden transition-transform duration-300 border-r',
-        'lg:relative lg:z-auto lg:translate-x-0 lg:shrink-0',
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-      )} style={{ background: '#111113', borderColor: 'rgba(39,39,42,0.6)' }}>
-
+      <aside
+        className={clsx(
+          'fixed inset-y-0 left-0 z-50 w-64 flex flex-col overflow-hidden transition-transform duration-300 border-r',
+          'lg:relative lg:z-auto lg:translate-x-0 lg:shrink-0',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+        )}
+        style={{ background: 'var(--sidebar)', borderColor: 'var(--sidebar-bdr)' }}
+      >
         {/* Logo */}
-        <div className="relative flex items-center gap-2.5 px-5 py-5 shrink-0" style={{ borderBottom: '1px solid rgba(39,39,42,0.6)' }}>
+        <div
+          className="relative flex items-center gap-2.5 px-5 py-5 shrink-0"
+          style={{ borderBottom: '1px solid var(--sidebar-bdr)' }}
+        >
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center shadow-glow-sm">
             <Zap size={17} className="text-white" />
           </div>
-          <span className="font-bold text-lg tracking-tight text-white">ForgeAI</span>
+          <span className="font-bold text-lg tracking-tight text-gradient">ForgeAI</span>
           <button
             onClick={closeSidebar}
-            className="ml-auto lg:hidden p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
+            className="ml-auto lg:hidden p-1.5 rounded-lg transition-colors"
+            style={{ color: 'var(--text-3)' }}
           >
             <X size={16} />
           </button>
@@ -109,7 +96,7 @@ export default function AppLayout() {
                 >
                   <Icon size={17} />
                   {label}
-                  <Lock size={12} className="ml-auto text-zinc-500" />
+                  <Lock size={12} className="ml-auto" style={{ color: 'var(--text-3)' }} />
                 </div>
               )
             }
@@ -118,9 +105,7 @@ export default function AppLayout() {
                 key={to}
                 to={to}
                 onClick={closeSidebar}
-                className={({ isActive }) =>
-                  clsx('nav-link', isActive && 'active')
-                }
+                className={({ isActive }) => clsx('nav-link', isActive && 'active')}
               >
                 <Icon size={17} />
                 {label}
@@ -148,16 +133,12 @@ export default function AppLayout() {
           </div>
         )}
 
-        {/* User */}
-        <div className="p-3 shrink-0 relative" style={{ borderTop: '1px solid rgba(39,39,42,0.6)' }}>
-          <div className="rounded-xl" style={{ background: 'rgba(24,24,27,0.6)', border: '1px solid rgba(39,39,42,0.5)' }}>
+        {/* User card */}
+        <div className="p-3 shrink-0" style={{ borderTop: '1px solid var(--sidebar-bdr)' }}>
+          <div className="rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)' }}>
             <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl">
               {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt={user.name}
-                  className="w-8 h-8 rounded-full ring-2 ring-brand-500/30"
-                />
+                <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full ring-2 ring-brand-500/30" />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-xs font-bold text-white shadow-glow-sm">
                   {user?.name?.[0]?.toUpperCase()}
@@ -165,14 +146,16 @@ export default function AppLayout() {
               )}
 
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-zinc-100 truncate">
+                <p className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>
                   {user?.name}
                 </p>
-                <p className="text-[11px] text-zinc-500 truncate">
+                <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
                   {user?.plan && (
                     <span className={clsx(
                       'mr-1 font-semibold',
-                      user.plan === 'team' ? 'text-violet-400' : user.plan === 'pro' ? 'text-brand-400' : 'text-zinc-600',
+                      user.plan === 'team' ? 'text-violet-500 dark:text-violet-400'
+                        : user.plan === 'pro' ? 'text-brand-500 dark:text-brand-400'
+                        : 'text-zinc-500',
                     )}>
                       {user.plan}
                     </span>
@@ -181,10 +164,20 @@ export default function AppLayout() {
                 </p>
               </div>
 
+              {/* Theme toggle */}
+              <button
+                onClick={toggle}
+                title={isDark ? 'Light mode' : 'Dark mode'}
+                className="p-1.5 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/8"
+                style={{ color: 'var(--text-3)' }}
+              >
+                {isDark ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+
               <button
                 onClick={handleLogout}
                 title="Log out"
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
               >
                 <LogOut size={14} />
               </button>
@@ -196,20 +189,34 @@ export default function AppLayout() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden relative">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center gap-3 px-4 py-3 shrink-0 z-10"
-          style={{ borderBottom: '1px solid rgba(39,39,42,0.6)', background: 'rgba(13,13,13,0.9)', backdropFilter: 'blur(12px)' }}>
+        <div
+          className="lg:hidden flex items-center gap-3 px-4 py-3 shrink-0 z-10"
+          style={{
+            borderBottom: '1px solid var(--sidebar-bdr)',
+            background: 'var(--sidebar)',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="p-1.5 rounded-lg transition-colors"
+            style={{ color: 'var(--text-2)' }}
           >
             <Menu size={20} />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1">
             <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center">
               <Zap size={12} className="text-white" />
             </div>
-            <span className="font-bold text-sm text-white">ForgeAI</span>
+            <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>ForgeAI</span>
           </div>
+          <button
+            onClick={toggle}
+            className="p-1.5 rounded-lg transition-colors"
+            style={{ color: 'var(--text-3)' }}
+          >
+            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
         </div>
 
         {/* Route Content */}

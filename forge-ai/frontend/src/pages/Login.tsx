@@ -48,32 +48,39 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-900 flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--bg)' }}>
       <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center">
+          <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-violet-600 rounded-xl flex items-center justify-center">
             <Zap size={20} className="text-white" />
           </div>
-          <span className="text-xl font-bold text-zinc-100">ForgeAI</span>
+          <span className="text-xl font-bold text-gradient">ForgeAI</span>
         </div>
 
         <div className="card p-6">
-          <h2 className="text-lg font-semibold text-zinc-100 mb-1">
+          <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text)' }}>
             {isRegister ? 'Create account' : 'Welcome back'}
           </h2>
-          <p className="text-sm text-zinc-500 mb-6">
+          <p className="text-sm mb-6" style={{ color: 'var(--text-3)' }}>
             {isRegister ? 'Start fixing code with AI.' : 'Sign in to your workspace.'}
           </p>
 
-          <button onClick={githubLogin} className="w-full flex items-center justify-center gap-2 bg-zinc-100 hover:bg-white text-zinc-900 font-medium py-2.5 rounded-lg text-sm transition-colors mb-4">
+          <button
+            onClick={githubLogin}
+            className="w-full flex items-center justify-center gap-2 font-medium py-2.5 rounded-lg text-sm transition-all duration-200 mb-4"
+            style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-strong)', color: 'var(--text)' }}
+          >
             <Github size={16} /> Continue with GitHub
           </button>
 
           <div className="relative my-4">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-surface-600" />
+              <div className="w-full" style={{ borderTop: '1px solid var(--border)' }} />
             </div>
-            <div className="relative flex justify-center text-xs text-zinc-500 bg-surface-800 px-2 w-fit mx-auto">
+            <div
+              className="relative flex justify-center text-xs px-2 w-fit mx-auto"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-3)' }}
+            >
               or email
             </div>
           </div>
@@ -100,9 +107,9 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="text-center text-xs text-zinc-500 mt-4">
+          <p className="text-center text-xs mt-4" style={{ color: 'var(--text-3)' }}>
             {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
-            <button onClick={() => setIsRegister(!isRegister)} className="text-brand-400 hover:underline">
+            <button onClick={() => setIsRegister(!isRegister)} className="text-indigo-600 dark:text-brand-400 hover:underline">
               {isRegister ? 'Sign in' : 'Sign up'}
             </button>
           </p>
