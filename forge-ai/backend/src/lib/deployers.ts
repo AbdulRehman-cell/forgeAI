@@ -592,18 +592,9 @@ async function deployToRender({ localPath, token, repoFullName, branch, name, re
 
   if (service) {
     await log(`Found existing Render service "${service.name}" — redeploying…`)
-    // Patch branch and rootDir if they need updating
-    const patchPayload: Record<string, any> = {}
-    if (service.branch !== branch) patchPayload.branch = branch
-    if (rootDir && service.rootDir !== rootDir) patchPayload.rootDir = rootDir
-    if (Object.keys(patchPayload).length) {
-      try {
-        await axios.patch(`${RENDER_API}/services/${service.id}`, patchPayload, { headers })
-        // Brief pause so Render applies the branch/rootDir change before the deploy is triggered
-        await new Promise(r => setTimeout(r, 2000))
-      } catch (patchErr: any) {
-        await log(`Warning: could not update Render service settings (${patchErr.response?.status ?? patchErr.message}) — deploying with current settings`, 'warn')
-      }
+    // Patch rootDir if it needs updating (branch is always the same as when service was created)
+    if (rootDir && service.rootDir !== rootDir) {
+      await axios.patch(`${RENDER_API}/services/${service.id}`, { rootDir }, { headers }).catch(() => {})
     }
     await applyEnvVars(service.id)
     let redeployId: string | undefined

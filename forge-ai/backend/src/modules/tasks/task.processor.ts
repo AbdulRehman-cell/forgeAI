@@ -1338,25 +1338,15 @@ After the files, add a summary starting with "## Deployment Summary" that explai
             { headers: cfgHeaders },
           )
 
-          // Create or force-update forgeai/blitz-deploy ref
-          try {
-            await axios.post(
-              `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/refs`,
-              { ref: 'refs/heads/forgeai/blitz-deploy', sha: cfgCommitData.sha },
-              { headers: cfgHeaders },
-            )
-          } catch (refErr: any) {
-            if (refErr.response?.status === 422) {
-              await axios.patch(
-                `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/refs/heads/forgeai/blitz-deploy`,
-                { sha: cfgCommitData.sha, force: true },
-                { headers: cfgHeaders },
-              )
-            } else throw refErr
-          }
+          // Force-update the deploy branch (main) to include the new config commit
+          await axios.patch(
+            `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/refs/heads/${baseBranch}`,
+            { sha: cfgCommitData.sha, force: true },
+            { headers: cfgHeaders },
+          )
 
           pushed = true
-          await updateTask(task, {}, 'Pushed deployment configs to branch: forgeai/blitz-deploy')
+          await updateTask(task, {}, `Pushed deployment configs to ${baseBranch}`)
         } catch (err: any) {
           const errMsg = String(err.message ?? '').replace(/https?:\/\/[^@]+@/g, 'https://')
           await updateTask(task, {}, `Could not push configs to GitHub: ${errMsg}`, 'warn')
@@ -1376,7 +1366,7 @@ After the files, add a summary starting with "## Deployment Summary" that explai
       .map(([key, value]) => ({ key, value: value as string }))
 
     const deployName = repoName ?? repoFullName?.split('/').pop() ?? 'forgeai-app'
-    const deployBranch = platform === 'render' && pushed ? 'forgeai/blitz-deploy' : (branch ?? 'main')
+    const deployBranch = branch ?? 'main'
 
     // ── AI-powered auto-fix retry loop (Render only) ──────────────────────────
     // 1. Trigger deploy, wait for build status via Render API
@@ -1465,32 +1455,17 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
             if (fixOwner && fixRepo) {
               try {
                 const fixHeaders = { Authorization: `token ${blitzGhToken}`, Accept: 'application/vnd.github+json' }
-                // Build on top of the existing forgeai/blitz-deploy branch (or main as fallback)
-                let baseCommitSha: string
-                let baseTreeSha: string
-                try {
-                  const { data: existingRef } = await axios.get(
-                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/ref/heads/forgeai/blitz-deploy`,
-                    { headers: fixHeaders },
-                  )
-                  baseCommitSha = existingRef.object.sha
-                  const { data: existingCommit } = await axios.get(
-                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/commits/${baseCommitSha}`,
-                    { headers: fixHeaders },
-                  )
-                  baseTreeSha = existingCommit.tree.sha
-                } catch {
-                  const { data: mainRef } = await axios.get(
-                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/ref/heads/${branch ?? 'main'}`,
-                    { headers: fixHeaders },
-                  )
-                  baseCommitSha = mainRef.object.sha
-                  const { data: mainCommit } = await axios.get(
-                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/commits/${baseCommitSha}`,
-                    { headers: fixHeaders },
-                  )
-                  baseTreeSha = mainCommit.tree.sha
-                }
+                const fixBranch = branch ?? 'main'
+                const { data: existingRef } = await axios.get(
+                  `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/ref/heads/${fixBranch}`,
+                  { headers: fixHeaders },
+                )
+                const baseCommitSha: string = existingRef.object.sha
+                const { data: existingCommit } = await axios.get(
+                  `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/commits/${baseCommitSha}`,
+                  { headers: fixHeaders },
+                )
+                const baseTreeSha: string = existingCommit.tree.sha
 
                 const fixBlobs: { path: string; sha: string }[] = []
                 for (const file of fixedFiles) {
@@ -1517,22 +1492,12 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
                     author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
                   { headers: fixHeaders },
                 )
-                try {
-                  await axios.post(
-                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/refs`,
-                    { ref: 'refs/heads/forgeai/blitz-deploy', sha: fixCommit.sha },
-                    { headers: fixHeaders },
-                  )
-                } catch (refErr: any) {
-                  if (refErr.response?.status === 422) {
-                    await axios.patch(
-                      `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/refs/heads/forgeai/blitz-deploy`,
-                      { sha: fixCommit.sha, force: true },
-                      { headers: fixHeaders },
-                    )
-                  } else throw refErr
-                }
-                await updateTask(task, {}, `Pushed auto-fix to forgeai/blitz-deploy`)
+                await axios.patch(
+                  `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/refs/heads/${fixBranch}`,
+                  { sha: fixCommit.sha, force: true },
+                  { headers: fixHeaders },
+                )
+                await updateTask(task, {}, `Pushed auto-fix to ${fixBranch}`)
               } catch (fixErr: any) {
                 const errMsg = String(fixErr.message ?? '').replace(/https?:\/\/[^@]+@/g, 'https://')
                 await updateTask(task, {}, `Could not push fix: ${errMsg}`, 'warn')
