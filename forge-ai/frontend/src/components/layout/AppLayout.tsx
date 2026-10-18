@@ -19,6 +19,7 @@ import {
   Send,
   Menu,
   X,
+  Lock,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -41,16 +42,16 @@ function LeadsUnreadBadge() {
 const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/builder', icon: Sparkles, label: 'AI Builder', badge: 'NEW' },
-  { to: '/dashboards', icon: BarChart3, label: 'Data Dashboards' },
+  { to: '/dashboards', icon: BarChart3, label: 'Data Dashboards', locked: true },
   { to: '/repositories', icon: GitBranch, label: 'Repositories' },
-  { to: '/leads', icon: Inbox, label: 'Leads', dynamicBadge: true },
-  { to: '/outreach', icon: Send, label: 'Cold Outreach', badge: 'NEW' },
+  { to: '/leads', icon: Inbox, label: 'Leads', locked: true },
+  { to: '/outreach', icon: Send, label: 'Cold Outreach', locked: true },
   { to: '/search', icon: Search, label: 'Code Search' },
   { to: '/tasks', icon: Clock, label: 'Task History' },
-  { to: '/team', icon: Users, label: 'Team' },
+  { to: '/team', icon: Users, label: 'Team', locked: true },
   { to: '/pricing', icon: CreditCard, label: 'Pricing' },
   { to: '/settings', icon: Settings, label: 'Settings' },
-] as { to: string; icon: any; label: string; badge?: string; dynamicBadge?: boolean }[]
+] as { to: string; icon: any; label: string; badge?: string; dynamicBadge?: boolean; locked?: boolean }[]
 
 export default function AppLayout() {
   const { user, clearAuth } = useAuthStore()
@@ -100,25 +101,40 @@ export default function AppLayout() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-1 relative min-h-0">
-          {nav.map(({ to, icon: Icon, label, badge, dynamicBadge }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={closeSidebar}
-              className={({ isActive }) =>
-                clsx('nav-link', isActive && 'active')
-              }
-            >
-              <Icon size={17} />
-              {label}
-              {dynamicBadge && <LeadsUnreadBadge />}
-              {badge && !dynamicBadge && (
-                <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gradient-to-r from-brand-500 to-violet-500 text-white">
-                  {badge}
-                </span>
-              )}
-            </NavLink>
-          ))}
+          {nav.map(({ to, icon: Icon, label, badge, dynamicBadge, locked }) => {
+            if (locked) {
+              return (
+                <div
+                  key={to}
+                  title="Coming soon"
+                  className="nav-link opacity-40 cursor-not-allowed select-none pointer-events-none"
+                >
+                  <Icon size={17} />
+                  {label}
+                  <Lock size={12} className="ml-auto text-zinc-500" />
+                </div>
+              )
+            }
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                onClick={closeSidebar}
+                className={({ isActive }) =>
+                  clsx('nav-link', isActive && 'active')
+                }
+              >
+                <Icon size={17} />
+                {label}
+                {dynamicBadge && <LeadsUnreadBadge />}
+                {badge && !dynamicBadge && (
+                  <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gradient-to-r from-brand-500 to-violet-500 text-white">
+                    {badge}
+                  </span>
+                )}
+              </NavLink>
+            )
+          })}
         </nav>
 
         {/* Team membership badge */}
