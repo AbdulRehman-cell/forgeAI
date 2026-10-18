@@ -38,7 +38,7 @@ export default function Settings() {
   }, [wlData])
 
   const connectGithub = () => {
-    window.location.href = `${import.meta.env.VITE_API_URL}/auth/github`
+    window.location.href = `${import.meta.env.VITE_API_URL || '/api'}/auth/github`
   }
 
   const { data: gmailStatus } = useQuery({

@@ -184,7 +184,7 @@ export default function Repositories() {
                     : 'GitHub is not connected to your account.'}
                 </p>
                 <a
-                  href={`${import.meta.env.VITE_API_URL}/auth/github`}
+                  href={`${import.meta.env.VITE_API_URL || '/api'}/auth/github`}
                   className="btn-primary flex items-center gap-2 text-sm"
                 >
                   Connect GitHub

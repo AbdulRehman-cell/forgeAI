@@ -298,7 +298,7 @@ export default function Leads() {
     if (siteFilter) params.set('siteId', siteFilter)
     if (statusFilter) params.set('status', statusFilter)
     const token = JSON.parse(localStorage.getItem('forge-auth') ?? '{}')?.state?.token ?? ''
-    const url = `${import.meta.env.VITE_API_URL}/leads/export?${params}`
+    const url = `${import.meta.env.VITE_API_URL || '/api'}/leads/export?${params}`
     fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.blob())
       .then(blob => {
