@@ -21,11 +21,11 @@ const BUILD_PLACEHOLDERS = [
 ]
 
 const CHAT_PLACEHOLDERS = [
-  'Why is my React component re-rendering too many times?',
-  'Explain how the authentication flow works in my codebase',
-  'Help me refactor this function to be more readable',
-  "Why is my Express route returning a 500 error?",
-  'Generate unit tests for my user service',
+  'Help me brainstorm a name for my SaaS startup',
+  'What are the best strategies for growing an audience?',
+  'Explain how machine learning works in simple terms',
+  'Write a compelling product description for my app',
+  'What should I consider when launching a new product?',
 ]
 
 type Mode = 'build' | 'chat'
@@ -65,7 +65,7 @@ export default function Dashboard() {
       navigate('/builder')
     } else {
       if (value) sessionStorage.setItem('forge_pending_chat', value)
-      navigate('/builder?mode=chat')
+      navigate('/chat')
     }
   }
 
@@ -89,7 +89,7 @@ export default function Dashboard() {
         <p className="text-zinc-600 dark:text-zinc-400 text-center text-base md:text-lg mb-8 max-w-lg">
           {mode === 'build'
             ? 'Describe your website and ForgeAI will build, deploy, and host it — instantly.'
-            : 'Ask ForgeAI anything about your code — debugging, refactoring, tests, and more.'}
+            : 'Brainstorm ideas, get answers, explore anything — powered by a blend of AI models for accurate replies.'}
         </p>
 
         {/* Mode toggle (sliding pill) */}
@@ -164,7 +164,7 @@ export default function Dashboard() {
         <div className="flex flex-wrap gap-2 justify-center mt-5 max-w-2xl px-4">
           {(mode === 'build'
             ? ['Portfolio site', 'Landing page', 'Restaurant site', 'E-commerce store', 'Personal blog']
-            : ['Fix a bug', 'Explain code', 'Write tests', 'Refactor function', 'Add a feature']
+            : ['Brainstorm ideas', 'Explain a concept', 'Write a pitch', 'Plan a strategy', 'Explore a topic']
           ).map((s) => (
             <button
               key={s}

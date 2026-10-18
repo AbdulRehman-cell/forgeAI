@@ -24,6 +24,7 @@ import ApprovalPage from '@/pages/ApprovalPage'
 import TeamSettings from '@/pages/TeamSettings'
 import TeamAccept from '@/pages/TeamAccept'
 import AuditPage from '@/pages/AuditPage'
+import GeneralChat from '@/pages/GeneralChat'
 
 import NotFound from '@/pages/NotFound'
 
@@ -45,6 +46,7 @@ export default function App() {
 
         <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/chat" element={<GeneralChat />} />
           <Route path="/builder" element={<Builder />} />
           <Route path="/repositories" element={<Repositories />} />
           <Route path="/repositories/:id" element={<RepositoryDetail />} />

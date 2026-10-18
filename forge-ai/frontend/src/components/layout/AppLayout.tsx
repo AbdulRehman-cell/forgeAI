@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { useTheme } from '@/hooks/useTheme'
 import {
   LayoutDashboard, GitBranch, Clock, Settings, LogOut, Zap, CreditCard,
-  Sparkles, BarChart3, Search, Inbox, Users, Send, Menu, X, Lock, Sun, Moon,
+  Sparkles, BarChart3, Search, Inbox, Users, Send, Menu, X, Lock, Sun, Moon, MessageSquare,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -28,7 +28,8 @@ function LeadsUnreadBadge() {
 
 const nav = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/builder',      icon: Sparkles,        label: 'AI Builder',       badge: 'NEW' },
+  { to: '/chat',         icon: MessageSquare,   label: 'AI Chat',          badge: 'NEW' },
+  { to: '/builder',      icon: Sparkles,        label: 'AI Builder' },
   { to: '/dashboards',   icon: BarChart3,        label: 'Data Dashboards',  locked: true },
   { to: '/repositories', icon: GitBranch,        label: 'Repositories' },
   { to: '/leads',        icon: Inbox,            label: 'Leads',            locked: true },

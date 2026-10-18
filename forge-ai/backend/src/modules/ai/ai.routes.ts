@@ -78,6 +78,57 @@ ${code.slice(0, 40_000)}
 
 router.use(requireAuth)
 
+// ─── General-purpose AI chat (no repository context) ─────
+router.post('/general-chat', async (req, res) => {
+  const { message, history } = req.body as {
+    message: string
+    history?: { role: 'user' | 'assistant'; content: string }[]
+  }
+  if (!message?.trim()) return res.status(400).json({ message: 'Message is required' })
+
+  const provider = createProvider('gemini')
+
+  const systemPrompt = `You are an intelligent assistant powered by a blend of advanced AI models. You excel at:
+- Brainstorming and creative ideation
+- Explaining complex concepts clearly and accurately
+- Helping with writing, planning, and strategy
+- Answering questions across any domain
+- Problem-solving and critical thinking
+
+Be helpful, concise, and conversational. Format responses with clear structure when useful.
+
+At the very END of your response, append EXACTLY this block:
+<<<FOLLOWUPS>>>
+- <a relevant follow-up question or idea, under 10 words>
+- <another follow-up>
+- <a third follow-up>
+<<<END>>>`
+
+  const messages = [
+    ...(history ?? []).slice(-12),
+    { role: 'user' as const, content: message },
+  ]
+
+  try {
+    const response = await provider.chat(messages, systemPrompt)
+    let answer = response.content
+    let followups: string[] = []
+    const fuMatch = answer.match(/<<<FOLLOWUPS>>>([\s\S]*?)<<<END>>>/)
+    if (fuMatch) {
+      followups = fuMatch[1]
+        .split('\n')
+        .map((l) => l.replace(/^-\s*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 3)
+      answer = answer.replace(/<<<FOLLOWUPS>>>[\s\S]*?<<<END>>>/, '').trim()
+    }
+    res.json({ response: answer, followups })
+  } catch (err: any) {
+    console.error('[ai/general-chat]', err.response?.data ?? err.message)
+    res.status(500).json({ message: err.response?.data?.error?.message ?? err.message ?? 'AI request failed' })
+  }
+})
+
 // ─── GET history ──────────────────────────────────────────
 router.get('/chat/:repositoryId', async (req, res) => {
   const user = req.user as any
