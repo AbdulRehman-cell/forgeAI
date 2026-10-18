@@ -66,7 +66,7 @@ export default function AppLayout() {
   const closeSidebar = () => setSidebarOpen(false)
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-950">
+    <div className="flex h-screen w-screen overflow-hidden" style={{ background: '#0d0d0d' }}>
 
       {/* Mobile overlay */}
       {sidebarOpen && (
@@ -78,19 +78,17 @@ export default function AppLayout() {
 
       {/* Sidebar */}
       <aside className={clsx(
-        'fixed inset-y-0 left-0 z-50 w-64 flex flex-col glass border-r border-white/5 overflow-hidden transition-transform duration-300',
+        'fixed inset-y-0 left-0 z-50 w-64 flex flex-col overflow-hidden transition-transform duration-300 border-r',
         'lg:relative lg:z-auto lg:translate-x-0 lg:shrink-0',
         sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-      )}>
-        {/* Ambient glow */}
-        <div className="pointer-events-none absolute top-0 left-0 w-full h-40 bg-gradient-to-b from-brand-600/10 to-transparent" />
+      )} style={{ background: '#111113', borderColor: 'rgba(39,39,42,0.6)' }}>
 
         {/* Logo */}
-        <div className="relative flex items-center gap-2.5 px-5 py-5 border-b border-white/5 shrink-0">
+        <div className="relative flex items-center gap-2.5 px-5 py-5 shrink-0" style={{ borderBottom: '1px solid rgba(39,39,42,0.6)' }}>
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center shadow-glow-sm">
             <Zap size={17} className="text-white" />
           </div>
-          <span className="font-bold text-lg tracking-tight text-gradient">ForgeAI</span>
+          <span className="font-bold text-lg tracking-tight text-white">ForgeAI</span>
           <button
             onClick={closeSidebar}
             className="ml-auto lg:hidden p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
@@ -151,9 +149,9 @@ export default function AppLayout() {
         )}
 
         {/* User */}
-        <div className="p-3 border-t border-white/5 shrink-0 relative">
-          <div className="gradient-border p-[1.5px] rounded-2xl">
-            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-surface-900">
+        <div className="p-3 shrink-0 relative" style={{ borderTop: '1px solid rgba(39,39,42,0.6)' }}>
+          <div className="rounded-xl" style={{ background: 'rgba(24,24,27,0.6)', border: '1px solid rgba(39,39,42,0.5)' }}>
+            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl">
               {user?.avatar ? (
                 <img
                   src={user.avatar}
@@ -198,10 +196,11 @@ export default function AppLayout() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden relative">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-white/5 bg-surface-950/80 backdrop-blur-sm shrink-0 z-10">
+        <div className="lg:hidden flex items-center gap-3 px-4 py-3 shrink-0 z-10"
+          style={{ borderBottom: '1px solid rgba(39,39,42,0.6)', background: 'rgba(13,13,13,0.9)', backdropFilter: 'blur(12px)' }}>
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             <Menu size={20} />
           </button>
@@ -209,12 +208,9 @@ export default function AppLayout() {
             <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center">
               <Zap size={12} className="text-white" />
             </div>
-            <span className="font-bold text-sm text-gradient">ForgeAI</span>
+            <span className="font-bold text-sm text-white">ForgeAI</span>
           </div>
         </div>
-
-        {/* Background glow */}
-        <div className="pointer-events-none absolute top-0 right-0 w-[400px] h-[300px] bg-violet-600/5 rounded-full blur-[100px]" />
 
         {/* Route Content */}
         <div className="relative flex-1 min-h-0 overflow-hidden">

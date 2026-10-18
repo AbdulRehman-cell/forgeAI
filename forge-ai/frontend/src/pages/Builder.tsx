@@ -104,6 +104,12 @@ export default function Builder() {
   const deployDone = task?.type === 'blitz_deploy' && task.status === 'completed'
   const deployUrl = (task?.metadata as any)?.deploymentUrl
 
+  // Pre-fill prompt when navigating from Dashboard hero input
+  useEffect(() => {
+    const pending = sessionStorage.getItem('forge_pending_prompt')
+    if (pending) { setPrompt(pending); sessionStorage.removeItem('forge_pending_prompt') }
+  }, [])
+
   // After Stripe redirects back: if ?build_paid=1, re-trigger the build with the session ID.
   // The prompt/options were in sessionStorage before the redirect.
   useEffect(() => {
