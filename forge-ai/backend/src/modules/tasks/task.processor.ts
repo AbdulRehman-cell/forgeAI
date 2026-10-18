@@ -763,6 +763,20 @@ async function pushRepoToGitHub(
         throw new Error('GitHub returned 403 — this may be a rate limit or insufficient token scope. Wait a minute and re-run Blitz Deploy, or reconnect GitHub in Settings if the problem persists.')
       }
       if (status !== 422) throw new Error(err.response?.data?.message ?? err.message)
+      // On first attempt, check if the existing repo is empty — reuse it rather than
+      // trying another name (handles the case where a previous run created the repo
+      // but crashed before pushing any files).
+      if (attempt === 0) {
+        try {
+          const ghUser = (await axios.get('https://api.github.com/user', { headers })).data.login
+          const { data: existingRepo } = await axios.get(`https://api.github.com/repos/${ghUser}/${name}`, { headers })
+          if (existingRepo.size === 0) {
+            await log(`Reusing empty GitHub repo "${existingRepo.full_name}" from a previous run…`, 'warn')
+            ghRepo = existingRepo
+            break
+          }
+        } catch { /* repo doesn't exist or other error — fall through to try a new name */ }
+      }
       await log(`GitHub repo name "${name}" is taken — trying another…`, 'warn')
     }
   }
@@ -831,12 +845,24 @@ async function pushRepoToGitHub(
     { message: `ForgeAI Blitz Deploy: ${repoName} — initial push`, tree: treeData.sha, parents: [],
       author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
   )
-  // auto_init: true means the default branch ref already exists — force-update it
-  await axios.patch(
-    `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/refs/heads/${branch}`,
-    { sha: commitData.sha, force: true },
-    { headers },
-  )
+  // Point the default branch at our commit. For newly created repos (auto_init: true)
+  // the ref already exists so we PATCH; for reused empty repos (no auto_init commit)
+  // the ref doesn't exist yet so we POST, falling back to PATCH on 422.
+  try {
+    await axios.patch(
+      `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/refs/heads/${branch}`,
+      { sha: commitData.sha, force: true },
+      { headers },
+    )
+  } catch (patchErr: any) {
+    if (patchErr.response?.status === 422) {
+      await axios.post(
+        `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/refs`,
+        { ref: `refs/heads/${branch}`, sha: commitData.sha },
+        { headers },
+      )
+    } else throw patchErr
+  }
 
   // Keep a local git remote pointing at the public URL for future operations
   const git = simpleGit(localPath).env(gitEnv())
@@ -872,7 +898,32 @@ async function blitzDeploy(job: Job) {
   // Render and Railway build from GitHub; if the project was generated locally
   // (e.g. by build-site without a GitHub token, or opened as a local folder)
   // we push it now before generating deployment configs.
-  if (needsGitHubPush) {
+  // Determine if a (re-)push is needed: either the repo doesn't exist on GitHub
+  // yet, or it was created in a previous run but the push failed and the repo
+  // is still empty (no commits on the default branch).
+  let shouldPushToGitHub = needsGitHubPush
+  if (!shouldPushToGitHub && repoFullName && (platform === 'render' || platform === 'railway')) {
+    const [chkOwner, chkRepo] = repoFullName.split('/')
+    if (chkOwner && chkRepo) {
+      const chkToken = (await User.findById(job.data.userId).select('+githubAccessToken'))?.githubAccessToken
+      if (chkToken) {
+        try {
+          await axios.get(
+            `https://api.github.com/repos/${chkOwner}/${chkRepo}/git/ref/heads/${branch ?? 'main'}`,
+            { headers: { Authorization: `token ${chkToken}`, Accept: 'application/vnd.github+json' } },
+          )
+        } catch (e: any) {
+          // 409 = repo exists but git backend uninitialized (empty); 404 = branch missing
+          if (e.response?.status === 409 || e.response?.status === 404) {
+            shouldPushToGitHub = true
+            await updateTask(task, {}, 'GitHub repo is empty — re-pushing site files…', 'warn')
+          }
+        }
+      }
+    }
+  }
+
+  if (shouldPushToGitHub) {
     await updateTask(task, { status: 'running', progress: 5 }, '🐙 Pushing project to GitHub…')
     try {
       repoFullName = await pushRepoToGitHub(
