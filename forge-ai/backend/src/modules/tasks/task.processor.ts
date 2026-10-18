@@ -1292,53 +1292,73 @@ After the files, add a summary starting with "## Deployment Summary" that explai
     if (!blitzGhToken) {
       await updateTask(task, {}, 'Cannot push deployment configs — GitHub account not connected. Go to Settings → GitHub to connect your account.', 'warn')
     } else {
-      const git = simpleGit(localPath)
-      const pushUrl = blitzPushUrl(repoFullName)
-      try {
-        // Local folders are the user's own working copy — remember their branch
-        // so we can put them back on it after pushing the configs
-        if (isLocal) {
-          try { restoreBranch = (await git.branchLocal()).current || undefined } catch {}
-        }
-        await git.addConfig('user.name', 'ForgeAI')
-        await git.addConfig('user.email', 'bot@forgeai.dev')
-        // Repos are cloned with --depth 1 (shallow). A shallow clone cannot
-        // push branches back to GitHub because the parent commit referenced
-        // by the new commit is not in the local pack. Unshallow first so
-        // GitHub's index-pack can verify the full object graph.
-        if (fs.existsSync(path.join(localPath, '.git', 'shallow'))) {
-          await updateTask(task, {}, 'Fetching full git history (shallow clone)…')
-          try { await simpleGit(localPath).env(gitEnv()).fetch([pushUrl, '--unshallow']) } catch { /* already full-depth */ }
-        }
-        await git.checkout(['-B', 'forgeai/blitz-deploy'])
-        // Local: stage ONLY the generated files — never sweep up the user's
-        // uncommitted work. Cloned repos are ForgeAI-managed, so add all.
-        if (isLocal) await git.add(allChanges.map((c) => c.path))
-        else await git.add('.')
-        await git.commit(`ForgeAI Blitz Deploy: ${platform} configs`)
-        await git.push([pushUrl, 'forgeai/blitz-deploy', '--force'])
-        pushed = true
-        await updateTask(task, {}, 'Pushed deployment configs to branch: forgeai/blitz-deploy')
-        // Ensure a clean public origin is set for subsequent operations
-        await git.removeRemote('origin').catch(() => {})
-        await git.addRemote('origin', `https://github.com/${repoFullName}.git`).catch(() => {})
-      } catch (err: any) {
-        const errMsg = (err.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')
-        // GitHub rejects pushes touching .github/workflows/ unless the OAuth
-        // token has the 'workflow' scope — retry without the CI files
-        if (/workflow/i.test(errMsg)) {
-          try {
-            const ciFiles = allChanges.filter((c) => c.path.replace(/\\/g, '/').startsWith('.github/workflows/'))
-            for (const ci of ciFiles) fs.rmSync(path.join(localPath, ci.path), { force: true })
-            await git.add(['-A'])
-            await git.commit('ForgeAI Blitz Deploy: configs (CI workflow omitted)')
-            await git.push([pushUrl, 'forgeai/blitz-deploy', '--force'])
-            pushed = true
-            await updateTask(task, {}, 'GitHub token lacks the "workflow" scope, so the CI workflow was not pushed. Go to Settings → GitHub → Reconnect to grant it, then re-run Blitz Deploy.', 'warn')
-          } catch (err2: any) {
-            await updateTask(task, {}, `Could not push configs to GitHub: ${(err2.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')}`, 'warn')
+      const [cfgOwner, cfgRepo] = (repoFullName ?? '').split('/')
+      if (cfgOwner && cfgRepo && !/^local$/i.test(cfgOwner)) {
+        const cfgHeaders = { Authorization: `token ${blitzGhToken}`, Accept: 'application/vnd.github+json' }
+        try {
+          // Get the base branch's latest commit so config files are layered on top of site files
+          const baseBranch = branch ?? 'main'
+          const { data: baseRef } = await axios.get(
+            `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/ref/heads/${baseBranch}`,
+            { headers: cfgHeaders },
+          )
+          const baseCommitSha: string = baseRef.object.sha
+          const { data: baseCommit } = await axios.get(
+            `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/commits/${baseCommitSha}`,
+            { headers: cfgHeaders },
+          )
+
+          // Create blobs for each config file
+          const cfgBlobs: { path: string; sha: string }[] = []
+          for (const change of allChanges) {
+            const content = change.after ?? ''
+            if (!content) continue
+            const { data: blobData } = await axios.post(
+              `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/blobs`,
+              { content: Buffer.from(content, 'utf-8').toString('base64'), encoding: 'base64' },
+              { headers: cfgHeaders },
+            )
+            cfgBlobs.push({ path: change.path.replace(/\\/g, '/'), sha: blobData.sha })
           }
-        } else {
+
+          // New tree layered on top of the base branch's tree
+          const { data: cfgTree } = await axios.post(
+            `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/trees`,
+            { base_tree: baseCommit.tree.sha,
+              tree: cfgBlobs.map(b => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })) },
+            { headers: cfgHeaders },
+          )
+
+          // Commit on top of the base branch commit
+          const { data: cfgCommitData } = await axios.post(
+            `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/commits`,
+            { message: `ForgeAI Blitz Deploy: ${platform} configs`,
+              tree: cfgTree.sha, parents: [baseCommitSha],
+              author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
+            { headers: cfgHeaders },
+          )
+
+          // Create or force-update forgeai/blitz-deploy ref
+          try {
+            await axios.post(
+              `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/refs`,
+              { ref: 'refs/heads/forgeai/blitz-deploy', sha: cfgCommitData.sha },
+              { headers: cfgHeaders },
+            )
+          } catch (refErr: any) {
+            if (refErr.response?.status === 422) {
+              await axios.patch(
+                `https://api.github.com/repos/${cfgOwner}/${cfgRepo}/git/refs/heads/forgeai/blitz-deploy`,
+                { sha: cfgCommitData.sha, force: true },
+                { headers: cfgHeaders },
+              )
+            } else throw refErr
+          }
+
+          pushed = true
+          await updateTask(task, {}, 'Pushed deployment configs to branch: forgeai/blitz-deploy')
+        } catch (err: any) {
+          const errMsg = String(err.message ?? '').replace(/https?:\/\/[^@]+@/g, 'https://')
           await updateTask(task, {}, `Could not push configs to GitHub: ${errMsg}`, 'warn')
         }
       }
@@ -1439,24 +1459,84 @@ After the files, write one sentence starting with "FIX:" explaining what you cha
             await updateTask(task, {}, `🔧 Fixed: ${change.path}`)
           }
 
-          // Commit and push the fix
-          const git = simpleGit(localPath)
-          try {
-            await git.addConfig('user.name', 'ForgeAI')
-            await git.addConfig('user.email', 'bot@forgeai.dev')
-            if (attempt === 1 && fs.existsSync(path.join(localPath, '.git', 'shallow'))) {
-              try { await simpleGit(localPath).env(gitEnv()).fetch([blitzPushUrl(repoFullName), '--unshallow']) } catch { /* already full */ }
-            }
-            await git.add(fixedFiles.map(f => f.path))
-            await git.commit(`ForgeAI Auto-fix attempt ${attempt}: ${fixedFiles.map(f => f.path).join(', ')}`)
-            await git.push([blitzPushUrl(repoFullName), 'forgeai/blitz-deploy', '--force'])
-            await updateTask(task, {}, `Pushed auto-fix to forgeai/blitz-deploy`)
-          } catch (gitErr: any) {
-            await updateTask(task, {}, `Could not push fix: ${(gitErr.message as string).replace(/https?:\/\/[^@]+@/g, 'https://')}`, 'warn')
-            // If there is no remote, further auto-fix attempts are pointless
-            if (/no remote|does not appear to be a git/i.test(gitErr.message)) {
-              lastError = gitErr.message
-              break
+          // Push the fix via GitHub Trees API (no git pack, avoids thin-pack errors)
+          if (blitzGhToken && repoFullName) {
+            const [fixOwner, fixRepo] = repoFullName.split('/')
+            if (fixOwner && fixRepo) {
+              try {
+                const fixHeaders = { Authorization: `token ${blitzGhToken}`, Accept: 'application/vnd.github+json' }
+                // Build on top of the existing forgeai/blitz-deploy branch (or main as fallback)
+                let baseCommitSha: string
+                let baseTreeSha: string
+                try {
+                  const { data: existingRef } = await axios.get(
+                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/ref/heads/forgeai/blitz-deploy`,
+                    { headers: fixHeaders },
+                  )
+                  baseCommitSha = existingRef.object.sha
+                  const { data: existingCommit } = await axios.get(
+                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/commits/${baseCommitSha}`,
+                    { headers: fixHeaders },
+                  )
+                  baseTreeSha = existingCommit.tree.sha
+                } catch {
+                  const { data: mainRef } = await axios.get(
+                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/ref/heads/${branch ?? 'main'}`,
+                    { headers: fixHeaders },
+                  )
+                  baseCommitSha = mainRef.object.sha
+                  const { data: mainCommit } = await axios.get(
+                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/commits/${baseCommitSha}`,
+                    { headers: fixHeaders },
+                  )
+                  baseTreeSha = mainCommit.tree.sha
+                }
+
+                const fixBlobs: { path: string; sha: string }[] = []
+                for (const file of fixedFiles) {
+                  const content = file.content ?? ''
+                  if (!content) continue
+                  const { data: blobData } = await axios.post(
+                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/blobs`,
+                    { content: Buffer.from(content, 'utf-8').toString('base64'), encoding: 'base64' },
+                    { headers: fixHeaders },
+                  )
+                  fixBlobs.push({ path: file.path.replace(/\\/g, '/'), sha: blobData.sha })
+                }
+
+                const { data: fixTree } = await axios.post(
+                  `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/trees`,
+                  { base_tree: baseTreeSha,
+                    tree: fixBlobs.map(b => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })) },
+                  { headers: fixHeaders },
+                )
+                const { data: fixCommit } = await axios.post(
+                  `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/commits`,
+                  { message: `ForgeAI Auto-fix attempt ${attempt}: ${fixedFiles.map(f => f.path).join(', ')}`,
+                    tree: fixTree.sha, parents: [baseCommitSha],
+                    author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
+                  { headers: fixHeaders },
+                )
+                try {
+                  await axios.post(
+                    `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/refs`,
+                    { ref: 'refs/heads/forgeai/blitz-deploy', sha: fixCommit.sha },
+                    { headers: fixHeaders },
+                  )
+                } catch (refErr: any) {
+                  if (refErr.response?.status === 422) {
+                    await axios.patch(
+                      `https://api.github.com/repos/${fixOwner}/${fixRepo}/git/refs/heads/forgeai/blitz-deploy`,
+                      { sha: fixCommit.sha, force: true },
+                      { headers: fixHeaders },
+                    )
+                  } else throw refErr
+                }
+                await updateTask(task, {}, `Pushed auto-fix to forgeai/blitz-deploy`)
+              } catch (fixErr: any) {
+                const errMsg = String(fixErr.message ?? '').replace(/https?:\/\/[^@]+@/g, 'https://')
+                await updateTask(task, {}, `Could not push fix: ${errMsg}`, 'warn')
+              }
             }
           }
         }
