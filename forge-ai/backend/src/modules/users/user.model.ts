@@ -46,6 +46,7 @@ export interface IUser extends Document {
     chats: number
     reviews: number
     deploys: number
+    builds: number
     resetAt: Date
   }
   // ── Agency white-label (Pro/Team) ──
@@ -130,6 +131,7 @@ const userSchema = new Schema<IUser>(
       chats: { type: Number, default: 0 },
       reviews: { type: Number, default: 0 },
       deploys: { type: Number, default: 0 },
+      builds: { type: Number, default: 0 },
       resetAt: { type: Date, default: () => nextMonthStart() },
     },
     whiteLabel: {

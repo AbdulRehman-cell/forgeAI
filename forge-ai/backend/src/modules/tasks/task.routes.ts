@@ -14,6 +14,7 @@ import { isPublicHttpUrl, resolveSiteUrl } from '../../lib/siteImport'
 import { auditSite } from '../../lib/siteAudit'
 import { writeEnhancementReport } from '../../lib/enhancementReport'
 import { checkQuota } from '../../middleware/usage.middleware'
+import { PLANS, SITE_BUILD_PRICE_CENTS } from '../../lib/plans'
 import {
   detectAutoPlatform, detectGitHubRemote, getEnvToken, PLATFORMS_NEEDING_TOKEN,
   addRenderDomain, listRenderDomains, verifyRenderDomain, removeRenderDomain, dnsRecordFor,
@@ -282,9 +283,22 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
 // ═══ AI WEBSITE BUILDER ════════════════════════════════════
 // Lovable-style: describe a website → AI generates it → new GitHub repo →
 // deployable with Blitz Deploy like any other repository.
+// Derive a URL-safe project slug from the first meaningful words in the prompt.
+function autoSiteSlug(prompt: string): string {
+  const stop = new Set(['a','an','the','and','or','for','with','that','this','is','it','i','want','build','create','make','need','website','site','app','web','please','can','you','me','my','us','our','their','which','should','would','have','has','be','do','get','let','us'])
+  const words = prompt.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !stop.has(w))
+    .slice(0, 3)
+  const base = words.join('-') || 'site'
+  const suffix = Math.random().toString(36).slice(2, 6)
+  return `${base}-${suffix}`.replace(/^-+|-+$/g, '').slice(0, 55)
+}
+
 router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   const user = req.user as any
-  let { prompt, name, stack, mongoUri, style, paletteId, importUrl, mode, analyticsProvider, analyticsId, addons } = req.body
+  let { prompt, name, stack, mongoUri, style, paletteId, importUrl, mode, analyticsProvider, analyticsId, addons, buildCheckoutSessionId } = req.body
   prompt += ' Generate a complete website with all necessary files Ensure the code is well-structured and ready for deployment and the ui and styling should be outstanding.The website should have atleast four pages and the home page should atleast ahve five sections.'
 
   if (!prompt?.trim()) return res.status(400).json({ message: 'Describe the website you want to build' })
@@ -345,9 +359,49 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     return res.status(400).json({ message: 'That does not look like a MongoDB connection string (mongodb:// or mongodb+srv://). Leave it empty to add one later.' })
   }
 
-  const siteName = String(name ?? '')
-    .toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-    || 'my-site'
+  // Auto-generate from prompt when no name given — avoids the "name taken" conflict
+  const rawName = String(name ?? '').trim()
+  const siteName = rawName
+    ? rawName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+    : autoSiteSlug(prompt)
+
+  // ── Per-build payment gate ──────────────────────────────────────────────────
+  // Each plan includes a monthly free-build allowance; extras require payment.
+  const fullUser = await User.findById(getEffectiveUserId(req))
+  if (!fullUser) return res.status(401).json({ message: 'Unauthorized' })
+  const buildsLimit = PLANS[fullUser.plan].limits.builds
+  const buildsUsed = fullUser.usage.builds ?? 0
+  if (buildsUsed >= buildsLimit) {
+    const stripeKey = process.env.STRIPE_SECRET_KEY
+    if (stripeKey) {
+      if (!buildCheckoutSessionId) {
+        return res.status(402).json({
+          code: 'SITE_BUILD_PAYMENT_REQUIRED',
+          message: `Your ${PLANS[fullUser.plan].name} plan includes ${buildsLimit === Infinity ? 'unlimited' : buildsLimit} site build${buildsLimit !== 1 ? 's' : ''}/month. You've used ${buildsUsed}. A one-time charge of $${(SITE_BUILD_PRICE_CENTS / 100).toFixed(2)} applies for this build.`,
+          price: SITE_BUILD_PRICE_CENTS,
+          used: buildsUsed,
+          limit: buildsLimit === Infinity ? null : buildsLimit,
+        })
+      }
+      // Verify the Checkout Session is paid and belongs to this user
+      try {
+        const Stripe = require('stripe')
+        const stripe = new Stripe(stripeKey)
+        const session = await stripe.checkout.sessions.retrieve(buildCheckoutSessionId)
+        if (session.payment_status !== 'paid') {
+          return res.status(402).json({ code: 'PAYMENT_NOT_CONFIRMED', message: 'Payment not confirmed. Please complete the payment and try again.' })
+        }
+        if (session.metadata?.userId !== getEffectiveUserId(req).toString()) {
+          return res.status(403).json({ message: 'This payment does not belong to your account.' })
+        }
+      } catch (e: any) {
+        return res.status(402).json({ code: 'PAYMENT_VERIFICATION_FAILED', message: 'Could not verify payment. Please try again.' })
+      }
+    }
+    // Dev mode (no Stripe key): proceed without payment
+  }
+  fullUser.usage.builds = buildsUsed + 1
+  await fullUser.save()
 
   const validAddons = ['whatsapp', 'leads', 'seo', 'booking', 'reviews', 'chatbot']
   const siteAddons = Array.isArray(addons) ? addons.filter((a: string) => validAddons.includes(a)) : []

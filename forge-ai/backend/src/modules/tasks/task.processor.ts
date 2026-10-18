@@ -1713,12 +1713,15 @@ QUALITY BAR — the site must look like a designer built it (think Linear, Strip
 - MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, gallery2, feature3) so each image is distinct and STABLE across reloads (sizes hero ≥ 1600 wide, gallery/cards ≥ 600 wide); avatars via https://i.pravatar.cc/300?img={n}. The HOME hero MUST have a full-bleed background image (a positioned <img> covering the section, or CSS background-image) WITH a dark gradient overlay so the headline stays perfectly legible. Put PLENTY of images across every page. Include at least one VIDEO — a relevant YouTube embed (<iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen> in a responsive 16:9 wrapper), or a muted autoplay <video autoplay muted loop playsinline>. Present images CLEANLY: object-fit: cover, tidy rounded corners — NEVER rotate/tilt/skew/overlap. Explicit width & height + descriptive alt on every <img>. Never reference local files that don't exist.
 - DYNAMIC & ANIMATED: make the site feel alive — smooth entrance/scroll-reveal animations, hover/focus micro-interactions, and a loading animation on page load. Rich and lively, never gratuitous.
 - Every section earns its place: a real hero with headline + subhead + primary CTA, a sticky translucent (backdrop-blur) nav, meaningful content sections, and a rich footer. Working links between all pages.
+- HEADER (professional, non-negotiable): ONE <nav> per page only — no duplicate nav for mobile/desktop, no extra .mobile-nav elements. Mobile hamburger is injected by script.js automatically. The <header> must be sticky (position: sticky; top: 0; z-index: 50), semi-opaque (≥85% opacity) with backdrop-filter: blur(12px). Brand logo left, nav links center/right, a visible CTA button ("Get Started" / "Contact" / appropriate call-to-action) rightmost. Nav links must be on ONE ROW — never stacked by default on desktop. Add a .scrolled class via JS when window.scrollY > 60 that darkens the background slightly. Active page link gets a visible accent-color underline or indicator. Never dashed borders on any nav element.
 - Semantic HTML5; interactivity lives in script.js, styles live in styles.css — do NOT inline <style> or <script> blocks in HTML pages beyond tiny critical snippets.
 
 ⚠️ DESIGN SYSTEM RULES — BREAKS THAT MAKE SITES LOOK AMATEUR:
 - NEVER use border-style: dashed or border-style: dotted ANYWHERE — not on nav links, not on cards, not on buttons, not on any element. Dashed borders make sites look vibe-coded instantly. All borders must be solid or none.
 - NEVER add any border to nav anchor tags (<a> inside nav/header) — the design pack already styles them with no border. Adding dashed/dotted/solid borders to nav links is the #1 dead giveaway of AI-generated sites.
 - NEVER write border-style: dashed anywhere in styles.css. Search your output before returning it.
+- NEVER duplicate the nav: one <nav> per page, period. No .mobile-nav alongside .desktop-nav, no display:none toggling of two nav copies. The hamburger system handles mobile from ONE nav — a second nav always creates a doubled menu on mobile devices.
+- HEADER must scroll-shrink: the header JS already watches scroll events and adds .scrolled at 60px — write styles for both default and header.scrolled states.
 - Sections should alternate visually — use the pack's .section class and set background: var(--surface) on every other section for visual rhythm. Never leave a long stretch of identical white.
 - The .cta-section class creates a beautiful gradient call-to-action block — use it instead of a plain white CTA.
 - Nav must have BOTH a semi-opaque background (≥80% opacity) AND backdrop-filter: blur() — a blurred nav with no background lets content smear through and looks broken.
@@ -1874,7 +1877,14 @@ const MOBILE_MENU_JS = `(function(){
   try { new MutationObserver(setup).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 })();`
 
-const HAMBURGER_CSS = `/* ── Mobile hamburger nav (deterministic) ── */
+const HAMBURGER_CSS = `/* ── Mobile hamburger nav + professional sticky header (deterministic) ── */
+/* Scroll-shrink: all headers get a subtle tightening on .scrolled */
+header, .site-header, .navbar, .main-header {
+  transition: box-shadow .25s ease, background .25s ease, padding .2s ease;
+}
+header.scrolled, .site-header.scrolled, .navbar.scrolled, .main-header.scrolled {
+  box-shadow: 0 2px 20px rgba(0,0,0,.12);
+}
 .nav-toggle { display: none; align-items: center; justify-content: center; flex-direction: column; gap: 5px; width: 44px; height: 44px; padding: 0; background: transparent; border: 0; cursor: pointer; color: inherit; z-index: 60; }
 .nav-toggle span { display: block; width: 24px; height: 2px; background: var(--text, #1a1a1a); border-radius: 2px; }
 @media (max-width: 780px) {
@@ -1914,11 +1924,12 @@ const HAMBURGER_JS = `(function(){
   }
   if (document.readyState !== 'loading') enhance(); else document.addEventListener('DOMContentLoaded', enhance);
   try { new MutationObserver(enhance).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
-  // Add scrolled class to nav-pill and nav-minimal headers for scroll-triggered styles
+  // Add .scrolled class to ALL headers at 60px scroll — works regardless of the
+  // class the AI chose (nav-minimal, nav-pill, site-header, or plain header).
   function watchScroll(){
-    var headers = document.querySelectorAll('header.nav-minimal, .site-header.nav-minimal, header.nav-pill, .site-header.nav-pill');
+    var headers = document.querySelectorAll('header, .site-header, .navbar, .main-header');
     if (!headers.length) return;
-    function onScroll(){ var y = window.scrollY || window.pageYOffset; for (var i=0;i<headers.length;i++){ headers[i].classList.toggle('scrolled', y > 40); } }
+    function onScroll(){ var y = window.scrollY || window.pageYOffset; for (var i=0;i<headers.length;i++){ headers[i].classList.toggle('scrolled', y > 60); } }
     window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
   }
   if (document.readyState !== 'loading') watchScroll(); else document.addEventListener('DOMContentLoaded', watchScroll);
@@ -3146,14 +3157,18 @@ async function enhanceExistingSite(
   // similar templates ship phone breakpoints that don't actually work, so we
   // were skipping the rescue on the exact sites that needed it most.
   const js = files.find((f) => f.path === 'script.js')!
-  styles.content += `\n${RESPONSIVE_RESCUE_CSS}\n${MOBILE_MENU_CSS}`
-  js.content += `\n/* Mobile menu (any markup) */\n${MOBILE_MENU_JS}\n`
-  enhancements.push('Made the site work on phones: fluid widths, stacked columns, a wrapping header, readable type and no horizontal scrolling — applied under a 820px media query so the desktop layout is untouched')
-  await updateTask(task, {}, '📱 Applied the full mobile rescue layer (fires under 820px only)')
+  // Always use the HAMBURGER system (CSS + JS) for the mobile nav — it's more
+  // reliable and avoids the double-button bug that occurred when both
+  // MOBILE_MENU_JS (adds .fa-burger) and HAMBURGER_JS (adds .nav-toggle) both
+  // ran on the same header. MOBILE_MENU_CSS/JS is dropped here to prevent two
+  // competing mobile-menu systems injecting duplicate buttons.
+  styles.content += `\n${RESPONSIVE_RESCUE_CSS}`
   if (!ownMobileNav) {
     styles.content += `\n${HAMBURGER_CSS}`
     js.content += `\n/* Mobile hamburger nav */\n${HAMBURGER_JS}\n`
   }
+  enhancements.push('Made the site work on phones: fluid widths, stacked columns, a wrapping header, readable type and no horizontal scrolling — applied under a 820px media query so the desktop layout is untouched')
+  await updateTask(task, {}, '📱 Applied the full mobile rescue layer (fires under 820px only)')
 
   // What actually changed — reported to the client in the PDF
   enhancements.push(
@@ -3374,7 +3389,10 @@ span:empty[class*="fa-"], span:empty[class*="glyphicon"], span:empty[class*="ico
 
   // Deterministic safety net — the rescue and mobile menu CSS always apply,
   // scoped inside @media queries so they can never fight Claude's desktop rules.
-  styles.content += `\n${revealCss}\n${layoutFixes}\n${RESPONSIVE_RESCUE_CSS}\n${MOBILE_MENU_CSS}\n${HAMBURGER_CSS}\n${FINAL_FIXES_CSS}`
+  // Only MOBILE_MENU_CSS is injected here because the rebuild script.js only
+  // contains MOBILE_MENU_JS (adds .fa-burger). Injecting HAMBURGER_CSS without
+  // HAMBURGER_JS would leave the desktop nav permanently hidden on mobile.
+  styles.content += `\n${revealCss}\n${layoutFixes}\n${RESPONSIVE_RESCUE_CSS}\n${MOBILE_MENU_CSS}\n${FINAL_FIXES_CSS}`
 
   enhancements.push(
     `Preserved every page's HTML structure, content, and image positions (${pages.length} page(s), ${imageMap.size} image(s))`,
@@ -4706,7 +4724,7 @@ export async function generateMernSite(
   await sleep(1500)
   const routeList = plan.pages.map((p) => `${p.route} → pages/${p.file}`).join(', ')
   await gen(
-    `${briefBlock}${contract}\n\nGenerate client/src/App.jsx — the root component: a sticky header nav (brand "${siteName}", NavLink to every page), <Routes> mapping ${routeList}, and a footer. Use semantic classNames everywhere so the stylesheet can make it look premium (all styling comes from index.css — do not import it here; main.jsx already does). REMINDER: main.jsx already provides <BrowserRouter> — do not render any Router here.`,
+    `${briefBlock}${contract}\n\nGenerate client/src/App.jsx — the root component with a professional sticky header, <Routes>, and a rich footer.\n\nHEADER REQUIREMENTS (professional grade — this is the #1 thing visitors judge):\n- ONE <nav> element only — never duplicate the nav (no separate mobile-nav element). Mobile is handled by the CSS hamburger system automatically.\n- Sticky header: position sticky, top 0, z-index 50, semi-opaque backdrop-blur background (≥85% opacity + backdrop-filter blur(12px)).\n- Brand logo on the left (icon emoji + site name in a stylish font), nav links in the center or right.\n- On scroll past 60px, add a scrolled class via useEffect + window.addEventListener('scroll') that tightens padding and darkens the background.\n- NavLink active state with a distinctive underline or accent color.\n- A visible CTA button (e.g. "Get Started") on the right side of the nav.\n- Mobile: the hamburger system in index.html handles it — do NOT add any mobile-specific nav elements, hamburger buttons, or display:none tricks.\n\nBrand name: "${siteName}". NavLinks to every route: ${routeList}.\n\nUse semantic classNames (header, .site-header, .nav-brand, .nav-links, .nav-cta) so index.css can make it look premium. REMINDER: main.jsx already provides <BrowserRouter> — do not render any Router here.`,
     'client/src/App.jsx',
   )
 

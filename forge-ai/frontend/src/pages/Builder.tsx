@@ -59,7 +59,6 @@ function ScoreRow({ score }: { score: { performance: number; seo: number; access
 
 export default function Builder() {
   const [prompt, setPrompt] = useState('')
-  const [name, setName] = useState('')
   const [stack, setStack] = useState<'static' | 'mern'>('static')
   const [style, setStyle] = useState<'auto' | 'minimal' | 'bold' | 'elegant'>('auto')
   const [paletteId, setPaletteId] = useState<string>('')
@@ -105,6 +104,24 @@ export default function Builder() {
   const deployDone = task?.type === 'blitz_deploy' && task.status === 'completed'
   const deployUrl = (task?.metadata as any)?.deploymentUrl
 
+  // After Stripe redirects back: if ?build_paid=1, re-trigger the build with the session ID.
+  // The prompt/options were in sessionStorage before the redirect.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('build_paid') !== '1') return
+    const sessionId = params.get('session_id')
+    const saved = (() => { try { return JSON.parse(sessionStorage.getItem('forgeai_pending_build') ?? 'null') } catch { return null } })()
+    // Clean URL and storage
+    window.history.replaceState({}, '', window.location.pathname)
+    sessionStorage.removeItem('forgeai_pending_build')
+    if (!sessionId) return
+    if (saved?.prompt) setPrompt(saved.prompt)
+    toast.success('Payment confirmed — starting your build!')
+    // Small delay so React can re-render with the restored prompt
+    setTimeout(() => buildMutation.mutate({ buildCheckoutSessionId: sessionId }), 400)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [task?.logs?.length])
@@ -131,9 +148,8 @@ export default function Builder() {
 
   // ── Build ──
   const buildMutation = useMutation({
-    mutationFn: () => api.post('/tasks/build-site', {
+    mutationFn: (extra: Record<string, any> = {}) => api.post('/tasks/build-site', {
       prompt: prompt.trim(),
-      name: name.trim(),
       stack: flow === 'existing' ? 'static' : stack,
       style,
       ...(paletteId ? { paletteId } : {}),
@@ -141,17 +157,34 @@ export default function Builder() {
       ...(flow === 'new' && stack === 'mern' && mongoUri.trim() ? { mongoUri: mongoUri.trim() } : {}),
       ...(analyticsProvider ? { analyticsProvider, analyticsId: analyticsId.trim() } : {}),
       ...(addons.length > 0 ? { addons } : {}),
+      ...extra,
     }),
     onSuccess: ({ data }) => {
       setTask(data.task)
       setRepoId(data.repository._id)
     },
-    onError: (e: any) => {
+    onError: async (e: any) => {
       const data = e.response?.data
-      // The server refused because the site is already good — surface its score
       if (data?.code === 'SITE_ALREADY_GOOD') {
         setAudit(data.audit)
         toast.error(data.message ?? 'That site is already in good shape')
+        return
+      }
+      if (data?.code === 'SITE_BUILD_PAYMENT_REQUIRED') {
+        const price = data.price ? `$${(data.price / 100).toFixed(2)}` : ''
+        toast.loading(`Redirecting to payment${price ? ` (${price})` : ''}…`, { duration: 3000 })
+        try {
+          // Save build context so we can resume after payment redirect
+          sessionStorage.setItem('forgeai_pending_build', JSON.stringify({ prompt, flow, stack, style, importUrl, addons }))
+          const res = await api.post('/billing/create-build-checkout')
+          if (res.data.devMode) {
+            buildMutation.mutate({})
+            return
+          }
+          window.location.href = res.data.checkoutUrl
+        } catch {
+          toast.error('Could not start checkout — please try again')
+        }
         return
       }
       toast.error(data?.message ?? 'Could not start the build')
@@ -448,16 +481,6 @@ export default function Builder() {
               ))}
             </div>
 
-            <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-              Site name
-            </label>
-            <input
-              className="input mb-4"
-              placeholder="my-portfolio (becomes the GitHub repo name)"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={busy}
-            />
             </>)}
 
             {flow === 'existing' && (<>
@@ -548,16 +571,6 @@ export default function Builder() {
               </p>
             )}
 
-            <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2 mt-4">
-              Site name
-            </label>
-            <input
-              className="input mb-4"
-              placeholder="brandname (becomes the GitHub repo name)"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={busy}
-            />
             </>)}
 
             <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
@@ -579,7 +592,7 @@ export default function Builder() {
                   onClick={async () => {
                     setEnhancing(true)
                     try {
-                      const r = await api.post('/tasks/enhance-prompt', { prompt, stack, name })
+                      const r = await api.post('/tasks/enhance-prompt', { prompt, stack })
                       setPrompt(r.data.enhanced)
                       toast.success('Prompt enhanced!')
                     } catch {
@@ -756,7 +769,7 @@ export default function Builder() {
                     return
                   }
                 }
-                buildMutation.mutate()
+                buildMutation.mutate({})
               }
 
               return (

@@ -21,6 +21,7 @@ export function checkQuota(kind: UsageKind) {
       user.usage.chats = 0
       user.usage.reviews = 0
       user.usage.deploys = 0
+      user.usage.builds = 0
       user.usage.resetAt = nextMonthStart()
       await user.save()
     }

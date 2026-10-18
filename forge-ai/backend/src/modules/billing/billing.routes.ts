@@ -2,7 +2,7 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middleware/auth.middleware'
 import { User } from '../users/user.model'
-import { PLANS } from '../../lib/plans'
+import { PLANS, SITE_BUILD_PRICE_CENTS } from '../../lib/plans'
 
 const router = Router()
 
@@ -33,8 +33,10 @@ router.get('/me', async (req, res) => {
       chats: { used: user.usage.chats, limit: limits.chats === Infinity ? null : limits.chats },
       reviews: { used: user.usage.reviews, limit: limits.reviews === Infinity ? null : limits.reviews },
       deploys: { used: user.usage.deploys ?? 0, limit: limits.deploys === Infinity ? null : limits.deploys },
+      builds: { used: user.usage.builds ?? 0, limit: limits.builds === Infinity ? null : limits.builds },
     },
     resetAt: user.usage.resetAt,
+    siteBuildPrice: SITE_BUILD_PRICE_CENTS,
   })
 })
 
@@ -116,6 +118,48 @@ router.post('/upgrade', (req, res, next) => {
   next()
 })
 
+// ─── Per-site-build payment (Stripe Checkout, one-time) ─────────────────────
+// Called by the frontend when the user has exhausted their monthly free builds.
+// Returns a Stripe Checkout URL; the user pays and is redirected back to /builder.
+router.post('/create-build-checkout', async (req, res) => {
+  const authed = req.user as any
+  const user = await User.findById(authed._id)
+  if (!user) return res.status(404).json({ message: 'Not found' })
+
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (!stripeKey) {
+    // Dev mode — return a fake session ID so the build can proceed
+    return res.json({ checkoutUrl: null, devMode: true })
+  }
+
+  const Stripe = require('stripe')
+  const stripe = new Stripe(stripeKey)
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    customer_email: user.stripeCustomerId ? undefined : user.email,
+    customer: user.stripeCustomerId || undefined,
+    line_items: [
+      {
+        price_data: {
+          currency: 'usd',
+          unit_amount: SITE_BUILD_PRICE_CENTS,
+          product_data: {
+            name: 'ForgeAI Site Generation',
+            description: 'One AI-generated website build',
+          },
+        },
+        quantity: 1,
+      },
+    ],
+    success_url: `${process.env.FRONTEND_URL}/builder?build_paid=1&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.FRONTEND_URL}/builder`,
+    metadata: { userId: authed._id.toString(), type: 'site_build' },
+  })
+
+  res.json({ checkoutUrl: session.url })
+})
+
 export async function stripeWebhook(req: any, res: any) {
   const stripeKey = process.env.STRIPE_SECRET_KEY
   if (!stripeKey) return res.status(501).json({ message: 'Stripe not configured' })
@@ -129,9 +173,16 @@ export async function stripeWebhook(req: any, res: any) {
   }
   if (event.type === 'checkout.session.completed') {
     const s = event.data.object
-    await User.findByIdAndUpdate(s.metadata.userId, {
-      plan: s.metadata.plan, stripeCustomerId: s.customer, stripeSubscriptionId: s.subscription,
-    })
+    if (s.metadata?.type === 'site_build') {
+      // One-time build payment — store customerId but don't change plan
+      if (s.customer) {
+        await User.findByIdAndUpdate(s.metadata.userId, { stripeCustomerId: s.customer })
+      }
+    } else {
+      await User.findByIdAndUpdate(s.metadata.userId, {
+        plan: s.metadata.plan, stripeCustomerId: s.customer, stripeSubscriptionId: s.subscription,
+      })
+    }
   }
   if (event.type === 'customer.subscription.deleted') {
     await User.findOneAndUpdate({ stripeSubscriptionId: event.data.object.id }, { plan: 'free' })
