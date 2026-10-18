@@ -6,13 +6,13 @@ import { api } from '@/lib/api'
 import {
   GitBranch, Clock, Zap, CheckCircle2, AlertCircle, Loader2,
   ArrowUpRight, Sparkles, Target, TrendingUp, XCircle, Activity,
-  ArrowRight, ChevronDown,
+  ArrowRight, ChevronDown, MessageSquare, Hammer,
 } from 'lucide-react'
 import clsx from 'clsx'
 
 import UsageWidget from '@/components/UsageWidget'
 
-const PLACEHOLDERS = [
+const BUILD_PLACEHOLDERS = [
   'a portfolio site with a photo gallery and contact form',
   'a landing page for my coffee subscription startup',
   'a restaurant site with menu and online reservations',
@@ -20,11 +20,22 @@ const PLACEHOLDERS = [
   'an e-commerce store for handmade jewelry',
 ]
 
+const CHAT_PLACEHOLDERS = [
+  'Why is my React component re-rendering too many times?',
+  'Explain how the authentication flow works in my codebase',
+  'Help me refactor this function to be more readable',
+  'Why is my Express route returning a 500 error?',
+  'Generate unit tests for my user service',
+]
+
+type Mode = 'build' | 'chat'
+
 export default function Dashboard() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
+  const [mode, setMode] = useState<Mode>('build')
   const [prompt, setPrompt] = useState('')
-  const [placeholderIdx] = useState(() => Math.floor(Math.random() * PLACEHOLDERS.length))
+  const [placeholderIdx] = useState(() => Math.floor(Math.random() * BUILD_PLACEHOLDERS.length))
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { data: repos } = useQuery({
@@ -47,18 +58,26 @@ export default function Dashboard() {
     { label: 'Success Rate', value: `${successRate}%`, icon: Target },
   ]
 
-  const handleBuild = () => {
+  const handleSubmit = () => {
     const value = prompt.trim()
-    if (value) sessionStorage.setItem('forge_pending_prompt', value)
-    navigate('/builder')
+    if (mode === 'build') {
+      if (value) sessionStorage.setItem('forge_pending_prompt', value)
+      navigate('/builder')
+    } else {
+      if (value) sessionStorage.setItem('forge_pending_chat', value)
+      navigate('/builder?mode=chat')
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleBuild()
+      handleSubmit()
     }
   }
+
+  const placeholders = mode === 'build' ? BUILD_PLACEHOLDERS : CHAT_PLACEHOLDERS
+  const currentPlaceholder = placeholders[placeholderIdx % placeholders.length]
 
   return (
     <div className="h-full overflow-y-auto">
@@ -66,21 +85,50 @@ export default function Dashboard() {
       {/* ── Hero ─────────────────────────────────────────────── */}
       <section className="hero-mesh min-h-[calc(100vh-52px)] lg:min-h-screen flex flex-col items-center justify-center px-4 py-16 relative">
 
-        {/* Badge */}
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-indigo-300 mb-6"
-          style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)' }}>
-          <Sparkles size={11} />
-          AI Website Builder
-        </div>
-
         {/* Heading */}
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-center text-white leading-tight mb-3">
           Ready to build,{' '}
           <span className="text-gradient">{firstName}?</span>
         </h1>
-        <p className="text-zinc-400 text-center text-base md:text-lg mb-10 max-w-lg">
-          Describe your website and ForgeAI will build, deploy, and host it — instantly.
+        <p className="text-zinc-400 text-center text-base md:text-lg mb-8 max-w-lg">
+          {mode === 'build'
+            ? 'Describe your website and ForgeAI will build, deploy, and host it — instantly.'
+            : 'Ask ForgeAI anything about your code — debugging, refactoring, tests, and more.'}
         </p>
+
+        {/* ── Mode toggle (sliding pill) ── */}
+        <div className="flex items-center mb-6 rounded-full p-1 relative" style={{ background: 'rgba(24,24,27,0.9)', border: '1px solid rgba(63,63,70,0.5)' }}>
+          {/* Sliding background */}
+          <div
+            className="absolute top-1 bottom-1 rounded-full transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+            style={{
+              background: 'rgba(99,102,241,0.18)',
+              border: '1px solid rgba(99,102,241,0.3)',
+              width: 'calc(50% - 4px)',
+              left: mode === 'build' ? '4px' : 'calc(50%)',
+            }}
+          />
+          <button
+            onClick={() => { setMode('build'); setPrompt('') }}
+            className={clsx(
+              'relative flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-colors duration-200 z-10',
+              mode === 'build' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300',
+            )}
+          >
+            <Hammer size={14} />
+            Build
+          </button>
+          <button
+            onClick={() => { setMode('chat'); setPrompt('') }}
+            className={clsx(
+              'relative flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-colors duration-200 z-10',
+              mode === 'chat' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300',
+            )}
+          >
+            <MessageSquare size={14} />
+            Chat
+          </button>
+        </div>
 
         {/* Prompt box */}
         <div className="hero-prompt w-full max-w-2xl">
@@ -91,18 +139,19 @@ export default function Dashboard() {
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={3}
-              placeholder={`e.g. ${PLACEHOLDERS[placeholderIdx]}`}
+              placeholder={mode === 'build' ? `e.g. ${currentPlaceholder}` : currentPlaceholder}
               className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none"
             />
             <div className="flex items-center justify-between px-4 pb-3 pt-1">
-              <span className="text-[11px] text-zinc-600">Press Enter to build · Shift+Enter for new line</span>
+              <span className="text-[11px] text-zinc-600">Press Enter to submit · Shift+Enter for new line</span>
               <button
-                onClick={handleBuild}
+                onClick={handleSubmit}
                 disabled={!prompt.trim()}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ background: prompt.trim() ? '#4f46e5' : 'rgba(79,70,229,0.4)' }}
               >
-                Build <ArrowRight size={14} />
+                {mode === 'build' ? 'Build' : 'Ask'}
+                <ArrowRight size={14} />
               </button>
             </div>
           </div>
@@ -110,16 +159,22 @@ export default function Dashboard() {
 
         {/* Quick suggestions */}
         <div className="flex flex-wrap gap-2 justify-center mt-5 max-w-2xl">
-          {['Portfolio site', 'Landing page', 'Restaurant site', 'E-commerce store', 'Personal blog'].map((s) => (
-            <button
-              key={s}
-              onClick={() => { setPrompt(s); textareaRef.current?.focus() }}
-              className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 text-zinc-400 hover:text-zinc-200"
-              style={{ background: 'rgba(39,39,42,0.6)', border: '1px solid rgba(63,63,70,0.4)' }}
-            >
-              {s}
-            </button>
-          ))}
+          {mode === 'build'
+            ? ['Portfolio site', 'Landing page', 'Restaurant site', 'E-commerce store', 'Personal blog'].map((s) => (
+                <button key={s} onClick={() => { setPrompt(s); textareaRef.current?.focus() }}
+                  className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 text-zinc-400 hover:text-zinc-200"
+                  style={{ background: 'rgba(39,39,42,0.6)', border: '1px solid rgba(63,63,70,0.4)' }}>
+                  {s}
+                </button>
+              ))
+            : ['Fix a bug', 'Explain code', 'Write tests', 'Refactor function', 'Add a feature'].map((s) => (
+                <button key={s} onClick={() => { setPrompt(s); textareaRef.current?.focus() }}
+                  className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 text-zinc-400 hover:text-zinc-200"
+                  style={{ background: 'rgba(39,39,42,0.6)', border: '1px solid rgba(63,63,70,0.4)' }}>
+                  {s}
+                </button>
+              ))
+          }
         </div>
 
         {/* Scroll hint */}

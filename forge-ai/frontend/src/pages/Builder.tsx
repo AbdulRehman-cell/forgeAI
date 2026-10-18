@@ -104,10 +104,16 @@ export default function Builder() {
   const deployDone = task?.type === 'blitz_deploy' && task.status === 'completed'
   const deployUrl = (task?.metadata as any)?.deploymentUrl
 
-  // Pre-fill prompt when navigating from Dashboard hero input
+  // Pre-fill from Dashboard hero (build or chat mode)
   useEffect(() => {
-    const pending = sessionStorage.getItem('forge_pending_prompt')
-    if (pending) { setPrompt(pending); sessionStorage.removeItem('forge_pending_prompt') }
+    const params = new URLSearchParams(window.location.search)
+    const buildPending = sessionStorage.getItem('forge_pending_prompt')
+    const chatPending = sessionStorage.getItem('forge_pending_chat')
+    if (buildPending) { setPrompt(buildPending); sessionStorage.removeItem('forge_pending_prompt') }
+    if (chatPending && params.get('mode') === 'chat') {
+      setEditInstruction(chatPending)
+      sessionStorage.removeItem('forge_pending_chat')
+    }
   }, [])
 
   // After Stripe redirects back: if ?build_paid=1, re-trigger the build with the session ID.
