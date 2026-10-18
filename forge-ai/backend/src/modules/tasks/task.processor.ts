@@ -750,7 +750,7 @@ async function pushRepoToGitHub(
     try {
       const { data } = await axios.post(
         'https://api.github.com/user/repos',
-        { name, description: 'Deployed with ForgeAI Blitz Deploy', private: false, auto_init: false },
+        { name, description: 'Deployed with ForgeAI Blitz Deploy', private: false, auto_init: true },
         { headers },
       )
       ghRepo = data
@@ -831,9 +831,11 @@ async function pushRepoToGitHub(
     { message: `ForgeAI Blitz Deploy: ${repoName} — initial push`, tree: treeData.sha, parents: [],
       author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
   )
-  await ghGitPost(
-    `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/refs`,
-    { ref: `refs/heads/${branch}`, sha: commitData.sha },
+  // auto_init: true means the default branch ref already exists — force-update it
+  await axios.patch(
+    `https://api.github.com/repos/${ghOwner}/${ghRepoName}/git/refs/heads/${branch}`,
+    { sha: commitData.sha, force: true },
+    { headers },
   )
 
   // Keep a local git remote pointing at the public URL for future operations
@@ -5625,7 +5627,7 @@ async function buildSite(job: Job) {
             name,
             description: `Built with ForgeAI Builder: ${String(prompt).slice(0, 120)}`,
             private: false,
-            auto_init: false,
+            auto_init: true,
           }, { headers })
           ghRepo = data
           break
@@ -5715,10 +5717,11 @@ async function buildSite(job: Job) {
             { message: `ForgeAI Builder: ${siteName} — initial site`, tree: treeData.sha, parents: [], author: { name: 'ForgeAI', email: 'bot@forgeai.dev', date: new Date().toISOString() } },
           )
 
-          // Point main branch at the new commit
-          await bsGhPost(
-            `https://api.github.com/repos/${owner}/${repoName}/git/refs`,
-            { ref: 'refs/heads/main', sha: commitData.sha },
+          // auto_init: true means refs/heads/main already exists — force-update it
+          await axios.patch(
+            `https://api.github.com/repos/${owner}/${repoName}/git/refs/heads/main`,
+            { sha: commitData.sha, force: true },
+            { headers },
           )
 
           // Set git remote so subsequent agent/fix tasks can push
