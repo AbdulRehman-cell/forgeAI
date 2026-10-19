@@ -6,7 +6,8 @@ export const SITES_DIR = process.env.SITES_DIR ?? path.join(process.cwd(), 'site
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const SKIP = new Set(['node_modules', '.git', '.env', 'dist', 'build', '.next', '__pycache__', 'venv', '.venv', 'coverage', '.turbo'])
+// We no longer skip dist/build — when deploying we target those directories directly
+const SKIP = new Set(['node_modules', '.git', '.env', '__pycache__', 'venv', '.venv', 'coverage', '.turbo'])
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -95,27 +96,46 @@ function r2PublicUrl(slug: string): string {
   return `${base}/sites/${slug}/index.html`
 }
 
-// ─── Fix 1: validate localPath has deployable files ──────────────────────────
+// ─── Find the right directory to deploy ─────────────────────────────────────
+// Priority: look for a built static output folder first, fall back to root.
+// This handles: static sites (index.html at root), Vite/CRA (dist/ or build/),
+// MERN sites (client/dist/ or client/build/), and Next.js (out/ or .next/out/).
 
-function countDeployableFiles(dir: string): number {
-  let count = 0
-  let entries: fs.Dirent[]
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return 0 }
-  for (const entry of entries) {
-    if (SKIP.has(entry.name)) continue
-    if (entry.isDirectory()) count += countDeployableFiles(path.join(dir, entry.name))
-    else count++
+const DEPLOY_CANDIDATES = [
+  'dist',
+  'build',
+  'out',
+  path.join('client', 'dist'),
+  path.join('client', 'build'),
+  path.join('frontend', 'dist'),
+  path.join('frontend', 'build'),
+  path.join('public'),
+]
+
+export function findDeployRoot(localPath: string): string {
+  // Check each candidate for an index.html — first match wins
+  for (const candidate of DEPLOY_CANDIDATES) {
+    const dir = path.join(localPath, candidate)
+    if (fs.existsSync(path.join(dir, 'index.html'))) return dir
   }
-  return count
+  // Fall back to root if index.html is there directly (plain static site)
+  if (fs.existsSync(path.join(localPath, 'index.html'))) return localPath
+  throw new Error(
+    `No built static files found. Expected index.html in one of: ${DEPLOY_CANDIDATES.join(', ')}, or the project root.\n` +
+    `Run your build step first (e.g. "npm run build" inside the client folder) then redeploy.`
+  )
 }
 
-function assertHasFiles(localPath: string): void {
-  if (!fs.existsSync(localPath)) {
-    throw new Error(`Source directory does not exist: ${localPath}. The site may not have been built yet.`)
+// ─── Fix 1: validate the deploy root has files ───────────────────────────────
+
+function assertHasFiles(deployRoot: string): void {
+  if (!fs.existsSync(deployRoot)) {
+    throw new Error(`Deploy directory does not exist: ${deployRoot}. The site may not have been built yet.`)
   }
-  const count = countDeployableFiles(localPath)
-  if (count === 0) {
-    throw new Error(`No deployable files found in ${localPath}. Run a build first before deploying.`)
+  let entries: fs.Dirent[]
+  try { entries = fs.readdirSync(deployRoot, { withFileTypes: true }) } catch { entries = [] }
+  if (entries.length === 0) {
+    throw new Error(`Deploy directory is empty: ${deployRoot}. Run a build first before deploying.`)
   }
 }
 
@@ -250,18 +270,21 @@ export async function selfHostedDeploy(options: {
   const { localPath, name, existingSlug } = options
   const slug = existingSlug ?? `${sanitizeSlug(name)}-${Math.random().toString(36).slice(2, 6)}`
 
+  // Resolve to the actual built output directory (dist/, client/dist/, etc.)
+  const deployRoot = findDeployRoot(localPath)
+
   // Fix 1: fail fast if nothing to deploy
-  assertHasFiles(localPath)
+  assertHasFiles(deployRoot)
 
   if (r2Configured()) {
     // Fix 2: upload with rollback on failure
-    await uploadDirToR2(localPath, slug)
+    await uploadDirToR2(deployRoot, slug)
     return { url: r2PublicUrl(slug), slug, siteDir: null, provider: 'r2' }
   }
 
   // Local fallback (dev / no R2 configured)
   const siteDir = path.join(SITES_DIR, slug)
   if (fs.existsSync(siteDir)) fs.rmSync(siteDir, { recursive: true, force: true })
-  copyDir(localPath, siteDir)  // now throws on any file error
+  copyDir(deployRoot, siteDir)  // now throws on any file error
   return { url: localUrl(slug), slug, siteDir, provider: 'local' }
 }
