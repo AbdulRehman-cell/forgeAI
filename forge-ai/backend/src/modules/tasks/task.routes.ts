@@ -223,9 +223,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
     }
   }
 
-  // Token resolution by plan:
-  //   free/pro — clients deploy with their OWN platform token (prompted once, then saved)
-  //   team    — fully managed: ForgeAI's server-wide token, zero setup
+  // Token resolution: user's own saved token → server-wide env token → prompt
   let deployToken: string | undefined
   let deployName = repo.name
   if (PLATFORMS_NEEDING_TOKEN.has(resolvedPlatform)) {
@@ -233,9 +231,9 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
       '+deployTokens.vercel +deployTokens.railway +deployTokens.render',
     )
     deployToken = token || fullUser?.deployTokens?.[resolvedPlatform as 'vercel' | 'railway' | 'render']
-    if (!deployToken && fullUser?.plan === 'team') {
+    if (!deployToken) {
+      // Fall back to server-wide token for all plans (set RENDER_TOKEN / VERCEL_TOKEN in .env)
       deployToken = getEnvToken(resolvedPlatform)
-      // Shared account: suffix project names per user to avoid collisions
       if (deployToken) deployName = `${repo.name}-${user._id.toString().slice(-5)}`
     }
     if (!deployToken) {
@@ -962,8 +960,7 @@ async function renderDomainContext(req: any, res: any) {
   }
 
   const fullUser = await User.findById(user._id).select('+deployTokens.render')
-  let deployToken: string | undefined = token || fullUser?.deployTokens?.render
-  if (!deployToken && fullUser?.plan === 'team') deployToken = getEnvToken('render')
+  let deployToken: string | undefined = token || fullUser?.deployTokens?.render || getEnvToken('render')
   if (!deployToken) {
     res.status(400).json({ code: 'TOKEN_REQUIRED', platform: 'render', message: 'Connect your Render account to manage domains' })
     return null

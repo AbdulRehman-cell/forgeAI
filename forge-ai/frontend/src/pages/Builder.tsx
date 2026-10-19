@@ -1287,22 +1287,33 @@ export default function Builder() {
                     </button>
                   )}
                   {buildDone && !deployUrl && (
-                    <button
-                      onClick={() => deployMutation.mutate({})}
-                      disabled={deployMutation.isPending}
-                      className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-50"
-                    >
-                      {deployMutation.isPending
-                        ? <Loader2 size={13} className="animate-spin" />
-                        : <Rocket size={13} />}
-                      Deploy now
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => deployMutation.mutate({ platform: 'self-hosted' })}
+                        disabled={deployMutation.isPending}
+                        className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-50"
+                        title="Host directly on your ForgeAI server — no Render, Vercel or Railway needed"
+                      >
+                        {deployMutation.isPending
+                          ? <Loader2 size={13} className="animate-spin" />
+                          : <Rocket size={13} />}
+                        Deploy to ForgeAI
+                      </button>
+                      <button
+                        onClick={() => deployMutation.mutate({ platform: 'auto' })}
+                        disabled={deployMutation.isPending}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-surface-600 text-xs font-medium text-zinc-400 hover:border-brand-500/50 hover:text-zinc-200 transition-colors disabled:opacity-40"
+                        title="Deploy to Render, Vercel, or Railway"
+                      >
+                        <Rocket size={12} /> External host
+                      </button>
+                    </div>
                   )}
                 </>
               )}
               {(task.status === 'completed' || task.status === 'failed') && (
                 <button
-                  onClick={() => { setTask(null); setRepoId(null); setPrompt(''); setName(''); setMongoUri(''); setStyle('auto'); setPaletteId(''); setImportUrl(''); setAudit(null); setDomain(''); setDomainInfo(null); setVerifyMsg(''); setTokenPlatform(null) }}
+                  onClick={() => { setTask(null); setRepoId(null); setPrompt(''); setMongoUri(''); setStyle('auto'); setPaletteId(''); setImportUrl(''); setAudit(null); setDomain(''); setDomainInfo(null); setVerifyMsg(''); setTokenPlatform(null) }}
                   className="px-4 py-2 rounded-xl text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
                   Build another site

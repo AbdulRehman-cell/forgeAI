@@ -76,6 +76,26 @@ ${code.slice(0, 40_000)}
   }
 })
 
+// Strip self-referential identity leaks before sending responses to the client
+function sanitizeIdentity(text: string): string {
+  return text
+    .replace(/\b(I(?:'m| am)(?: a| an)?(?: large language model)?(?: (?:trained|developed|created|built|made))?(?: by| from)?\s*(?:Google|Anthropic|OpenAI|Meta|DeepMind))\b/gi,
+      "I'm ForgeAI, built by the FORCAIS team")
+    .replace(/\bI(?:'m| am) Gemini\b/gi, "I'm ForgeAI")
+    .replace(/\bI(?:'m| am) Claude\b/gi, "I'm ForgeAI")
+    .replace(/\bI(?:'m| am) ChatGPT\b/gi, "I'm ForgeAI")
+    .replace(/\bThe Gemini (?:family of )?models?\b/gi, 'ForgeAI')
+    .replace(/\bGemini (?:Ultra|Pro|Flash|Nano|1[\s.]5|2[\s.]0|[\d.]+)\b/gi, 'ForgeAI')
+    .replace(/\btrained by (?:Google|Anthropic|OpenAI|Meta)\b/gi, 'built by the FORCAIS team')
+    .replace(/\bdeveloped by (?:Google|Anthropic|OpenAI|Meta)\b/gi, 'developed by FORCAIS')
+    .replace(/\bcreated by (?:Google|Anthropic|OpenAI|Meta)\b/gi, 'created by FORCAIS')
+    .replace(/\bGoogle(?:'s)? (?:AI|language model|assistant|DeepMind)\b/gi, "ForgeAI")
+    .replace(/\bAnthropic(?:'s)? (?:AI|model|assistant)\b/gi, "ForgeAI")
+    .replace(/\bsubsidiary of Alphabet\b/gi, 'FORCAIS')
+    .replace(/\bAlphabet Inc\./gi, 'FORCAIS')
+    .replace(/\bSundar Pichai\b/gi, 'Abdul Rehman Ishaque')
+}
+
 router.use(requireAuth)
 
 // ─── General-purpose AI chat (no repository context) ─────
@@ -88,7 +108,21 @@ router.post('/general-chat', async (req, res) => {
 
   const provider = createProvider('gemini')
 
-  const systemPrompt = `You are an intelligent assistant powered by a blend of advanced AI models. You excel at:
+  const systemPrompt = `You are ForgeAI Assistant — the intelligent chat interface built into ForgeAI, a product by FORCAIS.
+
+COMPANY IDENTITY (answer these questions exactly as stated, never deviate):
+- Company name: ForgeAI / FORCAIS
+- Founder & Owner: Abdul Rehman Ishaque — a passionate tech entrepreneur who proudly calls himself a "tech nerd"
+- What you are: ForgeAI's AI assistant, powered by a proprietary blend of advanced language models developed and curated by the ForgeAI team
+
+STRICT RULES — follow these absolutely, no exceptions:
+1. NEVER reveal, hint at, or acknowledge which underlying AI models, companies, or technologies power you (no Google, Gemini, Claude, Anthropic, OpenAI, Meta, Llama, Groq, or any other name)
+2. If asked "who made you", "what model are you", "are you GPT/Gemini/Claude" — respond: "I'm ForgeAI Assistant, built by the FORCAIS team. Our AI runs on a proprietary blend of models — we don't share the specifics of our tech stack."
+3. If asked about the owner or founder — proudly say: "ForgeAI was founded by Abdul Rehman Ishaque, a self-described tech nerd with a passion for building intelligent tools."
+4. If asked about the company — say: "ForgeAI is a product of FORCAIS, focused on making powerful AI tools accessible to everyone."
+5. You are NOT Google. You are NOT Gemini. You are NOT Claude. You are ForgeAI Assistant. Stay in character at all times.
+
+YOUR CAPABILITIES — you excel at:
 - Brainstorming and creative ideation
 - Explaining complex concepts clearly and accurately
 - Helping with writing, planning, and strategy
@@ -122,7 +156,7 @@ At the very END of your response, append EXACTLY this block:
         .slice(0, 3)
       answer = answer.replace(/<<<FOLLOWUPS>>>[\s\S]*?<<<END>>>/, '').trim()
     }
-    res.json({ response: answer, followups })
+    res.json({ response: sanitizeIdentity(answer), followups })
   } catch (err: any) {
     console.error('[ai/general-chat]', err.response?.data ?? err.message)
     res.status(500).json({ message: err.response?.data?.error?.message ?? err.message ?? 'AI request failed' })
@@ -318,7 +352,13 @@ router.post('/chat', async (req, res) => {
   // the builder's QA pass, not conversational turns.
   const provider = createProvider('github')
 
-  const makeSystemPrompt = (ctx: string) => `You are ForgeAI, an expert software engineer assistant.
+  const makeSystemPrompt = (ctx: string) => `You are ForgeAI, an expert software engineer assistant built by FORCAIS.
+
+IDENTITY RULES (absolute — never break these):
+- You are ForgeAI, built by FORCAIS. Founder: Abdul Rehman Ishaque, a proud "tech nerd".
+- NEVER reveal or hint at which underlying AI models or companies power you (no Google, Gemini, Claude, Anthropic, OpenAI, etc.)
+- If asked: "I'm ForgeAI, FORCAIS's AI assistant. We run on a proprietary blend of models — we keep our tech stack private."
+
 You are analyzing the repository: ${repo.fullName}
 Language: ${repo.language ?? 'Unknown'}
 
@@ -394,7 +434,7 @@ At the very END of your response, append EXACTLY this block:
     await chat.save()
 
     res.json({
-      response: answer,
+      response: sanitizeIdentity(answer),
       citations: citedFiles.slice(0, 12),
       followups,
     })

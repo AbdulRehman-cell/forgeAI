@@ -25,11 +25,16 @@ import whatsappRoutes from './modules/outreach/whatsapp.routes'
 import auditRoutes from './modules/audit/audit.routes'
 import teamsRoutes from './modules/teams/teams.routes'
 import whiteLabelRoutes from './modules/settings/whitelabel.routes'
+import hostingRoutes from './modules/hosting/hosting.routes'
+import { SITES_DIR } from './lib/selfHostedDeploy'
 import { Repository } from './modules/repository/repository.model'
 import { Task } from './modules/tasks/task.model'
 import { startWAScheduler } from './lib/waScheduler'
 
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
+
+// Ensure the sites directory exists at startup
+if (!fs.existsSync(SITES_DIR)) fs.mkdirSync(SITES_DIR, { recursive: true })
 
 const app = express()
 
@@ -91,6 +96,21 @@ app.use('/api/gmail', gmailRoutes)
 app.use('/api/whatsapp', whatsappRoutes)
 app.use('/api/audit', auditRoutes)  // public — no auth
 app.use('/api/whitelabel', whiteLabelRoutes)
+app.use('/api/hosting', hostingRoutes)
+
+// Self-hosted sites — served as static files with relaxed CSP so user-generated
+// HTML/JS/CSS can run. We disable helmet's opinionated headers for this path only.
+app.use('/sites', (req, res, next) => {
+  // Allow user-generated pages to load their own scripts/styles/images
+  res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:")
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+  res.setHeader('X-Frame-Options', 'ALLOWALL')
+  next()
+}, express.static(SITES_DIR, {
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store')
+  },
+}))
 
 // Public team invite accept — must be registered BEFORE the auth-gated /api/teams mount
 app.post('/api/teams/accept', async (req, res) => {
@@ -213,12 +233,12 @@ if (process.env.NODE_ENV === 'production') {
   const indexHtml = path.join(frontendDist, 'index.html')
   if (fs.existsSync(indexHtml)) {
     app.use(express.static(frontendDist))
-    app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/)/, (_req, res) => {
+    app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/|\/sites\/)/, (_req, res) => {
       res.sendFile(indexHtml)
     })
   } else {
     console.warn(`[static] Frontend dist not found at ${frontendDist} — API-only mode. Run 'npm run build' in forge-ai/frontend to fix.`)
-    app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/)/, (_req, res) => {
+    app.get(/^(?!\/api\/|\/health|\/uploads\/|\/dashboards\/|\/sites\/)/, (_req, res) => {
       res.status(503).send('<h2>ForgeAI</h2><p>Frontend build not found. The backend is running — redeploy with <code>npm run build</code> in forge-ai/frontend.</p>')
     })
   }

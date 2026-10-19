@@ -894,6 +894,53 @@ async function blitzDeploy(job: Job) {
   const task = await Task.findById(taskId)
   if (!task) throw new Error('Task not found')
 
+  // ── Self-hosted deploy (no GitHub / no third-party service needed) ──────────
+  if (platform === 'self-hosted') {
+    await updateTask(task, { status: 'running', progress: 10 }, '🚀 Deploying to ForgeAI hosting…')
+    try {
+      const { selfHostedDeploy } = await import('../../lib/selfHostedDeploy')
+      const { Deployment } = await import('../hosting/deployment.model')
+
+      // Reuse existing slug if the repo was already deployed self-hosted
+      const repo = repositoryId ? await (await import('../repository/repository.model')).Repository.findById(repositoryId) : null
+      const existingSlug = repo?.deployState?.['self-hosted']?.slug as string | undefined
+
+      const result = await selfHostedDeploy({ localPath, name: repoName ?? 'site', existingSlug })
+
+      // Upsert deployment record
+      await Deployment.findOneAndUpdate(
+        { slug: result.slug },
+        {
+          slug: result.slug,
+          userId: job.data.userId,
+          repositoryId: repositoryId ?? undefined,
+          siteName: repoName ?? 'site',
+          url: result.url,
+          siteDir: result.siteDir,
+        },
+        { upsert: true, new: true },
+      )
+
+      // Store slug on the repo so redeploys reuse the same URL
+      if (repo) {
+        repo.deployState = { ...(repo.deployState ?? {}), 'self-hosted': { slug: result.slug, url: result.url } }
+        await repo.save()
+      }
+
+      const providerNote = result.provider === 'r2'
+        ? 'Served globally via Cloudflare R2 — zero load on your ForgeAI server.'
+        : 'Running directly on your ForgeAI server.'
+      await updateTask(task, { status: 'completed', progress: 100 }, `## ✅ Deployed to ForgeAI\n\nYour site is live at: **${result.url}**\n\n${providerNote}`, 'info')
+      emitTaskUpdate(taskId, task.toObject())
+    } catch (err: any) {
+      task.status = 'failed'
+      task.summary = `## ❌ Self-hosted deploy failed\n\n${err.message}`
+      await task.save()
+      emitTaskUpdate(taskId, task.toObject())
+    }
+    return
+  }
+
   // ── Auto-push to GitHub if this repo isn't on GitHub yet ──────────────────
   // Render and Railway build from GitHub; if the project was generated locally
   // (e.g. by build-site without a GitHub token, or opened as a local folder)

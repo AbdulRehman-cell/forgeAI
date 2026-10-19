@@ -540,8 +540,7 @@ async function autoRedeployRender(
     await log('🚀 This repo is deployed on Render — pushing changes and redeploying…')
 
     const fullUser = await User.findById(userId).select('+deployTokens.render +githubAccessToken plan')
-    let token = fullUser?.deployTokens?.render
-    if (!token && fullUser?.plan === 'team') token = getEnvToken('render')
+    let token = fullUser?.deployTokens?.render || getEnvToken('render')
     if (!token) {
       await log('No Render token on file — skipping auto-deploy. Run Blitz Deploy once to reconnect Render.', 'warn')
       return null
