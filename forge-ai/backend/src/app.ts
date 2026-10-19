@@ -26,15 +26,18 @@ import auditRoutes from './modules/audit/audit.routes'
 import teamsRoutes from './modules/teams/teams.routes'
 import whiteLabelRoutes from './modules/settings/whitelabel.routes'
 import hostingRoutes from './modules/hosting/hosting.routes'
-import { SITES_DIR } from './lib/selfHostedDeploy'
+import { SITES_DIR, checkR2Config } from './lib/selfHostedDeploy'
 import { Repository } from './modules/repository/repository.model'
 import { Task } from './modules/tasks/task.model'
 import { startWAScheduler } from './lib/waScheduler'
 
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
 
-// Ensure the sites directory exists at startup
+// Ensure the sites directory exists at startup (used by local fallback)
 if (!fs.existsSync(SITES_DIR)) fs.mkdirSync(SITES_DIR, { recursive: true })
+
+// Warn early if R2 vars are only partially set
+checkR2Config()
 
 const app = express()
 
