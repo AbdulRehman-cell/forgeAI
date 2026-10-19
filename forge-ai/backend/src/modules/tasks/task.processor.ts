@@ -1,6 +1,10 @@
 import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
 import simpleGit from 'simple-git'
 import { Task, IFileChange } from './task.model'
 import { Repository } from '../repository/repository.model'
@@ -896,14 +900,45 @@ async function blitzDeploy(job: Job) {
 
   // ── Self-hosted deploy (no GitHub / no third-party service needed) ──────────
   if (platform === 'self-hosted') {
-    await updateTask(task, { status: 'running', progress: 10 }, '🚀 Deploying to ForgeAI hosting…')
+    await updateTask(task, { status: 'running', progress: 10 }, '🚀 Starting ForgeAI deploy…')
     try {
-      const { selfHostedDeploy } = await import('../../lib/selfHostedDeploy')
+      const { selfHostedDeploy, findDeployRoot } = await import('../../lib/selfHostedDeploy')
       const { Deployment } = await import('../hosting/deployment.model')
 
       // Reuse existing slug if the repo was already deployed self-hosted
       const repo = repositoryId ? await (await import('../repository/repository.model')).Repository.findById(repositoryId) : null
       const existingSlug = repo?.deployState?.['self-hosted']?.slug as string | undefined
+
+      // ── Auto-build if no compiled output exists yet ──────────────────────
+      // Try resolving the deploy root; if it throws, we need to build first.
+      let needsBuild = false
+      try { findDeployRoot(localPath) } catch { needsBuild = true }
+
+      if (needsBuild) {
+        // Detect where to run the build: client/ for MERN, root for everything else
+        const clientPkg = path.join(localPath, 'client', 'package.json')
+        const rootPkg   = path.join(localPath, 'package.json')
+        const buildCwd  = fs.existsSync(clientPkg) ? path.join(localPath, 'client') : localPath
+
+        if (!fs.existsSync(path.join(buildCwd, 'package.json'))) {
+          throw new Error('No package.json found — cannot build this project automatically.')
+        }
+
+        const pkgJson = JSON.parse(fs.readFileSync(path.join(buildCwd, 'package.json'), 'utf-8'))
+        if (!pkgJson.scripts?.build) {
+          throw new Error('No "build" script found in package.json. Add one or build manually first.')
+        }
+
+        await updateTask(task, { progress: 20 }, `📦 Installing dependencies in ${path.basename(buildCwd)}…`)
+        await execAsync('npm install --legacy-peer-deps', { cwd: buildCwd, timeout: 180_000 })
+
+        await updateTask(task, { progress: 40 }, '🔨 Building site…')
+        await execAsync('npm run build', { cwd: buildCwd, timeout: 180_000 })
+
+        await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
+      } else {
+        await updateTask(task, { progress: 30 }, '📤 Uploading to ForgeAI…')
+      }
 
       const result = await selfHostedDeploy({ localPath, name: repoName ?? 'site', existingSlug })
 
