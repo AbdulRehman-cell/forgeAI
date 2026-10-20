@@ -126,6 +126,21 @@ export function findDeployRoot(localPath: string): string {
   )
 }
 
+// ─── Patch index.html for subdirectory hosting ───────────────────────────────
+// Vite/CRA build with absolute asset paths (/assets/...) which break when the
+// site is served from a sub-path like /sites/{slug}/. Rewrite them to relative
+// paths (./assets/...) so the browser resolves them against the current URL.
+function patchHtmlPaths(distDir: string): void {
+  const indexPath = path.join(distDir, 'index.html')
+  if (!fs.existsSync(indexPath)) return
+  let html = fs.readFileSync(indexPath, 'utf-8')
+  // src="/  href="/  →  src="./  href="./"  (skip protocol-relative // URLs)
+  html = html.replace(/(src|href|content)="\/(?!\/)/g, '$1="./')
+  // <base href="/"> → <base href="./">
+  html = html.replace(/(<base\s[^>]*href=")\/(")/g, '$1./$2')
+  fs.writeFileSync(indexPath, html, 'utf-8')
+}
+
 // ─── Fix 1: validate the deploy root has files ───────────────────────────────
 
 function assertHasFiles(deployRoot: string): void {
@@ -275,6 +290,9 @@ export async function selfHostedDeploy(options: {
 
   // Fix 1: fail fast if nothing to deploy
   assertHasFiles(deployRoot)
+
+  // Rewrite absolute asset paths to relative so the site works at any sub-path
+  patchHtmlPaths(deployRoot)
 
   if (r2Configured()) {
     // Fix 2: upload with rollback on failure
