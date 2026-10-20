@@ -895,13 +895,9 @@ async function pushRepoToGitHub(
 // Extract absolute file paths mentioned in build error output (Vite/Rollup/tsc/webpack)
 function extractErrorFilePaths(errorText: string, buildCwd: string): string[] {
   const patterns = [
-    // Vite/Rollup:  src/pages/Foo.jsx (4:34)
     /([^\s"'()]+\.[jt]sx?)\s*\(\d+:\d+\)/g,
-    // TypeScript:   src/foo.ts:10:5
     /([^\s"'()]+\.[jt]sx?):\d+:\d+/g,
-    // General path: "src/foo.jsx"
     /"([^"]+\.[jt]sx?)"/g,
-    // file: /abs/path/src/foo.jsx
     /file:\s*(\/[^\s]+\.[jt]sx?)/g,
   ]
   const found = new Set<string>()
@@ -909,13 +905,38 @@ function extractErrorFilePaths(errorText: string, buildCwd: string): string[] {
     let m: RegExpExecArray | null
     while ((m = re.exec(errorText)) !== null) {
       const p = m[1]
-      // Resolve to absolute path: if already absolute and exists, use it;
-      // otherwise treat as relative to buildCwd
       const abs = path.isAbsolute(p) ? p : path.join(buildCwd, p)
       if (fs.existsSync(abs)) found.add(abs)
     }
   }
-  return [...found].slice(0, 6) // cap at 6 files to keep the prompt manageable
+
+  // Special case: "X is not exported by Y" — also find ALL files that import Y
+  // so AI can see every missing export in one shot instead of one at a time.
+  const missingExportMatch = errorText.match(/is not exported by "([^"]+)"/)
+  if (missingExportMatch) {
+    const relTarget = missingExportMatch[1] // e.g. "src/components/ui.jsx"
+    const absTarget = path.isAbsolute(relTarget) ? relTarget : path.join(buildCwd, relTarget)
+    if (fs.existsSync(absTarget)) found.add(absTarget)
+
+    // Walk src/ to find every file importing from that module
+    const srcDir = path.join(buildCwd, 'src')
+    const importPattern = new RegExp(`from ['"][^'"]*${path.basename(relTarget, path.extname(relTarget))}['"]`)
+    if (fs.existsSync(srcDir)) {
+      const walkSrc = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name)
+          if (entry.isDirectory()) { walkSrc(full); continue }
+          if (!/\.[jt]sx?$/.test(entry.name)) continue
+          try {
+            if (importPattern.test(fs.readFileSync(full, 'utf-8'))) found.add(full)
+          } catch {}
+        }
+      }
+      walkSrc(srcDir)
+    }
+  }
+
+  return [...found].slice(0, 10)
 }
 
 async function blitzDeploy(job: Job) {
@@ -988,7 +1009,7 @@ async function blitzDeploy(job: Job) {
             }).filter(Boolean).join('\n\n')
 
             const fixProvider = createProvider(resolveProvider(aiProvider))
-            const fixPrompt = `You are fixing a JavaScript/React build error. Return ONLY the corrected files using <file path="relative/path"> tags. Do not explain, do not add markdown fences around the file tags.
+            const fixPrompt = `You are fixing a JavaScript/React build error. Return ONLY the corrected files using <file path="relative/path"> tags. No explanations, no markdown fences around the file tags.
 
 BUILD ERROR:
 ${lastBuildError.slice(0, 2000)}
@@ -996,9 +1017,12 @@ ${lastBuildError.slice(0, 2000)}
 CURRENT FILES:
 ${fileContext || '(no files extracted — fix based on the error message alone)'}
 
-Fix every error shown. Return each fixed file as:
-<file path="src/path/to/file.jsx">
-...complete corrected file content...
+INSTRUCTIONS:
+- If the error says "X is not exported by Y", look at ALL the importer files above to find EVERY named import they need from Y, then add ALL of them to Y in one fix — do not fix just one at a time or the build will keep failing.
+- Return the COMPLETE corrected file content for every file you change.
+- Format:
+<file path="src/components/ui.jsx">
+...complete file...
 </file>`
 
             try {
