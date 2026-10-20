@@ -892,6 +892,32 @@ async function pushRepoToGitHub(
   return ghRepo.full_name
 }
 
+// Extract absolute file paths mentioned in build error output (Vite/Rollup/tsc/webpack)
+function extractErrorFilePaths(errorText: string, buildCwd: string): string[] {
+  const patterns = [
+    // Vite/Rollup:  src/pages/Foo.jsx (4:34)
+    /([^\s"'()]+\.[jt]sx?)\s*\(\d+:\d+\)/g,
+    // TypeScript:   src/foo.ts:10:5
+    /([^\s"'()]+\.[jt]sx?):\d+:\d+/g,
+    // General path: "src/foo.jsx"
+    /"([^"]+\.[jt]sx?)"/g,
+    // file: /abs/path/src/foo.jsx
+    /file:\s*(\/[^\s]+\.[jt]sx?)/g,
+  ]
+  const found = new Set<string>()
+  for (const re of patterns) {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(errorText)) !== null) {
+      const p = m[1]
+      // Resolve to absolute path: if already absolute and exists, use it;
+      // otherwise treat as relative to buildCwd
+      const abs = path.isAbsolute(p) ? p : path.join(buildCwd, p)
+      if (fs.existsSync(abs)) found.add(abs)
+    }
+  }
+  return [...found].slice(0, 6) // cap at 6 files to keep the prompt manageable
+}
+
 async function blitzDeploy(job: Job) {
   const { taskId, localPath, platform, aiProvider, deployToken, repoName, branch, isLocal, needsGitHubPush, repositoryId } = job.data
   let { repoFullName } = job.data
@@ -933,7 +959,67 @@ async function blitzDeploy(job: Job) {
         await execAsync('npm install --legacy-peer-deps', { cwd: buildCwd, timeout: 180_000 })
 
         await updateTask(task, { progress: 40 }, '🔨 Building site…')
-        await execAsync('npm run build', { cwd: buildCwd, timeout: 180_000 })
+
+        // Auto-fix build errors — up to 3 AI-powered attempts
+        const MAX_FIX_ATTEMPTS = 3
+        let lastBuildError = ''
+        let buildSucceeded = false
+
+        for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
+          try {
+            await execAsync('npm run build', { cwd: buildCwd, timeout: 180_000 })
+            buildSucceeded = true
+            break
+          } catch (buildErr: any) {
+            lastBuildError = buildErr.stderr || buildErr.stdout || buildErr.message || String(buildErr)
+
+            if (attempt === MAX_FIX_ATTEMPTS) break
+
+            await updateTask(task, { progress: 40 + attempt * 8 },
+              `⚠️ Build failed (attempt ${attempt}/${MAX_FIX_ATTEMPTS}) — asking AI to fix…\n\`\`\`\n${lastBuildError.slice(0, 600)}\n\`\`\``)
+
+            // Extract file paths mentioned in the error (Vite/Rollup/webpack/tsc patterns)
+            const errorFilePaths = extractErrorFilePaths(lastBuildError, buildCwd)
+            const fileContext = errorFilePaths.map(p => {
+              try {
+                const content = fs.readFileSync(p, 'utf-8').slice(0, 4000)
+                return `<file path="${path.relative(buildCwd, p)}">\n${content}\n</file>`
+              } catch { return '' }
+            }).filter(Boolean).join('\n\n')
+
+            const fixProvider = createProvider(resolveProvider(aiProvider))
+            const fixPrompt = `You are fixing a JavaScript/React build error. Return ONLY the corrected files using <file path="relative/path"> tags. Do not explain, do not add markdown fences around the file tags.
+
+BUILD ERROR:
+${lastBuildError.slice(0, 2000)}
+
+CURRENT FILES:
+${fileContext || '(no files extracted — fix based on the error message alone)'}
+
+Fix every error shown. Return each fixed file as:
+<file path="src/path/to/file.jsx">
+...complete corrected file content...
+</file>`
+
+            try {
+              const fixResult = await fixProvider.chat([{ role: 'user', content: fixPrompt }])
+              const fixes = parseAIChanges(fixResult.content)
+              for (const fix of fixes) {
+                const absPath = path.join(buildCwd, fix.path)
+                fs.mkdirSync(path.dirname(absPath), { recursive: true })
+                fs.writeFileSync(absPath, fix.content, 'utf-8')
+              }
+              await updateTask(task, { progress: 40 + attempt * 8 + 4 },
+                `🔧 AI applied ${fixes.length} fix(es) — retrying build…`)
+            } catch {
+              // AI call failed — just retry the build as-is
+            }
+          }
+        }
+
+        if (!buildSucceeded) {
+          throw new Error(`Build failed after ${MAX_FIX_ATTEMPTS} AI-assisted attempts.\n\n${lastBuildError.slice(0, 1000)}`)
+        }
 
         await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
       } else {
