@@ -191,7 +191,16 @@ function patchHtmlPaths(distDir: string, apiProxyUrl?: string): void {
     const proxyScript = `<script>
 (function(){
   var __API__=${JSON.stringify(apiProxyUrl)};
-  function fixUrl(u){return(typeof u==='string'&&/^\\/api\\//.test(u))?__API__+u:u;}
+  function fixUrl(u){
+    if(typeof u!=='string')return u;
+    var origin=window.location.origin;
+    // catch both relative "/api/..." and absolute "https://current-origin/api/..."
+    if(u.startsWith('/api/')||u.startsWith(origin+'/api/')){
+      var p=u.startsWith(origin)?u.slice(origin.length):u;
+      return __API__+p;
+    }
+    return u;
+  }
   var _f=window.fetch;
   window.fetch=function(u,o){return _f.call(this,fixUrl(u),o);};
   var _o=XMLHttpRequest.prototype.open;

@@ -68,6 +68,10 @@ app.use(helmet({
   // X-Frame-Options header so it doesn't conflict.
   frameguard: false,
 }))
+// Deployed sites on R2/CDN call back to ForgeAI via /sites-api/* from a
+// different origin — allow any origin for that path only. Everything else
+// stays locked to the configured frontend origin.
+app.use('/sites-api', cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] }))
 app.use(cors({
   origin: FRONTEND_ORIGIN,
   credentials: true,

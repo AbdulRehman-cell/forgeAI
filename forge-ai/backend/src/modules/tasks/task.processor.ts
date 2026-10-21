@@ -959,14 +959,24 @@ async function blitzDeploy(job: Job) {
       const existingSlug = repo?.deployState?.['self-hosted']?.slug as string | undefined
       const deploySlug = existingSlug ?? makeSlug(repoName ?? 'site')
 
-      // Detect MERN layout up-front (needed in both build and no-build paths)
-      const hasMernLayout =
+      // Detect backend layout — covers split MERN (client/+server/) AND monolith
+      // (single package.json with express dep + both build & start scripts).
+      const hasSplitMern =
         (fs.existsSync(path.join(localPath, 'client')) && fs.existsSync(path.join(localPath, 'server'))) ||
         (fs.existsSync(path.join(localPath, 'frontend')) && fs.existsSync(path.join(localPath, 'backend')))
 
-      const serverDir = hasMernLayout
+      const rootPkgPath = path.join(localPath, 'package.json')
+      const rootPkg = fs.existsSync(rootPkgPath) ? JSON.parse(fs.readFileSync(rootPkgPath, 'utf-8')) : {}
+      const rootDeps = { ...rootPkg.dependencies, ...rootPkg.devDependencies }
+      const hasExpressAtRoot = !!(rootDeps.express || rootDeps.fastify || rootDeps.koa || rootDeps.hapi)
+      const hasMonolithLayout = !hasSplitMern && hasExpressAtRoot && !!rootPkg.scripts?.start
+
+      const hasMernLayout = hasSplitMern || hasMonolithLayout
+
+      // For split MERN the backend lives in server/ or backend/; for monolith it's the root
+      const serverDir = hasSplitMern
         ? (fs.existsSync(path.join(localPath, 'server')) ? path.join(localPath, 'server') : path.join(localPath, 'backend'))
-        : ''
+        : hasMonolithLayout ? localPath : ''
 
       let managedBackendPort: number | null = null
       let viteApiUrl = ''
@@ -977,8 +987,9 @@ async function blitzDeploy(job: Job) {
       const needsBuild = true
 
       if (needsBuild) {
-        // Detect where to run the frontend build: client/ for MERN, root for everything else
-        const buildCwd = hasMernLayout
+        // Detect where to run the frontend build:
+        // split MERN → client/ or frontend/  |  monolith / plain SPA → root
+        const buildCwd = hasSplitMern
           ? (fs.existsSync(path.join(localPath, 'client')) ? path.join(localPath, 'client') : path.join(localPath, 'frontend'))
           : localPath
 
