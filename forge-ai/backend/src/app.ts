@@ -109,15 +109,70 @@ app.use('/api/hosting', hostingRoutes)
 
 // ─── Proxy: managed MERN backends ─────────────────────────────────────────────
 // When a MERN app is self-hosted, we spawn its server/ directory as a child
-// process and proxy /sites-api/{slug}/* to it. The frontend is built with
-// VITE_API_URL=/sites-api/{slug} so all API calls route here automatically.
-app.use('/sites-api/:slug', (req, res) => {
-  const port = getBackendPort(req.params.slug)
-  if (!port) {
-    return res.status(503).json({ message: `Backend for site "${req.params.slug}" is not running. Redeploy to restart it.` })
+// process and proxy /sites-api/{slug}/* to it.
+
+// Tracks the in-flight global restore so the proxy can await it before 503-ing.
+let restorePromise: Promise<void> | null = null
+let backendsRestored = false
+
+async function restoreBackendsOnce() {
+  if (backendsRestored) return
+  backendsRestored = true
+  try {
+    const { Deployment } = await import('./modules/hosting/deployment.model')
+    const deploys = await Deployment.find({ backendDir: { $exists: true, $ne: null } }).lean()
+    for (const d of deploys) {
+      if (d.backendDir && fs.existsSync(d.backendDir)) {
+        console.log(`[startup] Restoring backend for slug "${d.slug}"`)
+        await startBackend(d.slug, d.backendDir).catch(e =>
+          console.error(`[startup] Failed to restore backend "${d.slug}": ${e.message}`)
+        )
+      }
+    }
+  } catch (e: any) {
+    console.error('[startup] Backend restore failed:', e.message)
   }
-  const target = `http://127.0.0.1:${port}`
-  const urlPath = req.url   // already stripped of /sites-api/:slug by Express
+}
+
+// Kick off restore lazily on first /sites-api hit (DB may not be ready at process start)
+app.use('/sites-api', (_req, _res, next) => {
+  if (!restorePromise) restorePromise = restoreBackendsOnce()
+  next()
+})
+
+// On-demand backend start: looks up backendDir from Deployment model and spawns it
+async function ensureBackend(slug: string): Promise<number | null> {
+  // 1. Already running?
+  const running = getBackendPort(slug)
+  if (running) return running
+
+  // 2. Wait for the global restore to finish (it may have just been kicked off)
+  if (restorePromise) await restorePromise
+
+  const running2 = getBackendPort(slug)
+  if (running2) return running2
+
+  // 3. Still not running — look up backendDir in DB and start it now
+  try {
+    const { Deployment } = await import('./modules/hosting/deployment.model')
+    const dep = await Deployment.findOne({ slug })
+    if (dep?.backendDir && fs.existsSync(dep.backendDir)) {
+      console.log(`[proxy] Starting backend for "${slug}" on demand`)
+      const { port } = await startBackend(slug, dep.backendDir)
+      return port
+    }
+  } catch (e: any) {
+    console.error(`[proxy] On-demand start failed for "${slug}": ${e.message}`)
+  }
+  return null
+}
+
+app.use('/sites-api/:slug', async (req, res) => {
+  const port = await ensureBackend(req.params.slug)
+  if (!port) {
+    return res.status(503).json({ message: `Backend for "${req.params.slug}" is not running. Redeploy to restart it.` })
+  }
+  const urlPath = req.url   // already stripped of /sites-api/:slug prefix by Express
 
   const proxyReq = http.request(
     { hostname: '127.0.0.1', port, path: urlPath || '/', method: req.method, headers: { ...req.headers, host: `localhost:${port}` } },
@@ -129,29 +184,6 @@ app.use('/sites-api/:slug', (req, res) => {
   proxyReq.on('error', () => res.status(502).json({ message: 'Backend unreachable' }))
   req.pipe(proxyReq, { end: true })
 })
-
-// Restore managed backends after server restarts (reads DB on first request to avoid blocking startup)
-let backendsRestored = false
-async function restoreBackendsOnce() {
-  if (backendsRestored) return
-  backendsRestored = true
-  try {
-    const { Deployment } = await import('./modules/hosting/deployment.model')
-    const deploys = await Deployment.find({ backendDir: { $exists: true, $ne: null } }).lean()
-    for (const d of deploys) {
-      if (d.backendDir && require('fs').existsSync(d.backendDir)) {
-        console.log(`[startup] Restoring backend for slug "${d.slug}" from ${d.backendDir}`)
-        startBackend(d.slug, d.backendDir).catch(e =>
-          console.error(`[startup] Failed to restore backend "${d.slug}": ${e.message}`)
-        )
-      }
-    }
-  } catch (e: any) {
-    console.error('[startup] Backend restore failed:', e.message)
-  }
-}
-// Trigger restore lazily on first /sites-api hit (DB may not be connected yet at startup)
-app.use('/sites-api', (req, _res, next) => { restoreBackendsOnce(); next() })
 
 // Self-hosted sites — served as static files with relaxed CSP so user-generated
 // HTML/JS/CSS can run. We disable helmet's opinionated headers for this path only.
