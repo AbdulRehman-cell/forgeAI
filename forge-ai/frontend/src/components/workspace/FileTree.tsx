@@ -1,26 +1,59 @@
+import { useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useWorkspaceStore } from '@/store/workspaceStore'
 import {
   ChevronRight, ChevronDown, Loader2, RefreshCw,
-  FileText, Folder, FolderOpen, FileCode2, FileJson, FileType2, Braces
+  FileText, Folder, FolderOpen, FileCode2, FileJson, FileType2, Braces, Upload
 } from 'lucide-react'
 import clsx from 'clsx'
+import JSZip from 'jszip'
+import toast from 'react-hot-toast'
 import type { FileNode } from '@/types'
+
+const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', '.cache'])
 
 interface Props { repositoryId: string }
 
 export default function FileTree({ repositoryId }: Props) {
   const qc = useQueryClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['filetree', repositoryId],
     queryFn: () => api.get(`/repositories/${repositoryId}/tree`).then((r) => r.data.tree),
-    // Poll every 4s while empty so new files appear automatically after a clone or task
     refetchInterval: (q) => (!q.state.data?.length && !q.state.error) ? 4000 : false,
     retry: 2,
   })
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['filetree', repositoryId] })
+
+  const isWorkspaceLost = (error as any)?.response?.data?.code === 'WORKSPACE_LOST'
+
+  const handleReupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
+    const toastId = toast.loading('Re-uploading workspace…')
+    try {
+      const zip = new JSZip()
+      for (let i = 0; i < fileList.length; i++) {
+        const f = fileList[i]
+        const rel = f.webkitRelativePath || f.name
+        if (rel.split('/').some((p: string) => SKIP.has(p))) continue
+        if (f.size > 10 * 1024 * 1024) continue
+        zip.file(rel, f)
+      }
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } })
+      const form = new FormData()
+      form.append('project', blob, 'project.zip')
+      await api.post(`/local/reupload-zip/${repositoryId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      toast.success('Workspace restored', { id: toastId })
+      refresh()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Re-upload failed', { id: toastId })
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
 
   if (isLoading) return (
     <div className="p-4 flex justify-center">
@@ -29,13 +62,33 @@ export default function FileTree({ repositoryId }: Props) {
   )
 
   if (isError) return (
-    <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed space-y-2">
+    <div className="p-4 text-xs text-center leading-relaxed space-y-3">
       <p className="text-red-400/80">
         {(error as any)?.response?.data?.message ?? 'Could not load files.'}
       </p>
-      <button onClick={refresh} className="flex items-center gap-1 mx-auto text-zinc-500 hover:text-zinc-300 transition-colors">
-        <RefreshCw size={11} /> Retry
-      </button>
+      {isWorkspaceLost ? (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            // @ts-ignore
+            webkitdirectory=""
+            multiple
+            className="hidden"
+            onChange={handleReupload}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 mx-auto px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-[11px] font-medium transition-colors"
+          >
+            <Upload size={11} /> Re-upload Folder
+          </button>
+        </>
+      ) : (
+        <button onClick={refresh} className="flex items-center gap-1 mx-auto text-zinc-500 hover:text-zinc-300 transition-colors">
+          <RefreshCw size={11} /> Retry
+        </button>
+      )}
     </div>
   )
 

@@ -145,7 +145,10 @@ router.get('/:id/tree', checkRepoAccess, async (req, res) => {
     }
 
     if (!recovered) {
-      return res.status(404).json({ message: 'Workspace files are unavailable. Please re-import or regenerate this repository.' })
+      return res.status(404).json({
+        code: 'WORKSPACE_LOST',
+        message: 'Workspace files were lost after a server restart. Re-upload your folder to restore them.',
+      })
     }
 
     repo.status = 'ready'

@@ -180,4 +180,46 @@ router.post('/upload-zip', zipUpload.single('project'), async (req, res) => {
   res.status(201).json({ repository: repo })
 })
 
+// ─── Re-upload ZIP to restore a lost workspace ─────────────────
+router.post('/reupload-zip/:repositoryId', zipUpload.single('project'), async (req, res) => {
+  const user = req.user as any
+  const file = req.file
+  if (!file) return res.status(400).json({ message: 'No zip file uploaded (field: "project")' })
+
+  const repo = await Repository.findOne({ _id: req.params.repositoryId, userId: user._id })
+  if (!repo) return res.status(404).json({ message: 'Repository not found' })
+
+  // Re-extract to the original localPath (or a fresh one if path changed)
+  const destDir = repo.localPath ?? path.join(WORKSPACES_DIR, user._id.toString(), `${Date.now()}-${repo.name}`)
+  fs.mkdirSync(destDir, { recursive: true })
+
+  try {
+    const zip = new AdmZip(file.buffer)
+    const entries = zip.getEntries()
+    const topDirs = new Set<string>()
+    entries.forEach(e => { const parts = e.entryName.split('/'); if (parts.length > 1) topDirs.add(parts[0]) })
+    const stripPrefix = topDirs.size === 1 ? `${[...topDirs][0]}/` : ''
+    entries.forEach(entry => {
+      if (entry.isDirectory) return
+      let relPath = entry.entryName
+      if (stripPrefix && relPath.startsWith(stripPrefix)) relPath = relPath.slice(stripPrefix.length)
+      if (!relPath) return
+      const outPath = path.join(destDir, relPath)
+      fs.mkdirSync(path.dirname(outPath), { recursive: true })
+      fs.writeFileSync(outPath, entry.getData())
+    })
+  } catch (err: any) {
+    return res.status(400).json({ message: `Failed to extract zip: ${err.message}` })
+  }
+
+  repo.localPath = destDir
+  repo.status = 'ready'
+  if (file.buffer.length <= 14 * 1024 * 1024) {
+    ;(repo as any).workspaceZip = file.buffer
+  }
+  await repo.save()
+
+  res.json({ repository: repo })
+})
+
 export default router
