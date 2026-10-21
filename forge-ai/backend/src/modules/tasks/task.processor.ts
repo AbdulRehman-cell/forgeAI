@@ -949,12 +949,26 @@ async function blitzDeploy(job: Job) {
   if (platform === 'self-hosted') {
     await updateTask(task, { status: 'running', progress: 10 }, '🚀 Starting ForgeAI deploy…')
     try {
-      const { selfHostedDeploy, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild } = await import('../../lib/selfHostedDeploy')
+      const { selfHostedDeploy, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild, makeSlug } = await import('../../lib/selfHostedDeploy')
       const { Deployment } = await import('../hosting/deployment.model')
+      const { startBackend } = await import('../../lib/processManager')
 
-      // Reuse existing slug if the repo was already deployed self-hosted
+      // Reuse existing slug if the repo was already deployed self-hosted; otherwise generate
+      // the slug NOW (before the build) so VITE_API_URL can be baked in correctly.
       const repo = repositoryId ? await (await import('../repository/repository.model')).Repository.findById(repositoryId) : null
       const existingSlug = repo?.deployState?.['self-hosted']?.slug as string | undefined
+      const deploySlug = existingSlug ?? makeSlug(repoName ?? 'site')
+
+      // Detect MERN layout up-front (needed in both build and no-build paths)
+      const hasMernLayout =
+        (fs.existsSync(path.join(localPath, 'client')) && fs.existsSync(path.join(localPath, 'server'))) ||
+        (fs.existsSync(path.join(localPath, 'frontend')) && fs.existsSync(path.join(localPath, 'backend')))
+
+      const serverDir = hasMernLayout
+        ? (fs.existsSync(path.join(localPath, 'server')) ? path.join(localPath, 'server') : path.join(localPath, 'backend'))
+        : ''
+
+      let managedBackendPort: number | null = null
 
       // ── Auto-build if no compiled output exists yet ──────────────────────
       // Try resolving the deploy root; if it throws, we need to build first.
@@ -962,10 +976,10 @@ async function blitzDeploy(job: Job) {
       try { findDeployRoot(localPath) } catch { needsBuild = true }
 
       if (needsBuild) {
-        // Detect where to run the build: client/ for MERN, root for everything else
-        const clientPkg = path.join(localPath, 'client', 'package.json')
-        const rootPkg   = path.join(localPath, 'package.json')
-        const buildCwd  = fs.existsSync(clientPkg) ? path.join(localPath, 'client') : localPath
+        // Detect where to run the frontend build: client/ for MERN, root for everything else
+        const buildCwd = hasMernLayout
+          ? (fs.existsSync(path.join(localPath, 'client')) ? path.join(localPath, 'client') : path.join(localPath, 'frontend'))
+          : localPath
 
         if (!fs.existsSync(path.join(buildCwd, 'package.json'))) {
           throw new Error('No package.json found — cannot build this project automatically.')
@@ -976,20 +990,41 @@ async function blitzDeploy(job: Job) {
           throw new Error('No "build" script found in package.json. Add one or build manually first.')
         }
 
+        // For MERN apps: install + start the Node backend first so we can bake VITE_API_URL
+        let viteApiUrl = ''
+        if (hasMernLayout && serverDir && fs.existsSync(path.join(serverDir, 'package.json'))) {
+          await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
+          await execAsync('npm install --legacy-peer-deps', { cwd: serverDir, timeout: 180_000 })
+          await updateTask(task, { progress: 16 }, '🚀 Starting managed backend process…')
+          const backendResult = await startBackend(deploySlug, serverDir)
+          managedBackendPort = backendResult.port
+          viteApiUrl = backendResult.proxyPath   // /sites-api/{deploySlug}
+          await updateTask(task, { progress: 18 }, `✅ Backend started on internal port ${managedBackendPort} — proxy: ${viteApiUrl}`)
+        }
+
         // Patch React Router to HashRouter — makes SPA routes work on static hosts
         const srcDir = path.join(buildCwd, 'src')
         const patchedFiles = patchRouterForStaticHosting(srcDir)
         if (patchedFiles > 0) {
-          await updateTask(task, { progress: 15 }, `🔧 Patched ${patchedFiles} file(s) to use hash-based routing (required for static hosting)…`)
+          await updateTask(task, { progress: 19 }, `🔧 Patched ${patchedFiles} file(s) to use hash-based routing…`)
         }
 
-        // Inject .env.example → .env if no .env present (gives Vite VITE_* vars)
-        const envInjected = injectEnvForBuild(buildCwd)
-        if (envInjected) {
-          await updateTask(task, { progress: 17 }, '⚙️  Injected .env.example as build environment…')
+        // Inject .env — copies .env.example if no .env exists, then sets VITE_API_URL
+        injectEnvForBuild(buildCwd)
+        if (viteApiUrl) {
+          // Write (or append) VITE_API_URL so the frontend calls through ForgeAI's proxy
+          const envPath = path.join(buildCwd, '.env')
+          let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
+          if (/^VITE_API_URL=/m.test(envContent)) {
+            envContent = envContent.replace(/^VITE_API_URL=.*/m, `VITE_API_URL=${viteApiUrl}`)
+          } else {
+            envContent += `\nVITE_API_URL=${viteApiUrl}\n`
+          }
+          fs.writeFileSync(envPath, envContent, 'utf-8')
+          await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
-        await updateTask(task, { progress: 20 }, `📦 Installing dependencies in ${path.basename(buildCwd)}…`)
+        await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
         await execAsync('npm install --legacy-peer-deps', { cwd: buildCwd, timeout: 180_000 })
 
         await updateTask(task, { progress: 40 }, '🔨 Building site…')
@@ -1060,10 +1095,19 @@ INSTRUCTIONS:
 
         await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
       } else {
-        await updateTask(task, { progress: 30 }, '📤 Uploading to ForgeAI…')
+        // Pre-built — still start MERN backend if needed
+        if (hasMernLayout && serverDir && fs.existsSync(path.join(serverDir, 'package.json'))) {
+          await updateTask(task, { progress: 20 }, '🚀 Starting managed backend process…')
+          const br = await startBackend(deploySlug, serverDir)
+          managedBackendPort = br.port
+          await updateTask(task, { progress: 30 }, `✅ Backend started on internal port ${managedBackendPort} — proxied via /sites-api/${deploySlug}`)
+        } else {
+          await updateTask(task, { progress: 30 }, '📤 Uploading to ForgeAI…')
+        }
       }
 
-      const result = await selfHostedDeploy({ localPath, name: repoName ?? 'site', existingSlug })
+      // deploySlug is pre-generated so selfHostedDeploy uses it consistently
+      const result = await selfHostedDeploy({ localPath, name: repoName ?? 'site', existingSlug: deploySlug })
 
       // Upsert deployment record
       await Deployment.findOneAndUpdate(
@@ -1074,7 +1118,8 @@ INSTRUCTIONS:
           repositoryId: repositoryId ?? undefined,
           siteName: repoName ?? 'site',
           url: result.url,
-          siteDir: result.siteDir,
+          siteDir: result.siteDir ?? '',
+          ...(managedBackendPort != null ? { backendDir: serverDir, backendPort: managedBackendPort } : {}),
         },
         { upsert: true, new: true },
       )
@@ -1086,14 +1131,11 @@ INSTRUCTIONS:
       }
 
       const providerNote = result.provider === 'r2'
-        ? 'Frontend served globally via Cloudflare R2 — zero load on your ForgeAI server.'
+        ? 'Frontend served globally via Cloudflare R2.'
         : 'Frontend running directly on your ForgeAI server.'
 
-      // Detect MERN app — has both client/ and server/ folders
-      const hasMernBackend = fs.existsSync(path.join(localPath, 'server')) &&
-        fs.existsSync(path.join(localPath, 'client'))
-      const backendNote = hasMernBackend
-        ? `\n\n> **⚠️ Backend not deployed** — This is a MERN app. The frontend is live but the backend (server/) needs a running Node.js process. Deploy server/ to Render or Railway and set \`VITE_API_URL\` to its URL, then redeploy the frontend.`
+      const backendNote = managedBackendPort != null
+        ? `\n\n> **Backend running** — Node.js server is live internally, proxied via \`/sites-api/${result.slug}/\`. Frontend API calls route through ForgeAI automatically.`
         : ''
 
       await updateTask(task, { status: 'completed', progress: 100 },

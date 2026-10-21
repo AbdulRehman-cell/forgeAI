@@ -27,6 +27,8 @@ import teamsRoutes from './modules/teams/teams.routes'
 import whiteLabelRoutes from './modules/settings/whitelabel.routes'
 import hostingRoutes from './modules/hosting/hosting.routes'
 import { SITES_DIR, checkR2Config } from './lib/selfHostedDeploy'
+import { startBackend, getBackendPort } from './lib/processManager'
+import http from 'http'
 import { Repository } from './modules/repository/repository.model'
 import { Task } from './modules/tasks/task.model'
 import { startWAScheduler } from './lib/waScheduler'
@@ -100,6 +102,52 @@ app.use('/api/whatsapp', whatsappRoutes)
 app.use('/api/audit', auditRoutes)  // public — no auth
 app.use('/api/whitelabel', whiteLabelRoutes)
 app.use('/api/hosting', hostingRoutes)
+
+// ─── Proxy: managed MERN backends ─────────────────────────────────────────────
+// When a MERN app is self-hosted, we spawn its server/ directory as a child
+// process and proxy /sites-api/{slug}/* to it. The frontend is built with
+// VITE_API_URL=/sites-api/{slug} so all API calls route here automatically.
+app.use('/sites-api/:slug', (req, res) => {
+  const port = getBackendPort(req.params.slug)
+  if (!port) {
+    return res.status(503).json({ message: `Backend for site "${req.params.slug}" is not running. Redeploy to restart it.` })
+  }
+  const target = `http://127.0.0.1:${port}`
+  const urlPath = req.url   // already stripped of /sites-api/:slug by Express
+
+  const proxyReq = http.request(
+    { hostname: '127.0.0.1', port, path: urlPath || '/', method: req.method, headers: { ...req.headers, host: `localhost:${port}` } },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers)
+      proxyRes.pipe(res, { end: true })
+    },
+  )
+  proxyReq.on('error', () => res.status(502).json({ message: 'Backend unreachable' }))
+  req.pipe(proxyReq, { end: true })
+})
+
+// Restore managed backends after server restarts (reads DB on first request to avoid blocking startup)
+let backendsRestored = false
+async function restoreBackendsOnce() {
+  if (backendsRestored) return
+  backendsRestored = true
+  try {
+    const { Deployment } = await import('./modules/hosting/deployment.model')
+    const deploys = await Deployment.find({ backendDir: { $exists: true, $ne: null } }).lean()
+    for (const d of deploys) {
+      if (d.backendDir && require('fs').existsSync(d.backendDir)) {
+        console.log(`[startup] Restoring backend for slug "${d.slug}" from ${d.backendDir}`)
+        startBackend(d.slug, d.backendDir).catch(e =>
+          console.error(`[startup] Failed to restore backend "${d.slug}": ${e.message}`)
+        )
+      }
+    }
+  } catch (e: any) {
+    console.error('[startup] Backend restore failed:', e.message)
+  }
+}
+// Trigger restore lazily on first /sites-api hit (DB may not be connected yet at startup)
+app.use('/sites-api', (req, _res, next) => { restoreBackendsOnce(); next() })
 
 // Self-hosted sites — served as static files with relaxed CSP so user-generated
 // HTML/JS/CSS can run. We disable helmet's opinionated headers for this path only.

@@ -7,6 +7,8 @@ export interface IDeployment extends Document {
   siteName: string
   url: string
   siteDir: string
+  backendDir?: string   // absolute path to server/ dir when a managed backend is running
+  backendPort?: number  // port the managed backend process listens on
   customDomain?: string
   createdAt: Date
   updatedAt: Date
@@ -20,6 +22,8 @@ const DeploymentSchema = new Schema<IDeployment>(
     siteName:     { type: String, required: true },
     url:          { type: String, required: true },
     siteDir:      { type: String, required: true },
+    backendDir:   { type: String },
+    backendPort:  { type: Number },
     customDomain: { type: String },
   },
   { timestamps: true },

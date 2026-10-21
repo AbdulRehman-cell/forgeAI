@@ -46,6 +46,10 @@ function sanitizeSlug(name: string): string {
     .slice(0, 50)
 }
 
+export function makeSlug(name: string): string {
+  return `${sanitizeSlug(name)}-${Math.random().toString(36).slice(2, 6)}`
+}
+
 // ─── Fix 3: R2 config pre-check (called once at server startup) ───────────────
 
 export function checkR2Config(): void {
@@ -323,7 +327,7 @@ export async function selfHostedDeploy(options: {
   existingSlug?: string
 }): Promise<SelfHostedResult> {
   const { localPath, name, existingSlug } = options
-  const slug = existingSlug ?? `${sanitizeSlug(name)}-${Math.random().toString(36).slice(2, 6)}`
+  const slug = existingSlug ?? makeSlug(name)
 
   // Resolve to the actual built output directory (dist/, client/dist/, etc.)
   const deployRoot = findDeployRoot(localPath)
