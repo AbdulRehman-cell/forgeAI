@@ -34,6 +34,22 @@ async function findFreePort(): Promise<number> {
   throw new Error('No free ports available in managed-backend range 5100–5999')
 }
 
+function waitForPort(port: number, timeoutMs = 15_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs
+    function attempt() {
+      const sock = net.createConnection({ host: '127.0.0.1', port })
+      sock.once('connect', () => { sock.destroy(); resolve() })
+      sock.once('error', () => {
+        sock.destroy()
+        if (Date.now() >= deadline) return reject(new Error(`Port ${port} not ready after ${timeoutMs}ms`))
+        setTimeout(attempt, 250)
+      })
+    }
+    attempt()
+  })
+}
+
 function detectStartCommand(serverDir: string): { cmd: string; args: string[] } {
   const pkgPath = path.join(serverDir, 'package.json')
   if (fs.existsSync(pkgPath)) {
@@ -76,7 +92,9 @@ export async function startBackend(slug: string, serverDir: string): Promise<{ p
   })
 
   processes.set(slug, { slug, serverDir, process: proc, port, startedAt: new Date(), restarts: 0 })
-  console.log(`[backend:${slug}] started on port ${port} (${cmd} ${args.join(' ')})`)
+  console.log(`[backend:${slug}] started on port ${port} (${cmd} ${args.join(' ')}) — waiting for ready…`)
+  await waitForPort(port).catch(e => console.warn(`[backend:${slug}] ${e.message}`))
+  console.log(`[backend:${slug}] ready`)
   return { port, proxyPath: `/sites-api/${slug}` }
 }
 
