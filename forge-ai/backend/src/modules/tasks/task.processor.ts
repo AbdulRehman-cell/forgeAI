@@ -969,11 +969,12 @@ async function blitzDeploy(job: Job) {
         : ''
 
       let managedBackendPort: number | null = null
+      let viteApiUrl = ''
 
-      // ── Auto-build if no compiled output exists yet ──────────────────────
-      // Try resolving the deploy root; if it throws, we need to build first.
-      let needsBuild = false
-      try { findDeployRoot(localPath) } catch { needsBuild = true }
+      // Always rebuild on self-hosted deploy — ensures HashRouter patch, correct
+      // VITE_API_URL, and fresh assets are baked in. Skipping the build would
+      // serve a stale dist with BrowserRouter (routes break on R2) or wrong API URL.
+      const needsBuild = true
 
       if (needsBuild) {
         // Detect where to run the frontend build: client/ for MERN, root for everything else
@@ -990,16 +991,18 @@ async function blitzDeploy(job: Job) {
           throw new Error('No "build" script found in package.json. Add one or build manually first.')
         }
 
-        // For MERN apps: install + start the Node backend first so we can bake VITE_API_URL
-        let viteApiUrl = ''
+        // For MERN apps: install + start the Node backend first so we can bake VITE_API_URL.
+        // VITE_API_URL must be an ABSOLUTE URL — the frontend is served from R2 (different
+        // domain), so a relative /sites-api/... would resolve against R2, not ForgeAI.
         if (hasMernLayout && serverDir && fs.existsSync(path.join(serverDir, 'package.json'))) {
           await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
           await execAsync('npm install --legacy-peer-deps', { cwd: serverDir, timeout: 180_000 })
           await updateTask(task, { progress: 16 }, '🚀 Starting managed backend process…')
           const backendResult = await startBackend(deploySlug, serverDir)
           managedBackendPort = backendResult.port
-          viteApiUrl = backendResult.proxyPath   // /sites-api/{deploySlug}
-          await updateTask(task, { progress: 18 }, `✅ Backend started on internal port ${managedBackendPort} — proxy: ${viteApiUrl}`)
+          const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
+          viteApiUrl = `${publicBase}/sites-api/${deploySlug}`
+          await updateTask(task, { progress: 18 }, `✅ Backend started — API proxied at ${viteApiUrl}`)
         }
 
         // Patch React Router to HashRouter — makes SPA routes work on static hosts
@@ -1094,20 +1097,18 @@ INSTRUCTIONS:
         }
 
         await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
-      } else {
-        // Pre-built — still start MERN backend if needed
-        if (hasMernLayout && serverDir && fs.existsSync(path.join(serverDir, 'package.json'))) {
-          await updateTask(task, { progress: 20 }, '🚀 Starting managed backend process…')
-          const br = await startBackend(deploySlug, serverDir)
-          managedBackendPort = br.port
-          await updateTask(task, { progress: 30 }, `✅ Backend started on internal port ${managedBackendPort} — proxied via /sites-api/${deploySlug}`)
-        } else {
-          await updateTask(task, { progress: 30 }, '📤 Uploading to ForgeAI…')
-        }
       }
 
-      // deploySlug is pre-generated so selfHostedDeploy uses it consistently
-      const result = await selfHostedDeploy({ localPath, name: repoName ?? 'site', existingSlug: deploySlug })
+      // deploySlug is pre-generated so selfHostedDeploy uses it consistently.
+      // apiProxyUrl (when set) is injected as a fetch/XHR interceptor in index.html
+      // so ALL relative /api/ calls get forwarded to the ForgeAI proxy — works even
+      // when the project doesn't use VITE_API_URL.
+      const result = await selfHostedDeploy({
+        localPath,
+        name: repoName ?? 'site',
+        existingSlug: deploySlug,
+        apiProxyUrl: managedBackendPort != null ? viteApiUrl : undefined,
+      })
 
       // Upsert deployment record
       await Deployment.findOneAndUpdate(

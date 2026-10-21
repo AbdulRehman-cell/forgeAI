@@ -174,7 +174,9 @@ export function injectEnvForBuild(buildCwd: string): boolean {
 // Vite/CRA build with absolute asset paths (/assets/...) which break when the
 // site is served from a sub-path like /sites/{slug}/. Rewrite them to relative
 // paths (./assets/...) so the browser resolves them against the current URL.
-function patchHtmlPaths(distDir: string): void {
+// Optionally injects an API proxy interceptor so relative /api/ calls are
+// forwarded to the ForgeAI backend regardless of what env var the project uses.
+function patchHtmlPaths(distDir: string, apiProxyUrl?: string): void {
   const indexPath = path.join(distDir, 'index.html')
   if (!fs.existsSync(indexPath)) return
   let html = fs.readFileSync(indexPath, 'utf-8')
@@ -182,6 +184,26 @@ function patchHtmlPaths(distDir: string): void {
   html = html.replace(/(src|href|content)="\/(?!\/)/g, '$1="./')
   // <base href="/"> → <base href="./">
   html = html.replace(/(<base\s[^>]*href=")\/(")/g, '$1./$2')
+
+  // Inject API proxy interceptor — rewrites every relative /api/ fetch/XHR call
+  // to the absolute ForgeAI proxy URL so the backend works from any CDN origin.
+  if (apiProxyUrl) {
+    const proxyScript = `<script>
+(function(){
+  var __API__=${JSON.stringify(apiProxyUrl)};
+  function fixUrl(u){return(typeof u==='string'&&/^\\/api\\//.test(u))?__API__+u:u;}
+  var _f=window.fetch;
+  window.fetch=function(u,o){return _f.call(this,fixUrl(u),o);};
+  var _o=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(m,u){var a=Array.from(arguments);a[1]=fixUrl(u);return _o.apply(this,a);};
+})();
+</script>`
+    // Insert right before </head> so it runs before any app JS
+    html = html.includes('</head>')
+      ? html.replace('</head>', proxyScript + '</head>')
+      : proxyScript + html
+  }
+
   fs.writeFileSync(indexPath, html, 'utf-8')
 }
 
@@ -325,8 +347,9 @@ export async function selfHostedDeploy(options: {
   localPath: string
   name: string
   existingSlug?: string
+  apiProxyUrl?: string  // absolute URL of the ForgeAI backend proxy for this site's backend
 }): Promise<SelfHostedResult> {
-  const { localPath, name, existingSlug } = options
+  const { localPath, name, existingSlug, apiProxyUrl } = options
   const slug = existingSlug ?? makeSlug(name)
 
   // Resolve to the actual built output directory (dist/, client/dist/, etc.)
@@ -335,8 +358,8 @@ export async function selfHostedDeploy(options: {
   // Fix 1: fail fast if nothing to deploy
   assertHasFiles(deployRoot)
 
-  // Rewrite absolute asset paths to relative so the site works at any sub-path
-  patchHtmlPaths(deployRoot)
+  // Rewrite absolute asset paths to relative + inject API proxy interceptor
+  patchHtmlPaths(deployRoot, apiProxyUrl)
 
   if (r2Configured()) {
     // Fix 2: upload with rollback on failure
