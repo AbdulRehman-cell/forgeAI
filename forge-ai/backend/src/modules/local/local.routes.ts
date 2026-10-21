@@ -6,8 +6,22 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import axios from 'axios'
+import multer from 'multer'
+import AdmZip from 'adm-zip'
 import { requireAuth } from '../../middleware/auth.middleware'
 import { Repository } from '../repository/repository.model'
+
+const WORKSPACES_DIR = process.env.WORKSPACES_DIR ?? path.join(process.cwd(), 'workspaces')
+if (!fs.existsSync(WORKSPACES_DIR)) fs.mkdirSync(WORKSPACES_DIR, { recursive: true })
+
+const zipUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'application/zip' || file.originalname.endsWith('.zip')) cb(null, true)
+    else cb(new Error('Only .zip files are allowed'))
+  },
+})
 
 const router = Router()
 router.use(requireAuth)
@@ -98,6 +112,66 @@ router.post('/open', async (req, res) => {
   axios.post(`${PYTHON_SERVICE}/repo/index`, { path: abs, repositoryId: repo._id.toString() })
     .then(() => Repository.updateOne({ _id: repo._id }, { indexed: true }))
     .catch(() => console.warn('[local] Python service unavailable, skipping index'))
+
+  res.status(201).json({ repository: repo })
+})
+
+// ─── Upload a ZIP of a local project ──────────────────────────
+router.post('/upload-zip', zipUpload.single('project'), async (req, res) => {
+  const user = req.user as any
+  const file = req.file
+  if (!file) return res.status(400).json({ message: 'No zip file uploaded (field: "project")' })
+
+  const originalName = path.basename(file.originalname, '.zip') || 'project'
+  const slug = `${Date.now()}-${originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}`
+  const destDir = path.join(WORKSPACES_DIR, user._id.toString(), slug)
+  fs.mkdirSync(destDir, { recursive: true })
+
+  try {
+    const zip = new AdmZip(file.buffer)
+    const entries = zip.getEntries()
+
+    // Detect top-level folder wrapping (e.g. when user zips a folder)
+    const topDirs = new Set<string>()
+    entries.forEach(e => { const parts = e.entryName.split('/'); if (parts.length > 1) topDirs.add(parts[0]) })
+    const stripPrefix = topDirs.size === 1 ? `${[...topDirs][0]}/` : ''
+
+    entries.forEach(entry => {
+      if (entry.isDirectory) return
+      let relPath = entry.entryName
+      if (stripPrefix && relPath.startsWith(stripPrefix)) relPath = relPath.slice(stripPrefix.length)
+      if (!relPath) return
+      const outPath = path.join(destDir, relPath)
+      fs.mkdirSync(path.dirname(outPath), { recursive: true })
+      fs.writeFileSync(outPath, entry.getData())
+    })
+  } catch (err: any) {
+    fs.rmSync(destDir, { recursive: true, force: true })
+    return res.status(400).json({ message: `Failed to extract zip: ${err.message}` })
+  }
+
+  const existing = await Repository.findOne({ userId: user._id, localPath: destDir, source: 'local' })
+  if (existing) return res.json({ repository: existing })
+
+  const repo = await Repository.create({
+    userId: user._id,
+    githubId: -Date.now(),
+    name: originalName,
+    fullName: `local/${originalName}`,
+    description: destDir,
+    private: true,
+    defaultBranch: 'main',
+    cloneUrl: `file:///${destDir.replace(/\\/g, '/')}`,
+    localPath: destDir,
+    status: 'ready',
+    indexed: false,
+    source: 'local',
+  })
+
+  const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'
+  axios.post(`${PYTHON_SERVICE}/repo/index`, { path: destDir, repositoryId: repo._id.toString() })
+    .then(() => Repository.updateOne({ _id: repo._id }, { indexed: true }))
+    .catch(() => {})
 
   res.status(201).json({ repository: repo })
 })
