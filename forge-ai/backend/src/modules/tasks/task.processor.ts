@@ -1073,7 +1073,8 @@ async function blitzDeploy(job: Job) {
         }
 
         await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
-        await execAsync('npm install --legacy-peer-deps', { cwd: buildCwd, timeout: 180_000 })
+        // --include=dev ensures vite/esbuild are installed even when NODE_ENV=production (Render default)
+        await execAsync('npm install --legacy-peer-deps --include=dev', { cwd: buildCwd, timeout: 180_000 })
 
         await updateTask(task, { progress: 40 }, '🔨 Building site…')
 
@@ -1082,9 +1083,14 @@ async function blitzDeploy(job: Job) {
         let lastBuildError = ''
         let buildSucceeded = false
 
+        // Prefer local bin so node_modules/.bin/vite is found even when PATH doesn't include it
+        const buildCmd = fs.existsSync(path.join(buildCwd, 'node_modules', '.bin', 'vite'))
+          ? './node_modules/.bin/vite build'
+          : 'npm run build'
+
         for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
           try {
-            await execAsync('npm run build', { cwd: buildCwd, timeout: 180_000 })
+            await execAsync(buildCmd, { cwd: buildCwd, timeout: 180_000 })
             buildSucceeded = true
             break
           } catch (buildErr: any) {
