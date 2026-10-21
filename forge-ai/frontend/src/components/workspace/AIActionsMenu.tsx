@@ -15,6 +15,7 @@ import {
   TrainFront,
   Server,
   FileSearch,
+  Zap,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -63,6 +64,7 @@ const ACTIONS = [
 
 /* ───────────────── Deploy Platforms ───────────────── */
 const DEPLOY_PLATFORMS = [
+  { id: 'self-hosted', label: 'Forge AI', icon: Zap, desc: 'Instant — no external account needed', highlight: true },
   { id: 'auto', label: 'Auto-detect', icon: Sparkles, desc: 'AI picks & deploys live' },
   { id: 'docker', label: 'Docker', icon: Container, desc: 'Configs only (self-host)' },
   { id: 'vercel', label: 'Vercel', icon: Triangle, desc: 'Live URL in minutes' },
@@ -194,24 +196,35 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
             {/* Platforms */}
             {deployOpen && !tokenPlatform && (
               <div className="mt-1.5 space-y-0.5 pl-2">
-                {DEPLOY_PLATFORMS.map(({ id, label, icon: Icon, desc }) => (
-                  <button
-                    key={id}
-                    disabled={running !== null}
-                    onClick={() => startDeploy(id)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[#1e1e26] text-left"
-                  >
-                    <Icon size={13} className="text-brand-400" />
-                    <div className="flex-1">
-                      <span className="text-[11.5px] text-zinc-300 font-medium">
-                        {label}
-                      </span>
-                      <span className="text-[10px] text-zinc-600 ml-2">
-                        {desc}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+                {DEPLOY_PLATFORMS.map(({ id, label, icon: Icon, desc, ...rest }) => {
+                  const highlight = 'highlight' in rest && rest.highlight
+                  return (
+                    <button
+                      key={id}
+                      disabled={running !== null}
+                      onClick={() => startDeploy(id)}
+                      className={clsx(
+                        'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left',
+                        highlight
+                          ? 'bg-brand-600/10 border border-brand-500/30 hover:border-brand-500/60 hover:bg-brand-600/20'
+                          : 'hover:bg-[#1e1e26]',
+                      )}
+                    >
+                      <Icon size={13} className={highlight ? 'text-brand-400' : 'text-brand-400'} />
+                      <div className="flex-1">
+                        <span className={clsx('text-[11.5px] font-medium', highlight ? 'text-brand-300' : 'text-zinc-300')}>
+                          {label}
+                        </span>
+                        <span className="text-[10px] text-zinc-600 ml-2">{desc}</span>
+                      </div>
+                      {highlight && (
+                        <span className="text-[8px] bg-brand-500 text-white px-1.5 py-0.5 rounded-full shrink-0">
+                          FREE
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
             )}
 
