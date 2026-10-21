@@ -23,10 +23,13 @@ app.get('/api/health', (_req, res) => {
 app.listen(PORT, () => console.log(`Server listening on port ${PORT}`))
 
 // Connect to MongoDB with automatic retries — never exit the process
-const MONGO_URI = process.env.MONGODB_URI ||
-  'mongodb+srv://abdulrehmanishaque32_db_user:forge@cluster0.ejwhs2h.mongodb.net/forgeai_test'
+const MONGO_URI = process.env.MONGODB_URI
 
 async function connectWithRetry(attempt = 1) {
+  if (!MONGO_URI) {
+    console.error('MONGODB_URI not set — check your .env file')
+    return
+  }
   try {
     await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 10000 })
     console.log('MongoDB connected')
