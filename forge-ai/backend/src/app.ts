@@ -242,32 +242,42 @@ app.use('/sites-api/:slug', async (req, res) => {
   }
   const urlPath = req.url   // already stripped of /sites-api/:slug prefix by Express
 
-  // Buffer the request body so we can retry if the backend isn't ready yet
-  const chunks: Buffer[] = []
-  req.on('data', (c: Buffer) => chunks.push(c))
-  req.on('end', () => {
-    const body = Buffer.concat(chunks)
+  // express.json() already consumed the body stream — rebuild it from req.body.
+  // Trying to re-read the stream with req.on('data') would hang because the
+  // 'end' event already fired before this handler was reached.
+  let body: Buffer
+  if (req.body !== undefined && Object.keys(req.body).length > 0) {
+    body = Buffer.from(JSON.stringify(req.body))
+  } else {
+    body = Buffer.alloc(0)
+  }
 
-    function doProxy(attemptsLeft: number) {
-      const proxyReq = http.request(
-        { hostname: '127.0.0.1', port, path: urlPath || '/', method: req.method, headers: { ...req.headers, host: `localhost:${port}`, 'content-length': body.length } },
-        (proxyRes) => {
-          if (res.headersSent) return
-          res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers)
-          proxyRes.pipe(res, { end: true })
-        },
-      )
-      proxyReq.on('error', () => {
-        if (attemptsLeft > 1) {
-          setTimeout(() => doProxy(attemptsLeft - 1), 400)
-        } else {
-          if (!res.headersSent) res.status(502).json({ message: 'Backend unreachable' })
-        }
-      })
-      proxyReq.end(body)
-    }
-    doProxy(3)
-  })
+  const proxyHeaders: Record<string, string | string[] | undefined> = {
+    ...req.headers,
+    host: `localhost:${port}`,
+    'content-length': String(body.length),
+  }
+  if (body.length > 0) proxyHeaders['content-type'] = 'application/json'
+
+  function doProxy(attemptsLeft: number) {
+    const proxyReq = http.request(
+      { hostname: '127.0.0.1', port, path: urlPath || '/', method: req.method, headers: proxyHeaders },
+      (proxyRes) => {
+        if (res.headersSent) return
+        res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers)
+        proxyRes.pipe(res, { end: true })
+      },
+    )
+    proxyReq.on('error', () => {
+      if (attemptsLeft > 1) {
+        setTimeout(() => doProxy(attemptsLeft - 1), 400)
+      } else {
+        if (!res.headersSent) res.status(502).json({ message: 'Backend unreachable' })
+      }
+    })
+    proxyReq.end(body)
+  }
+  doProxy(3)
 })
 
 // Self-hosted sites — served as static files with relaxed CSP so user-generated
