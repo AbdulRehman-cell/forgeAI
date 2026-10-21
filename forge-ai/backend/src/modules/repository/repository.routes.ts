@@ -112,6 +112,38 @@ router.get('/:id/tree', checkRepoAccess, async (req, res) => {
       } catch { /* fall through */ }
     }
 
+    // Strategy 3: re-extract from workspaceZip stored in MongoDB (uploaded local projects)
+    if (!recovered) {
+      try {
+        const repoWithZip = await (await import('../repository/repository.model')).Repository
+          .findById(repo._id).select('+workspaceZip').lean()
+        const zipBuf: Buffer | undefined = (repoWithZip as any)?.workspaceZip?.buffer
+          ?? (repoWithZip as any)?.workspaceZip
+        if (zipBuf && zipBuf.length > 0) {
+          const AdmZip = (await import('adm-zip')).default
+          const zip = new AdmZip(zipBuf)
+          const entries = zip.getEntries()
+          const topDirs = new Set<string>()
+          entries.forEach((e: any) => {
+            const parts = e.entryName.split('/')
+            if (parts.length > 1) topDirs.add(parts[0])
+          })
+          const stripPrefix = topDirs.size === 1 ? `${[...topDirs][0]}/` : ''
+          fs.mkdirSync(repo.localPath, { recursive: true })
+          entries.forEach((entry: any) => {
+            if (entry.isDirectory) return
+            let relPath = entry.entryName
+            if (stripPrefix && relPath.startsWith(stripPrefix)) relPath = relPath.slice(stripPrefix.length)
+            if (!relPath) return
+            const outPath = path.join(repo.localPath!, relPath)
+            fs.mkdirSync(path.dirname(outPath), { recursive: true })
+            fs.writeFileSync(outPath, entry.getData())
+          })
+          recovered = true
+        }
+      } catch { /* fall through */ }
+    }
+
     if (!recovered) {
       return res.status(404).json({ message: 'Workspace files are unavailable. Please re-import or regenerate this repository.' })
     }

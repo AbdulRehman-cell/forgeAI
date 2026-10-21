@@ -188,6 +188,40 @@ async function ensureLocalPath(job: Job) {
     return
   }
 
+  // Strategy 3: re-extract from workspaceZip stored in MongoDB (uploaded local projects)
+  try {
+    const repoWithZip = await Repository.findById(repositoryId).select('+workspaceZip').lean()
+    const zipBuf: Buffer | undefined = (repoWithZip as any)?.workspaceZip?.buffer
+      ?? (repoWithZip as any)?.workspaceZip
+    if (zipBuf && zipBuf.length > 0) {
+      const AdmZip = (await import('adm-zip')).default
+      const zip = new AdmZip(zipBuf)
+      const entries = zip.getEntries()
+      const topDirs = new Set<string>()
+      entries.forEach((e: any) => {
+        const parts = e.entryName.split('/')
+        if (parts.length > 1) topDirs.add(parts[0])
+      })
+      const stripPrefix = topDirs.size === 1 ? `${[...topDirs][0]}/` : ''
+      fs.mkdirSync(localPath, { recursive: true })
+      entries.forEach((entry: any) => {
+        if (entry.isDirectory) return
+        let relPath = entry.entryName
+        if (stripPrefix && relPath.startsWith(stripPrefix)) relPath = relPath.slice(stripPrefix.length)
+        if (!relPath) return
+        const outPath = path.join(localPath, relPath)
+        fs.mkdirSync(path.dirname(outPath), { recursive: true })
+        fs.writeFileSync(outPath, entry.getData())
+      })
+      repo.status = 'ready'
+      await repo.save()
+      console.info(`[processor] Restored workspace from zip for ${repo.fullName}`)
+      return
+    }
+  } catch (e) {
+    console.warn('[processor] Zip restore failed:', e)
+  }
+
   throw new Error(
     'The workspace was lost (server restart) and could not be recovered. ' +
     'Please regenerate this site.',

@@ -153,6 +153,9 @@ router.post('/upload-zip', zipUpload.single('project'), async (req, res) => {
   const existing = await Repository.findOne({ userId: user._id, localPath: destDir, source: 'local' })
   if (existing) return res.json({ repository: existing })
 
+  // Store zip in MongoDB (capped at 14 MB) so files survive Render restarts
+  const zipForDb = file.buffer.length <= 14 * 1024 * 1024 ? file.buffer : undefined
+
   const repo = await Repository.create({
     userId: user._id,
     githubId: -Date.now(),
@@ -166,6 +169,7 @@ router.post('/upload-zip', zipUpload.single('project'), async (req, res) => {
     status: 'ready',
     indexed: false,
     source: 'local',
+    workspaceZip: zipForDb,
   })
 
   const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'

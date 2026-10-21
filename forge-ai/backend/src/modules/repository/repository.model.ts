@@ -72,6 +72,9 @@ export interface IRepository extends Document {
   allowedMemberIds?: Types.ObjectId[]
   /** Add-ons selected at build time (e.g. whatsapp, leads, seo, booking, reviews, chatbot) */
   addons?: string[]
+  /** Original ZIP buffer for uploaded local workspaces — stored so files can be
+   *  recovered automatically when Render's ephemeral filesystem is wiped. select:false. */
+  workspaceZip?: Buffer
   createdAt: Date
   updatedAt: Date
 }
@@ -123,6 +126,7 @@ const repositorySchema = new Schema<IRepository>(
       theme: { type: String, enum: ['dark', 'exec'], default: 'dark' },
       vertical: { type: String, default: 'general' },
     },
+    workspaceZip: { type: Buffer, select: false },
   },
   { timestamps: true },
 )
