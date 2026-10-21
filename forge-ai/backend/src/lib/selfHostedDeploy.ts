@@ -93,7 +93,7 @@ function makeR2Client(): S3Client {
 
 function r2PublicUrl(slug: string): string {
   const base = process.env.CLOUDFLARE_R2_PUBLIC_URL!.replace(/\/$/, '')
-  return `${base}/sites/${slug}/`
+  return `${base}/sites/${slug}/index.html`
 }
 
 // ─── Find the right directory to deploy ─────────────────────────────────────
@@ -300,7 +300,7 @@ function copyDir(src: string, dest: string): number {
 
 function localUrl(slug: string): string {
   const base = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
-  return `${base}/sites/${slug}`
+  return `${base}/sites/${slug}/`
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
