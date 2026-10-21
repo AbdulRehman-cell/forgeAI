@@ -29,7 +29,11 @@ import hostingRoutes from './modules/hosting/hosting.routes'
 import { SITES_DIR, checkR2Config } from './lib/selfHostedDeploy'
 import { startBackend, getBackendPort } from './lib/processManager'
 import http from 'http'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { Repository } from './modules/repository/repository.model'
+
+const execFileAsync = promisify(execFile)
 import { Task } from './modules/tasks/task.model'
 import { startWAScheduler } from './lib/waScheduler'
 
@@ -117,6 +121,55 @@ app.use('/api/hosting', hostingRoutes)
 let restorePromise: Promise<void> | null = null
 let backendsRestored = false
 
+// Write stored env vars to backendDir/.env
+function writeEnvFile(backendDir: string, envVars: any) {
+  const vars = envVars instanceof Map ? Object.fromEntries(envVars) : (envVars ?? {})
+  if (!vars || Object.keys(vars).length === 0) return
+  const envLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`).join('\n') + '\n'
+  try { fs.writeFileSync(path.join(backendDir, '.env'), envLines, 'utf-8') } catch {}
+}
+
+// Re-extract workspace zip from MongoDB and npm install so the backend can start
+// after Render wipes the ephemeral filesystem on every redeploy.
+async function restoreWorkspace(repositoryId: string, backendDir: string): Promise<boolean> {
+  try {
+    const AdmZip = (await import('adm-zip')).default
+    const repoWithZip = await Repository.findById(repositoryId).select('+workspaceZip localPath').lean() as any
+    const zipBuf: Buffer | undefined = repoWithZip?.workspaceZip?.buffer ?? repoWithZip?.workspaceZip
+    const localPath: string | undefined = repoWithZip?.localPath
+    if (!zipBuf || !zipBuf.length || !localPath) return false
+
+    console.log(`[startup] Re-extracting workspace for repo ${repositoryId} → ${localPath}`)
+    fs.mkdirSync(localPath, { recursive: true })
+
+    const zip = new AdmZip(zipBuf)
+    const entries = zip.getEntries()
+    const topDirs = new Set<string>()
+    entries.forEach((e: any) => { const parts = e.entryName.split('/'); if (parts.length > 1) topDirs.add(parts[0]) })
+    const stripPrefix = topDirs.size === 1 ? `${[...topDirs][0]}/` : ''
+    entries.forEach((entry: any) => {
+      if (entry.isDirectory) return
+      let relPath = entry.entryName
+      if (stripPrefix && relPath.startsWith(stripPrefix)) relPath = relPath.slice(stripPrefix.length)
+      if (!relPath) return
+      const outPath = path.join(localPath, relPath)
+      fs.mkdirSync(path.dirname(outPath), { recursive: true })
+      fs.writeFileSync(outPath, entry.getData())
+    })
+
+    if (fs.existsSync(path.join(backendDir, 'package.json'))) {
+      console.log(`[startup] npm install in ${backendDir}…`)
+      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--prefer-offline'], {
+        cwd: backendDir, timeout: 180_000,
+      }).catch((e: any) => console.warn(`[startup] npm install warning: ${e.message}`))
+    }
+    return fs.existsSync(backendDir)
+  } catch (e: any) {
+    console.error(`[startup] restoreWorkspace failed: ${e.message}`)
+    return false
+  }
+}
+
 async function restoreBackendsOnce() {
   if (backendsRestored) return
   backendsRestored = true
@@ -124,18 +177,18 @@ async function restoreBackendsOnce() {
     const { Deployment } = await import('./modules/hosting/deployment.model')
     const deploys = await Deployment.find({ backendDir: { $exists: true, $ne: null } }).lean()
     for (const d of deploys) {
-      if (d.backendDir && fs.existsSync(d.backendDir)) {
-        // Re-write .env so vars survive Render's ephemeral filesystem wipe
-        const vars = d.envVars instanceof Map ? Object.fromEntries(d.envVars) : (d.envVars ?? {})
-        if (vars && Object.keys(vars).length > 0) {
-          const envLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`).join('\n') + '\n'
-          try { fs.writeFileSync(path.join(d.backendDir, '.env'), envLines, 'utf-8') } catch {}
-        }
-        console.log(`[startup] Restoring backend for slug "${d.slug}"`)
-        await startBackend(d.slug, d.backendDir).catch(e =>
-          console.error(`[startup] Failed to restore backend "${d.slug}": ${e.message}`)
-        )
+      if (!d.backendDir) continue
+      let ready = fs.existsSync(d.backendDir)
+      // Ephemeral FS was wiped — try to restore from workspaceZip in MongoDB
+      if (!ready && d.repositoryId) {
+        ready = await restoreWorkspace(d.repositoryId.toString(), d.backendDir)
       }
+      if (!ready) { console.warn(`[startup] backendDir missing for "${d.slug}", skipping`); continue }
+      writeEnvFile(d.backendDir, d.envVars)
+      console.log(`[startup] Starting backend for slug "${d.slug}"`)
+      await startBackend(d.slug, d.backendDir).catch(e =>
+        console.error(`[startup] Failed to start backend "${d.slug}": ${e.message}`)
+      )
     }
   } catch (e: any) {
     console.error('[startup] Backend restore failed:', e.message)
@@ -164,15 +217,17 @@ async function ensureBackend(slug: string): Promise<number | null> {
   try {
     const { Deployment } = await import('./modules/hosting/deployment.model')
     const dep = await Deployment.findOne({ slug })
-    if (dep?.backendDir && fs.existsSync(dep.backendDir)) {
-      const vars = dep.envVars instanceof Map ? Object.fromEntries(dep.envVars) : (dep.envVars ?? {})
-      if (vars && Object.keys(vars).length > 0) {
-        const envLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`).join('\n') + '\n'
-        try { fs.writeFileSync(path.join(dep.backendDir, '.env'), envLines, 'utf-8') } catch {}
+    if (dep?.backendDir) {
+      let ready = fs.existsSync(dep.backendDir)
+      if (!ready && dep.repositoryId) {
+        ready = await restoreWorkspace(dep.repositoryId.toString(), dep.backendDir)
       }
-      console.log(`[proxy] Starting backend for "${slug}" on demand`)
-      const { port } = await startBackend(slug, dep.backendDir)
-      return port
+      if (ready) {
+        writeEnvFile(dep.backendDir, dep.envVars)
+        console.log(`[proxy] Starting backend for "${slug}" on demand`)
+        const { port } = await startBackend(slug, dep.backendDir)
+        return port
+      }
     }
   } catch (e: any) {
     console.error(`[proxy] On-demand start failed for "${slug}": ${e.message}`)
