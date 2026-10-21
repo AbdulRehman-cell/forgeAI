@@ -93,7 +93,7 @@ function makeR2Client(): S3Client {
 
 function r2PublicUrl(slug: string): string {
   const base = process.env.CLOUDFLARE_R2_PUBLIC_URL!.replace(/\/$/, '')
-  return `${base}/sites/${slug}/index.html`
+  return `${base}/sites/${slug}/`
 }
 
 // ─── Find the right directory to deploy ─────────────────────────────────────
@@ -124,6 +124,46 @@ export function findDeployRoot(localPath: string): string {
     `No built static files found. Expected index.html in one of: ${DEPLOY_CANDIDATES.join(', ')}, or the project root.\n` +
     `Run your build step first (e.g. "npm run build" inside the client folder) then redeploy.`
   )
+}
+
+// ─── Pre-build patches ───────────────────────────────────────────────────────
+
+// Patch BrowserRouter → HashRouter so SPA routes survive hard refreshes on any
+// static host (R2, S3, GitHub Pages) without needing server-side URL rewriting.
+export function patchRouterForStaticHosting(srcDir: string): number {
+  if (!fs.existsSync(srcDir)) return 0
+  let count = 0
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (['node_modules', '.git', 'dist', 'build'].includes(entry.name)) continue
+        walk(full)
+      } else if (/\.[jt]sx?$/.test(entry.name)) {
+        try {
+          let src = fs.readFileSync(full, 'utf-8')
+          if (!src.includes('BrowserRouter') && !src.includes('createBrowserRouter')) continue
+          src = src
+            .replace(/\bBrowserRouter\b/g, 'HashRouter')
+            .replace(/\bcreateBrowserRouter\b/g, 'createHashRouter')
+          fs.writeFileSync(full, src, 'utf-8')
+          count++
+        } catch {}
+      }
+    }
+  }
+  walk(srcDir)
+  return count
+}
+
+// Copy .env.example → .env in buildCwd so Vite picks up VITE_* vars at build time.
+// Existing .env is never overwritten (user may have already set real values).
+export function injectEnvForBuild(buildCwd: string): boolean {
+  const envFile    = path.join(buildCwd, '.env')
+  const exampleEnv = path.join(buildCwd, '.env.example')
+  if (fs.existsSync(envFile) || !fs.existsSync(exampleEnv)) return false
+  fs.copyFileSync(exampleEnv, envFile)
+  return true
 }
 
 // ─── Patch index.html for subdirectory hosting ───────────────────────────────

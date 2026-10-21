@@ -103,17 +103,22 @@ app.use('/api/hosting', hostingRoutes)
 
 // Self-hosted sites — served as static files with relaxed CSP so user-generated
 // HTML/JS/CSS can run. We disable helmet's opinionated headers for this path only.
-app.use('/sites', (req, res, next) => {
-  // Allow user-generated pages to load their own scripts/styles/images
+const siteHeaders = (_req: any, res: any, next: any) => {
   res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:")
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
   res.setHeader('X-Frame-Options', 'ALLOWALL')
   next()
-}, express.static(SITES_DIR, {
-  setHeaders: (res) => {
-    res.setHeader('Cache-Control', 'no-store')
-  },
+}
+app.use('/sites', siteHeaders, express.static(SITES_DIR, {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-store'),
 }))
+// SPA fallback — if a static file isn't found, serve the slug's index.html so
+// React Router (hash or history mode) can handle the route client-side
+app.get('/sites/:slug/*', siteHeaders, (req, res) => {
+  const indexFile = path.join(SITES_DIR, req.params.slug, 'index.html')
+  if (fs.existsSync(indexFile)) return res.sendFile(indexFile)
+  res.status(404).send('Site not found')
+})
 
 // Public team invite accept — must be registered BEFORE the auth-gated /api/teams mount
 app.post('/api/teams/accept', async (req, res) => {

@@ -949,7 +949,7 @@ async function blitzDeploy(job: Job) {
   if (platform === 'self-hosted') {
     await updateTask(task, { status: 'running', progress: 10 }, '🚀 Starting ForgeAI deploy…')
     try {
-      const { selfHostedDeploy, findDeployRoot } = await import('../../lib/selfHostedDeploy')
+      const { selfHostedDeploy, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild } = await import('../../lib/selfHostedDeploy')
       const { Deployment } = await import('../hosting/deployment.model')
 
       // Reuse existing slug if the repo was already deployed self-hosted
@@ -974,6 +974,19 @@ async function blitzDeploy(job: Job) {
         const pkgJson = JSON.parse(fs.readFileSync(path.join(buildCwd, 'package.json'), 'utf-8'))
         if (!pkgJson.scripts?.build) {
           throw new Error('No "build" script found in package.json. Add one or build manually first.')
+        }
+
+        // Patch React Router to HashRouter — makes SPA routes work on static hosts
+        const srcDir = path.join(buildCwd, 'src')
+        const patchedFiles = patchRouterForStaticHosting(srcDir)
+        if (patchedFiles > 0) {
+          await updateTask(task, { progress: 15 }, `🔧 Patched ${patchedFiles} file(s) to use hash-based routing (required for static hosting)…`)
+        }
+
+        // Inject .env.example → .env if no .env present (gives Vite VITE_* vars)
+        const envInjected = injectEnvForBuild(buildCwd)
+        if (envInjected) {
+          await updateTask(task, { progress: 17 }, '⚙️  Injected .env.example as build environment…')
         }
 
         await updateTask(task, { progress: 20 }, `📦 Installing dependencies in ${path.basename(buildCwd)}…`)
@@ -1073,9 +1086,18 @@ INSTRUCTIONS:
       }
 
       const providerNote = result.provider === 'r2'
-        ? 'Served globally via Cloudflare R2 — zero load on your ForgeAI server.'
-        : 'Running directly on your ForgeAI server.'
-      await updateTask(task, { status: 'completed', progress: 100 }, `## ✅ Deployed to ForgeAI\n\nYour site is live at: **${result.url}**\n\n${providerNote}`, 'info')
+        ? 'Frontend served globally via Cloudflare R2 — zero load on your ForgeAI server.'
+        : 'Frontend running directly on your ForgeAI server.'
+
+      // Detect MERN app — has both client/ and server/ folders
+      const hasMernBackend = fs.existsSync(path.join(localPath, 'server')) &&
+        fs.existsSync(path.join(localPath, 'client'))
+      const backendNote = hasMernBackend
+        ? `\n\n> **⚠️ Backend not deployed** — This is a MERN app. The frontend is live but the backend (server/) needs a running Node.js process. Deploy server/ to Render or Railway and set \`VITE_API_URL\` to its URL, then redeploy the frontend.`
+        : ''
+
+      await updateTask(task, { status: 'completed', progress: 100 },
+        `## ✅ Deployed to ForgeAI\n\nYour site is live at: **${result.url}**\n\n${providerNote}${backendNote}`, 'info')
       emitTaskUpdate(taskId, task.toObject())
     } catch (err: any) {
       task.status = 'failed'
