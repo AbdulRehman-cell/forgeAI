@@ -11,8 +11,10 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-query": "^5.28.0",
+    "@types/jszip": "^3.4.0",
     "axios": "^1.6.8",
     "clsx": "^2.1.0",
+    "jszip": "^3.10.2",
     "lucide-react": "^0.363.0",
     "react": "^18.2.0",
     "react-diff-viewer-continued": "^3.4.0",

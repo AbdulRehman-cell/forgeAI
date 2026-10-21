@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
-import { Plus, Search, Loader2, Lock, Globe, ArrowRight, FolderOpen, Laptop, Trash2, Upload } from 'lucide-react'
+import { Plus, Search, Loader2, Lock, Globe, ArrowRight, FolderOpen, Laptop, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import LocalFolderPicker from '@/components/LocalFolderPicker'
 
@@ -10,8 +10,6 @@ export default function Repositories() {
   const [search, setSearch] = useState('')
   const [showImport, setShowImport] = useState(false)
   const [showFolderPicker, setShowFolderPicker] = useState(false)
-  const [zipUploading, setZipUploading] = useState(false)
-  const zipInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const qc = useQueryClient()
 
@@ -58,38 +56,6 @@ export default function Repositories() {
     }
   }
 
-  const openFolderMutation = useMutation({
-    mutationFn: (path: string) => api.post('/local/open', { path }),
-    onSuccess: ({ data }) => {
-      toast.success('Folder opened — Forge AI is in command')
-      qc.invalidateQueries({ queryKey: ['repos'] })
-      setShowFolderPicker(false)
-      navigate(`/repositories/${data.repository._id}/workspace`)
-    },
-    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Could not open folder'),
-  })
-
-  const handleZipUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setZipUploading(true)
-    try {
-      const form = new FormData()
-      form.append('project', file)
-      const { data } = await api.post('/local/upload-zip', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      toast.success('Project uploaded — ready to deploy')
-      qc.invalidateQueries({ queryKey: ['repos'] })
-      navigate(`/repositories/${data.repository._id}/workspace`)
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Upload failed')
-    } finally {
-      setZipUploading(false)
-      if (zipInputRef.current) zipInputRef.current.value = ''
-    }
-  }
-
   const filtered = data?.filter((r: any) =>
     r.fullName.toLowerCase().includes(search.toLowerCase()),
   )
@@ -102,21 +68,6 @@ export default function Repositories() {
           <p className="text-zinc-400 text-sm mt-1">Manage your connected repositories.</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <input
-            ref={zipInputRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={handleZipUpload}
-          />
-          <button
-            onClick={() => zipInputRef.current?.click()}
-            disabled={zipUploading}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-surface-600 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:border-brand-500/50 transition-colors disabled:opacity-50"
-          >
-            {zipUploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-            <span className="hidden sm:inline">Upload ZIP</span><span className="sm:hidden">ZIP</span>
-          </button>
           <button
             onClick={() => setShowFolderPicker(true)}
             className="flex items-center gap-2 px-3 py-2 rounded-xl border border-surface-600 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:border-brand-500/50 transition-colors"
@@ -197,8 +148,12 @@ export default function Repositories() {
       {showFolderPicker && (
         <LocalFolderPicker
           onClose={() => setShowFolderPicker(false)}
-          onSelect={(path) => openFolderMutation.mutate(path)}
-          busy={openFolderMutation.isPending}
+          onSelect={(_id, repo) => {
+            toast.success('Folder uploaded — Forge AI is ready')
+            qc.invalidateQueries({ queryKey: ['repos'] })
+            setShowFolderPicker(false)
+            navigate(`/repositories/${repo._id}/workspace`)
+          }}
         />
       )}
 
