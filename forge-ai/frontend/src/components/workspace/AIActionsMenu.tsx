@@ -16,6 +16,8 @@ import {
   Server,
   FileSearch,
   Zap,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -85,6 +87,8 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
   const [running, setRunning] = useState<string | null>(null)
   const [tokenPlatform, setTokenPlatform] = useState<string | null>(null)
   const [tokenValue, setTokenValue] = useState('')
+  const [envVarsPlatform, setEnvVarsPlatform] = useState<string | null>(null)
+  const [envRows, setEnvRows] = useState<{ key: string; value: string }[]>([{ key: '', value: '' }])
 
   const ref = useRef<HTMLDivElement>(null)
 
@@ -94,6 +98,8 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false)
         setDeployOpen(false)
+        setEnvVarsPlatform(null)
+        setEnvRows([{ key: '', value: '' }])
       }
     }
     document.addEventListener('mousedown', handler)
@@ -113,13 +119,15 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
       setRunning(null)
       setTokenPlatform(null)
       setTokenValue('')
+      setEnvVarsPlatform(null)
+      setEnvRows([{ key: '', value: '' }])
     },
 
     onError: (e: any) => {
       const data = e.response?.data
       if (data?.code === 'TOKEN_REQUIRED') {
-        // First deploy to this platform: ask for its API token once
         setTokenPlatform(data.platform)
+        setEnvVarsPlatform(null)
         setRunning(null)
         return
       }
@@ -133,12 +141,20 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
     runAction.mutate({ endpoint, body })
   }
 
-  const startDeploy = (platform: string, token?: string) => {
+  const startDeploy = (platform: string, token?: string, envVars?: Record<string, string>) => {
     setRunning('deploy')
     runAction.mutate({
       endpoint: '/tasks/blitz-deploy',
-      body: { platform, ...(token ? { token } : {}) },
+      body: { platform, ...(token ? { token } : {}), ...(envVars && Object.keys(envVars).length ? { envVars } : {}) },
     })
+  }
+
+  const handlePlatformClick = (id: string) => {
+    if (id === 'self-hosted') {
+      setEnvVarsPlatform('self-hosted')
+    } else {
+      startDeploy(id)
+    }
   }
 
   return (
@@ -194,7 +210,7 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
             </button>
 
             {/* Platforms */}
-            {deployOpen && !tokenPlatform && (
+            {deployOpen && !tokenPlatform && !envVarsPlatform && (
               <div className="mt-1.5 space-y-0.5 pl-2">
                 {DEPLOY_PLATFORMS.map(({ id, label, icon: Icon, desc, ...rest }) => {
                   const highlight = 'highlight' in rest && rest.highlight
@@ -202,7 +218,7 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
                     <button
                       key={id}
                       disabled={running !== null}
-                      onClick={() => startDeploy(id)}
+                      onClick={() => handlePlatformClick(id)}
                       className={clsx(
                         'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left',
                         highlight
@@ -225,6 +241,60 @@ export default function AIActionsMenu({ repositoryId, onTaskStarted }: Props) {
                     </button>
                   )
                 })}
+              </div>
+            )}
+
+            {/* Env vars panel — shown for Forge AI deploy */}
+            {deployOpen && envVarsPlatform && (
+              <div className="mt-1.5 p-3 rounded-xl bg-[#1a1a22] border border-[#2a2a34] space-y-2">
+                <p className="text-[11px] text-zinc-300 font-medium">Environment Variables <span className="text-zinc-600 font-normal">(optional)</span></p>
+                <p className="text-[10px] text-zinc-500">Set vars your backend needs — e.g. MONGODB_URI. Written to <code className="text-zinc-400">.env</code> before the server starts.</p>
+                <div className="space-y-1.5">
+                  {envRows.map((row, i) => (
+                    <div key={i} className="flex gap-1.5 items-center">
+                      <input
+                        value={row.key}
+                        onChange={e => setEnvRows(rows => rows.map((r, j) => j === i ? { ...r, key: e.target.value } : r))}
+                        placeholder="KEY"
+                        className="w-[38%] px-2 py-1 rounded-md bg-[#12121a] border border-[#2a2a34] text-[10px] text-zinc-200 placeholder-zinc-600 focus:border-brand-500 outline-none font-mono"
+                      />
+                      <input
+                        value={row.value}
+                        onChange={e => setEnvRows(rows => rows.map((r, j) => j === i ? { ...r, value: e.target.value } : r))}
+                        placeholder="value"
+                        className="flex-1 px-2 py-1 rounded-md bg-[#12121a] border border-[#2a2a34] text-[10px] text-zinc-200 placeholder-zinc-600 focus:border-brand-500 outline-none"
+                      />
+                      {envRows.length > 1 && (
+                        <button onClick={() => setEnvRows(rows => rows.filter((_, j) => j !== i))} className="text-zinc-600 hover:text-red-400">
+                          <Trash2 size={11} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={() => setEnvRows(rows => [...rows, { key: '', value: '' }])} className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-brand-400 transition-colors">
+                    <Plus size={10} /> Add variable
+                  </button>
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    disabled={running !== null}
+                    onClick={() => {
+                      const vars: Record<string, string> = {}
+                      envRows.forEach(r => { if (r.key.trim()) vars[r.key.trim()] = r.value })
+                      startDeploy('self-hosted', undefined, vars)
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 disabled:opacity-40 text-[11px] font-medium text-white"
+                  >
+                    {running === 'deploy' ? <Loader2 size={11} className="animate-spin" /> : <Rocket size={11} />}
+                    Deploy
+                  </button>
+                  <button
+                    onClick={() => { setEnvVarsPlatform(null); setEnvRows([{ key: '', value: '' }]) }}
+                    className="px-2.5 py-1.5 rounded-lg bg-[#22222a] hover:bg-[#2a2a34] text-[11px] text-zinc-400"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 

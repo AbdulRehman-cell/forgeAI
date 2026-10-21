@@ -72,10 +72,12 @@ app.use(helmet({
 // different origin — allow any origin for that path only. Everything else
 // stays locked to the configured frontend origin.
 app.use('/sites-api', cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] }))
-app.use(cors({
-  origin: FRONTEND_ORIGIN,
-  credentials: true,
-}))
+// General CORS — must skip /sites-api so the wildcard above is not overwritten
+// by this more restrictive rule (cors() uses res.setHeader which overwrites).
+app.use((req, res, next) => {
+  if (req.path.startsWith('/sites-api')) return next()
+  return cors({ origin: FRONTEND_ORIGIN, credentials: true })(req, res, next)
+})
 app.use(rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false }))
 
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
@@ -123,6 +125,12 @@ async function restoreBackendsOnce() {
     const deploys = await Deployment.find({ backendDir: { $exists: true, $ne: null } }).lean()
     for (const d of deploys) {
       if (d.backendDir && fs.existsSync(d.backendDir)) {
+        // Re-write .env so vars survive Render's ephemeral filesystem wipe
+        const vars = d.envVars instanceof Map ? Object.fromEntries(d.envVars) : (d.envVars ?? {})
+        if (vars && Object.keys(vars).length > 0) {
+          const envLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`).join('\n') + '\n'
+          try { fs.writeFileSync(path.join(d.backendDir, '.env'), envLines, 'utf-8') } catch {}
+        }
         console.log(`[startup] Restoring backend for slug "${d.slug}"`)
         await startBackend(d.slug, d.backendDir).catch(e =>
           console.error(`[startup] Failed to restore backend "${d.slug}": ${e.message}`)
@@ -157,6 +165,11 @@ async function ensureBackend(slug: string): Promise<number | null> {
     const { Deployment } = await import('./modules/hosting/deployment.model')
     const dep = await Deployment.findOne({ slug })
     if (dep?.backendDir && fs.existsSync(dep.backendDir)) {
+      const vars = dep.envVars instanceof Map ? Object.fromEntries(dep.envVars) : (dep.envVars ?? {})
+      if (vars && Object.keys(vars).length > 0) {
+        const envLines = Object.entries(vars).map(([k, v]) => `${k}=${v}`).join('\n') + '\n'
+        try { fs.writeFileSync(path.join(dep.backendDir, '.env'), envLines, 'utf-8') } catch {}
+      }
       console.log(`[proxy] Starting backend for "${slug}" on demand`)
       const { port } = await startBackend(slug, dep.backendDir)
       return port

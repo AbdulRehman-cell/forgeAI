@@ -974,7 +974,7 @@ function extractErrorFilePaths(errorText: string, buildCwd: string): string[] {
 }
 
 async function blitzDeploy(job: Job) {
-  const { taskId, localPath, platform, aiProvider, deployToken, repoName, branch, isLocal, needsGitHubPush, repositoryId } = job.data
+  const { taskId, localPath, platform, aiProvider, deployToken, repoName, branch, isLocal, needsGitHubPush, repositoryId, envVars } = job.data
   let { repoFullName } = job.data
   const task = await Task.findById(taskId)
   if (!task) throw new Error('Task not found')
@@ -1042,6 +1042,18 @@ async function blitzDeploy(job: Job) {
         if (hasMernLayout && serverDir && fs.existsSync(path.join(serverDir, 'package.json'))) {
           await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
           await execAsync('npm install --legacy-peer-deps', { cwd: serverDir, timeout: 180_000 })
+          // Write user-supplied env vars to .env (merge with any existing file)
+          if (envVars && typeof envVars === 'object' && Object.keys(envVars).length > 0) {
+            const envPath = path.join(serverDir, '.env')
+            let existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
+            for (const [k, v] of Object.entries(envVars as Record<string, string>)) {
+              const line = `${k}=${v}`
+              const re = new RegExp(`^${k}=.*`, 'm')
+              existing = re.test(existing) ? existing.replace(re, line) : existing + (existing.endsWith('\n') || !existing ? '' : '\n') + line + '\n'
+            }
+            fs.writeFileSync(envPath, existing, 'utf-8')
+            await updateTask(task, {}, `🔐 Wrote ${Object.keys(envVars).length} env var(s) to backend .env`)
+          }
           await updateTask(task, { progress: 16 }, '🚀 Starting managed backend process…')
           const backendResult = await startBackend(deploySlug, serverDir)
           managedBackendPort = backendResult.port
@@ -1172,6 +1184,7 @@ INSTRUCTIONS:
           url: result.url,
           siteDir: result.siteDir ?? '',
           ...(managedBackendPort != null ? { backendDir: serverDir, backendPort: managedBackendPort } : {}),
+          ...(envVars && Object.keys(envVars).length ? { envVars } : {}),
         },
         { upsert: true, new: true },
       )

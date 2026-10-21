@@ -147,7 +147,7 @@ router.post('/rebuild-proposal', checkQuota('reviews'), async (req, res) => {
 // Blitz Deploy — quota-gated: free 3/mo, pro 100/mo, team unlimited
 router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
   const user = req.user as any
-  const { repositoryId, platform, token } = req.body
+  const { repositoryId, platform, token, envVars } = req.body
 
   // checkQuota already counted this deploy; give it back if we bail out early
   const refundDeploy = () => User.updateOne({ _id: user._id }, { $inc: { 'usage.deploys': -1 } })
@@ -272,6 +272,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
     needsGitHubPush,
     aiProvider: user.aiProvider,
     type: 'blitz_deploy',
+    envVars: envVars && typeof envVars === 'object' ? envVars : undefined,
   })
 
   res.status(201).json({ task })
