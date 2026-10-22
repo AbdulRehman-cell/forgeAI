@@ -134,9 +134,14 @@ export function findDeployRoot(localPath: string): string {
 
 // Patch BrowserRouter → HashRouter so SPA routes survive hard refreshes on any
 // static host (R2, S3, GitHub Pages) without needing server-side URL rewriting.
+// Also fixes the common AI generation bug where Routes/Route/Link are used but
+// no Router wrapper exists at all — injects HashRouter into the entry file.
 export function patchRouterForStaticHosting(srcDir: string): number {
   if (!fs.existsSync(srcDir)) return 0
   let count = 0
+  let entryFile = ''
+  let usesRouterComponents = false
+
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name)
@@ -146,17 +151,58 @@ export function patchRouterForStaticHosting(srcDir: string): number {
       } else if (/\.[jt]sx?$/.test(entry.name)) {
         try {
           let src = fs.readFileSync(full, 'utf-8')
-          if (!src.includes('BrowserRouter') && !src.includes('createBrowserRouter')) continue
-          src = src
-            .replace(/\bBrowserRouter\b/g, 'HashRouter')
-            .replace(/\bcreateBrowserRouter\b/g, 'createHashRouter')
-          fs.writeFileSync(full, src, 'utf-8')
-          count++
+
+          // Track the app entry point (main.jsx / index.jsx / App.jsx)
+          if (/^(main|index)\.[jt]sx?$/.test(entry.name)) entryFile = full
+
+          // BrowserRouter → HashRouter
+          if (src.includes('BrowserRouter') || src.includes('createBrowserRouter')) {
+            src = src
+              .replace(/\bBrowserRouter\b/g, 'HashRouter')
+              .replace(/\bcreateBrowserRouter\b/g, 'createHashRouter')
+            fs.writeFileSync(full, src, 'utf-8')
+            count++
+          }
+
+          // Detect Router component usage (Routes, Route, Link, NavLink from react-router-dom)
+          if (/from ['"]react-router-dom['"]/.test(src) &&
+              (src.includes('Routes') || src.includes('<Route') || src.includes('<Link'))) {
+            usesRouterComponents = true
+          }
         } catch {}
       }
     }
   }
   walk(srcDir)
+
+  // If the app uses Router components but has no Router provider, inject HashRouter
+  // into the entry file around the root component render.
+  if (usesRouterComponents && entryFile) {
+    try {
+      let src = fs.readFileSync(entryFile, 'utf-8')
+      const hasRouter = /\b(BrowserRouter|HashRouter|MemoryRouter|RouterProvider)\b/.test(src)
+      if (!hasRouter) {
+        // Add HashRouter import if not already imported
+        if (!src.includes('HashRouter')) {
+          src = src.replace(
+            /import\s+.*?from\s+['"]react-router-dom['"]/,
+            (m) => m.replace(/}\s*from/, ', HashRouter } from').replace('HashRouter, HashRouter', 'HashRouter'),
+          )
+          // If no react-router-dom import exists at all, add one
+          if (!src.includes('react-router-dom')) {
+            src = `import { HashRouter } from 'react-router-dom'\n` + src
+          }
+        }
+        // Wrap the root JSX element inside ReactDOM.createRoot().render() with HashRouter
+        src = src
+          .replace(/\.render\(\s*(<[A-Z][^>]*>|<React\.StrictMode>)/g, '.render(<HashRouter>$1')
+          .replace(/(React\.StrictMode>|<\/[A-Z][^>]*>)\s*\)\s*\)/g, '$1</HashRouter>))')
+        fs.writeFileSync(entryFile, src, 'utf-8')
+        count++
+      }
+    } catch {}
+  }
+
   return count
 }
 
