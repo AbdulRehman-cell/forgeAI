@@ -75,7 +75,7 @@ app.use(helmet({
 // Deployed sites on R2/CDN call back to ForgeAI via /sites-api/* from a
 // different origin — allow any origin for that path only. Everything else
 // stays locked to the configured frontend origin.
-app.use('/sites-api', cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] }))
+app.use('/sites-api', cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }))
 // General CORS — must skip /sites-api so the wildcard above is not overwritten
 // by this more restrictive rule (cors() uses res.setHeader which overwrites).
 app.use((req, res, next) => {
