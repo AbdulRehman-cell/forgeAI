@@ -1039,12 +1039,18 @@ async function blitzDeploy(job: Job) {
         // For MERN apps: install + start the Node backend first so we can bake VITE_API_URL.
         // VITE_API_URL must be an ABSOLUTE URL — the frontend is served from R2 (different
         // domain), so a relative /sites-api/... would resolve against R2, not ForgeAI.
-        if (hasMernLayout && serverDir && fs.existsSync(path.join(serverDir, 'package.json'))) {
+        //
+        // Generated MERN scaffold keeps server deps at ROOT (no server/package.json).
+        // Fall back to localPath when server/ dir has no package.json of its own.
+        const backendRunDir = (hasMernLayout && serverDir && !fs.existsSync(path.join(serverDir, 'package.json')) && hasExpressAtRoot)
+          ? localPath
+          : serverDir
+        if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
           await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
-          await execAsync('npm install --legacy-peer-deps', { cwd: serverDir, timeout: 180_000 })
+          await execAsync('npm install --legacy-peer-deps', { cwd: backendRunDir, timeout: 180_000 })
           // Write user-supplied env vars to .env (merge with any existing file)
           if (envVars && typeof envVars === 'object' && Object.keys(envVars).length > 0) {
-            const envPath = path.join(serverDir, '.env')
+            const envPath = path.join(backendRunDir, '.env')
             let existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
             for (const [k, v] of Object.entries(envVars as Record<string, string>)) {
               const line = `${k}=${v}`
@@ -1055,7 +1061,7 @@ async function blitzDeploy(job: Job) {
             await updateTask(task, {}, `🔐 Wrote ${Object.keys(envVars).length} env var(s) to backend .env`)
           }
           await updateTask(task, { progress: 16 }, '🚀 Starting managed backend process…')
-          const backendResult = await startBackend(deploySlug, serverDir)
+          const backendResult = await startBackend(deploySlug, backendRunDir)
           managedBackendPort = backendResult.port
           const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
           viteApiUrl = `${publicBase}/sites-api/${deploySlug}`
@@ -1183,7 +1189,7 @@ INSTRUCTIONS:
           siteName: repoName ?? 'site',
           url: result.url,
           siteDir: result.siteDir ?? '',
-          ...(managedBackendPort != null ? { backendDir: serverDir, backendPort: managedBackendPort } : {}),
+          ...(managedBackendPort != null ? { backendDir: backendRunDir, backendPort: managedBackendPort } : {}),
           ...(envVars && Object.keys(envVars).length ? { envVars } : {}),
         },
         { upsert: true, new: true },
