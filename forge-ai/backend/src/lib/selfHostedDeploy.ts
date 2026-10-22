@@ -193,10 +193,18 @@ export function patchRouterForStaticHosting(srcDir: string): number {
             src = `import { HashRouter } from 'react-router-dom'\n` + src
           }
         }
-        // Wrap the root JSX element inside ReactDOM.createRoot().render() with HashRouter
-        src = src
-          .replace(/\.render\(\s*(<[A-Z][^>]*>|<React\.StrictMode>)/g, '.render(<HashRouter>$1')
-          .replace(/(React\.StrictMode>|<\/[A-Z][^>]*>)\s*\)\s*\)/g, '$1</HashRouter>))')
+        // Wrap the root JSX element inside ReactDOM.createRoot().render() with HashRouter.
+        // Standard template uses <React.StrictMode> — replace both tags directly.
+        if (src.includes('<React.StrictMode>')) {
+          src = src
+            .replace('<React.StrictMode>', '<HashRouter><React.StrictMode>')
+            .replace('</React.StrictMode>', '</React.StrictMode></HashRouter>')
+        } else {
+          // Fallback: wrap first JSX arg in render() — one closing paren only
+          src = src
+            .replace(/\.render\(\s*(<[A-Z][^>]*>)/g, '.render(<HashRouter>$1')
+            .replace(/(<\/[A-Z][^>]*>)(\s*\)\s*)$/, '$1</HashRouter>$2')
+        }
         fs.writeFileSync(entryFile, src, 'utf-8')
         count++
       }
