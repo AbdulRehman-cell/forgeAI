@@ -133,29 +133,39 @@ function writeEnvFile(backendDir: string, envVars: any) {
 // after Render wipes the ephemeral filesystem on every redeploy.
 async function restoreWorkspace(repositoryId: string, backendDir: string): Promise<boolean> {
   try {
-    const AdmZip = (await import('adm-zip')).default
-    const repoWithZip = await Repository.findById(repositoryId).select('+workspaceZip localPath').lean() as any
+    const repoWithZip = await Repository.findById(repositoryId).select('+workspaceZip localPath cloneUrl').lean() as any
     const zipBuf: Buffer | undefined = repoWithZip?.workspaceZip?.buffer ?? repoWithZip?.workspaceZip
     const localPath: string | undefined = repoWithZip?.localPath
-    if (!zipBuf || !zipBuf.length || !localPath) return false
 
-    console.log(`[startup] Re-extracting workspace for repo ${repositoryId} → ${localPath}`)
-    fs.mkdirSync(localPath, { recursive: true })
-
-    const zip = new AdmZip(zipBuf)
-    const entries = zip.getEntries()
-    const topDirs = new Set<string>()
-    entries.forEach((e: any) => { const parts = e.entryName.split('/'); if (parts.length > 1) topDirs.add(parts[0]) })
-    const stripPrefix = topDirs.size === 1 ? `${[...topDirs][0]}/` : ''
-    entries.forEach((entry: any) => {
-      if (entry.isDirectory) return
-      let relPath = entry.entryName
-      if (stripPrefix && relPath.startsWith(stripPrefix)) relPath = relPath.slice(stripPrefix.length)
-      if (!relPath) return
-      const outPath = path.join(localPath, relPath)
-      fs.mkdirSync(path.dirname(outPath), { recursive: true })
-      fs.writeFileSync(outPath, entry.getData())
-    })
+    if (zipBuf && zipBuf.length && localPath) {
+      // Fast path: extract saved workspace zip
+      const AdmZip = (await import('adm-zip')).default
+      console.log(`[startup] Re-extracting workspace for repo ${repositoryId} → ${localPath}`)
+      fs.mkdirSync(localPath, { recursive: true })
+      const zip = new AdmZip(zipBuf)
+      const entries = zip.getEntries()
+      const topDirs = new Set<string>()
+      entries.forEach((e: any) => { const parts = e.entryName.split('/'); if (parts.length > 1) topDirs.add(parts[0]) })
+      const stripPrefix = topDirs.size === 1 ? `${[...topDirs][0]}/` : ''
+      entries.forEach((entry: any) => {
+        if (entry.isDirectory) return
+        let relPath = entry.entryName
+        if (stripPrefix && relPath.startsWith(stripPrefix)) relPath = relPath.slice(stripPrefix.length)
+        if (!relPath) return
+        const outPath = path.join(localPath, relPath)
+        fs.mkdirSync(path.dirname(outPath), { recursive: true })
+        fs.writeFileSync(outPath, entry.getData())
+      })
+    } else if (localPath && repoWithZip?.cloneUrl && repoWithZip.cloneUrl !== 'pending') {
+      // Fallback: re-clone from GitHub (public repos only; no zip was saved yet)
+      console.log(`[startup] No workspace zip — cloning ${repoWithZip.cloneUrl} → ${localPath}`)
+      fs.mkdirSync(path.dirname(localPath), { recursive: true })
+      await execFileAsync('git', ['clone', '--depth=1', repoWithZip.cloneUrl, localPath], {
+        timeout: 120_000,
+      }).catch((e: any) => console.warn(`[startup] git clone warning: ${e.message}`))
+    } else {
+      return false
+    }
 
     if (fs.existsSync(path.join(backendDir, 'package.json'))) {
       console.log(`[startup] npm install in ${backendDir}…`)
