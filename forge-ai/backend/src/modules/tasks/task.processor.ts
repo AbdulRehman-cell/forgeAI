@@ -1197,6 +1197,39 @@ INSTRUCTIONS:
         { upsert: true, new: true },
       )
 
+      // Persist workspace zip in MongoDB so restoreWorkspace() can restart the backend
+      // after Render wipes the ephemeral filesystem on every redeploy/restart.
+      if (hasMernLayout && backendRunDir && managedBackendPort != null && repositoryId) {
+        try {
+          const AdmZip = (await import('adm-zip')).default
+          const zip = new AdmZip()
+          const SKIP_NAMES = new Set(['node_modules', '.git', '.env'])
+          const SKIP_DIRS = new Set(['dist', 'build', '.vite'])
+          const addDirToZip = (dir: string, prefix: string) => {
+            for (const entry of fs.readdirSync(dir)) {
+              if (SKIP_NAMES.has(entry)) continue
+              const full = path.join(dir, entry)
+              const zp = prefix ? `${prefix}/${entry}` : entry
+              const stat = fs.statSync(full)
+              if (stat.isDirectory()) {
+                if (SKIP_DIRS.has(entry)) continue
+                addDirToZip(full, zp)
+              } else {
+                if (stat.size > 2 * 1024 * 1024) continue
+                zip.addFile(zp, fs.readFileSync(full))
+              }
+            }
+          }
+          addDirToZip(backendRunDir, '')
+          const zipBuf = zip.toBuffer()
+          const { Repository: RepoModel } = await import('../repository/repository.model')
+          await RepoModel.findByIdAndUpdate(repositoryId, { workspaceZip: zipBuf, localPath: backendRunDir })
+          await updateTask(task, {}, `💾 Workspace saved (${Math.round(zipBuf.length / 1024)} KB) — backend will auto-restore after restarts`)
+        } catch (zipErr: any) {
+          console.warn('[deploy] workspaceZip save failed:', zipErr.message)
+        }
+      }
+
       // Store slug on the repo so redeploys reuse the same URL
       if (repo) {
         repo.deployState = { ...(repo.deployState ?? {}), 'self-hosted': { slug: result.slug, url: result.url } }
