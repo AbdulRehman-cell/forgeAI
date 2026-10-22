@@ -4840,12 +4840,15 @@ function auditFrontendJsx(files: ParsedChange[]): void {
 
     // 4. Nested BrowserRouter / Router — crashes React entirely
     //    Remove import and JSX wrapper; BrowserRouter is already in main.jsx
-    f.content = f.content.replace(
-      /import\s*\{[^}]*\bBrowserRouter\b[^}]*\}\s*from\s*['"]react-router-dom['"]\s*;?\n?/g,
-      (m) => `// [ForgeAI] BrowserRouter removed — already in main.jsx\n`,
-    )
-    f.content = f.content.replace(/<BrowserRouter>([\s\S]*?)<\/BrowserRouter>/g, '$1')
-    f.content = f.content.replace(/<Router>([\s\S]*?)<\/Router>/g, '$1')
+    //    Skip main.jsx/main.tsx — that's the entry point where BrowserRouter lives
+    if (!/client\/src\/main\.[jt]sx?$/.test(f.path.replace(/\\/g, '/'))) {
+      f.content = f.content.replace(
+        /import\s*\{[^}]*\bBrowserRouter\b[^}]*\}\s*from\s*['"]react-router-dom['"]\s*;?\n?/g,
+        (m) => `// [ForgeAI] BrowserRouter removed — already in main.jsx\n`,
+      )
+      f.content = f.content.replace(/<BrowserRouter>([\s\S]*?)<\/BrowserRouter>/g, '$1')
+      f.content = f.content.replace(/<Router>([\s\S]*?)<\/Router>/g, '$1')
+    }
 
     // 5. Hardcoded http://localhost:PORT/api — breaks in Docker / production
     f.content = f.content.replace(
