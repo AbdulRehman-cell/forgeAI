@@ -1015,6 +1015,12 @@ async function blitzDeploy(job: Job) {
       let managedBackendPort: number | null = null
       let viteApiUrl = ''
 
+      // Generated MERN scaffold keeps all deps at root (no server/package.json).
+      // Fall back to localPath when server/ has no own package.json.
+      const backendRunDir = (hasMernLayout && serverDir && !fs.existsSync(path.join(serverDir, 'package.json')) && hasExpressAtRoot)
+        ? localPath
+        : serverDir
+
       // Always rebuild on self-hosted deploy — ensures HashRouter patch, correct
       // VITE_API_URL, and fresh assets are baked in. Skipping the build would
       // serve a stale dist with BrowserRouter (routes break on R2) or wrong API URL.
@@ -1039,12 +1045,6 @@ async function blitzDeploy(job: Job) {
         // For MERN apps: install + start the Node backend first so we can bake VITE_API_URL.
         // VITE_API_URL must be an ABSOLUTE URL — the frontend is served from R2 (different
         // domain), so a relative /sites-api/... would resolve against R2, not ForgeAI.
-        //
-        // Generated MERN scaffold keeps server deps at ROOT (no server/package.json).
-        // Fall back to localPath when server/ dir has no package.json of its own.
-        const backendRunDir = (hasMernLayout && serverDir && !fs.existsSync(path.join(serverDir, 'package.json')) && hasExpressAtRoot)
-          ? localPath
-          : serverDir
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
           await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
           await execAsync('npm install --legacy-peer-deps', { cwd: backendRunDir, timeout: 180_000 })
@@ -1168,15 +1168,17 @@ INSTRUCTIONS:
         await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
       }
 
-      // deploySlug is pre-generated so selfHostedDeploy uses it consistently.
-      // apiProxyUrl (when set) is injected as a fetch/XHR interceptor in index.html
-      // so ALL relative /api/ calls get forwarded to the ForgeAI proxy — works even
-      // when the project doesn't use VITE_API_URL.
+      // Always inject the fetch/XHR interceptor for MERN apps so /api/ calls route
+      // through ForgeAI's proxy even when the backend hasn't started yet or the project
+      // doesn't use VITE_API_URL.  For plain static sites hasMernLayout is false and
+      // mernProxyUrl stays undefined, so no interceptor is injected.
+      const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
+      const mernProxyUrl = hasMernLayout ? `${publicBase}/sites-api/${deploySlug}` : undefined
       const result = await selfHostedDeploy({
         localPath,
         name: repoName ?? 'site',
         existingSlug: deploySlug,
-        apiProxyUrl: managedBackendPort != null ? viteApiUrl : undefined,
+        apiProxyUrl: mernProxyUrl,
       })
 
       // Upsert deployment record
