@@ -367,22 +367,28 @@ app.post('/admin/rebuild-site-frontend', async (req: any, res: any) => {
     const clientDir = path.join(localPath, 'client')
     if (!fs.existsSync(clientDir)) return res.status(400).json({ message: 'No client/ directory found' })
 
-    // npm install if needed
-    const nmDir = path.join(clientDir, 'node_modules')
-    if (!fs.existsSync(nmDir) || fs.readdirSync(nmDir).length === 0) {
-      console.log('[rebuild] npm install in client/…')
-      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], {
+    // Skip install + build if a pre-built dist already exists in the workspace
+    const distIndex = path.join(clientDir, 'dist', 'index.html')
+    if (fs.existsSync(distIndex)) {
+      console.log('[rebuild] Pre-built dist found — skipping npm install and vite build')
+    } else {
+      // npm install if needed
+      const nmDir = path.join(clientDir, 'node_modules')
+      if (!fs.existsSync(nmDir) || fs.readdirSync(nmDir).length === 0) {
+        console.log('[rebuild] npm install in client/…')
+        await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], {
+          cwd: clientDir, timeout: 300_000,
+          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+        })
+      }
+
+      // Build
+      console.log('[rebuild] npm run build in client/…')
+      await execFileAsync('npm', ['run', 'build'], {
         cwd: clientDir, timeout: 300_000,
-        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512' },
       })
     }
-
-    // Build
-    console.log('[rebuild] npm run build in client/…')
-    await execFileAsync('npm', ['run', 'build'], {
-      cwd: clientDir, timeout: 300_000,
-      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512' },
-    })
 
     // Deploy to R2
     const { selfHostedDeploy, patchHtmlPaths } = await import('./lib/selfHostedDeploy')
