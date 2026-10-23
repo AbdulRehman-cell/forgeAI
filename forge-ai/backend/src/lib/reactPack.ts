@@ -38,104 +38,32 @@ export function getReactPackCss(): string {
 
 export function getReactPackPromptNote(): string {
   return `
-FORGEAI REACT COMPONENT PACK — INJECTED INTO client/src/components/ui/
+FORGEAI UI COMPONENT LIBRARY — already written at client/src/components/ui.jsx
 
-These production-quality components are already written. USE THEM. Never hand-write a button, card, input, modal, table, badge, or alert from scratch.
+Import from '../components/ui' (pages) or './ui' (components). NEVER overwrite ui.jsx.
+AVAILABLE: toast, Button, Card, Spinner, Badge, Alert, Input, Select, Textarea, Modal, Stat, EmptyState, PageHeader, Table, Tabs
+Import example: import { Button, Card, Modal, Table, Badge, Select, EmptyState } from '../components/ui'
 
-IMPORT PATTERN (relative path from file location):
-  From src/pages/*.tsx     → import { Button, Card } from '../components/ui'
-  From src/components/*.tsx → import { Button, Card } from './ui'
-
-AVAILABLE COMPONENTS:
-
-Button
-  import { Button } from '../components/ui'
-  <Button variant="primary|secondary|ghost|danger" size="sm|md|lg" loading fullWidth iconLeft={<svg/>} iconRight={<svg/>}>
-    Label
-  </Button>
-
-Card
-  <Card variant="default|bordered|flat" padding="none|sm|md|lg" interactive onClick={fn}>
-    content
-  </Card>
-
-Input
-  <Input label="Email" placeholder="you@example.com" error="Required" iconLeft={<svg/>} type="email" />
-
-Textarea
-  <Textarea label="Bio" placeholder="Tell us about yourself" rows={4} error={errors.bio} />
-
-Select
-  <Select label="Role" options={[{ value:'admin', label:'Admin' }, { value:'user', label:'User' }]} error={errors.role} />
-
-Badge
-  <Badge variant="primary|success|warning|danger|neutral" size="sm|md|lg" dot>Active</Badge>
-
-Avatar
-  <Avatar src={user.avatar} name={user.name} size="sm|md|lg|xl" />
-
-Modal
-  <Modal open={isOpen} onClose={() => setOpen(false)} title="Confirm" size="sm|md|lg">
-    <p>Modal body content</p>
-    <Modal.Footer>
-      <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-      <Button onClick={handleConfirm}>Confirm</Button>
-    </Modal.Footer>
-  </Modal>
-
-Spinner
-  <Spinner size="sm|md|lg" color="primary|white" />
-
-Alert
-  <Alert variant="info|success|warning|error" title="Heads up!" dismissible>
-    Something happened you should know about.
-  </Alert>
-
-Stat
-  <Stat value="1,284" label="Total Users" delta="+12%" deltaType="up|down|neutral" />
-
-EmptyState
-  <EmptyState icon="📭" title="No results" description="Try a different search." action={<Button>Add item</Button>} />
-
-PageHeader
-  <PageHeader title="Dashboard" subtitle="Welcome back" badge={<Badge variant="success">Live</Badge>}>
-    <Button>New item</Button>
-  </PageHeader>
-
-Table
-  <Table>
-    <Table.Head>
-      <Table.Row><Table.Th>Name</Table.Th><Table.Th>Status</Table.Th></Table.Row>
-    </Table.Head>
-    <Table.Body>
-      {rows.map(r => (
-        <Table.Row key={r.id} clickable onClick={() => navigate(r.id)}>
-          <Table.Td>{r.name}</Table.Td>
-          <Table.Td><Badge variant="success">{r.status}</Badge></Table.Td>
-        </Table.Row>
-      ))}
-    </Table.Body>
-  </Table>
-
-Navbar
-  <Navbar logo={<span>MyApp</span>} actions={<Button size="sm">Sign in</Button>}>
-    <Navbar.Link href="/" active>Home</Navbar.Link>
-    <Navbar.Link href="/about">About</Navbar.Link>
-  </Navbar>
-
-Tabs
-  const [tab, setTab] = useState('overview')
-  <Tabs value={tab} onChange={setTab}>
-    <Tabs.Tab value="overview">Overview</Tabs.Tab>
-    <Tabs.Tab value="settings">Settings</Tabs.Tab>
-  </Tabs>
-  {tab === 'overview' && <div>...</div>}
-
-Toast  (call imperatively — no Provider needed)
-  import { toast } from '../components/ui'
-  toast.success('Saved!') | toast.error('Failed') | toast.info('Note') | toast.warning('Watch out')
-
-GOLDEN RULE: Every interactive element (button, link, form) uses a component from this library. The only CSS you write is for layout, positioning, and brand-specific hero/landing sections. Component appearance is handled by the pack.
+Button   variant="primary|secondary|ghost|danger"  disabled={bool}  loading={bool}
+Card     padding="sm|md|lg"  variant="bordered"  interactive={bool}
+Spinner  size="sm|lg"
+Badge    variant="primary|success|warning|secondary|danger|error|info"
+Alert    variant="error|success|info|warning"  title="string"  (wraps children)
+Input    label="string"  placeholder  name  value  onChange  type
+Select   options={[{value,label}]}  label="string"  value  onChange  — OR pass <option> as children
+Textarea label="string"  rows  placeholder  name  value  onChange
+Modal    isOpen={bool}  (also accepts open={bool})  onClose  title  size="sm|lg|xl"
+Modal.Footer — put Save/Cancel buttons inside it (renders right-aligned row with top border)
+Stat     value  label  icon  change
+EmptyState  icon  title  description  action
+PageHeader  title  subtitle  actions={<Button>…</Button>}  (also accepts description/children)
+Table    — sub-component style (preferred):
+  <Table.Head><Table.Row><Table.Th>Name</Table.Th></Table.Row></Table.Head>
+  <Table.Body>{rows.map(r=><Table.Row key={r.id} clickable onClick={fn}><Table.Td>{r.name}</Table.Td></Table.Row>)}</Table.Body>
+  — OR data-driven: <Table columns={['name','status']} rows={items} />
+Tabs     — sub-component style: <Tabs value={tab} onChange={setTab}><Tabs.Tab value="a">A</Tabs.Tab></Tabs>
+         — OR array style: <Tabs tabs={[{id:'a',label:'A'}]} active={tab} onChange={setTab} />
+toast.success('msg') | toast.error('msg') | toast.info('msg') | toast.warning('msg')
 `
 }
 
