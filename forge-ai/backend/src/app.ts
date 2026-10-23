@@ -169,8 +169,9 @@ async function restoreWorkspace(repositoryId: string, backendDir: string): Promi
 
     if (fs.existsSync(path.join(backendDir, 'package.json'))) {
       console.log(`[startup] npm install in ${backendDir}…`)
-      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--prefer-offline'], {
+      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--prefer-offline', '--no-audit', '--no-fund'], {
         cwd: backendDir, timeout: 180_000,
+        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256' },
       }).catch((e: any) => console.warn(`[startup] npm install warning: ${e.message}`))
     }
     return fs.existsSync(backendDir)
