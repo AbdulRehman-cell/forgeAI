@@ -326,12 +326,18 @@ async function uploadDirToR2(localDir: string, slug: string): Promise<void> {
     for (let i = 0; i < uploads.length; i += 20) {
       const batch = uploads.slice(i, i + 20)
       await Promise.all(batch.map(async ({ key, fullPath }) => {
+        // HTML files must not be cached by CDN — they change with every deploy.
+        // Content-hashed assets (*.js, *.css with hash in name) can be immutable.
+        const isHtml = path.extname(fullPath).toLowerCase() === '.html'
+        const cacheControl = isHtml
+          ? 'no-cache, no-store, must-revalidate'
+          : 'public, max-age=31536000, immutable'
         await client.send(new PutObjectCommand({
           Bucket: bucket,
           Key: key,
           Body: fs.readFileSync(fullPath),
           ContentType: mimeType(fullPath),
-          CacheControl: 'public, max-age=31536000, immutable',
+          CacheControl: cacheControl,
         }))
         uploadedKeys.push(key)
       }))
