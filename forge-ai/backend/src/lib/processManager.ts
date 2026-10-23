@@ -72,7 +72,7 @@ export async function startBackend(slug: string, serverDir: string): Promise<{ p
 
   const proc = spawn(cmd, args, {
     cwd: serverDir,
-    env: { ...process.env, PORT: String(port), NODE_ENV: 'production' },
+    env: { ...process.env, PORT: String(port), NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=256' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 
@@ -93,8 +93,14 @@ export async function startBackend(slug: string, serverDir: string): Promise<{ p
 
   processes.set(slug, { slug, serverDir, process: proc, port, startedAt: new Date(), restarts: 0 })
   console.log(`[backend:${slug}] started on port ${port} (${cmd} ${args.join(' ')}) — waiting for ready…`)
-  await waitForPort(port).catch(e => console.warn(`[backend:${slug}] ${e.message}`))
-  console.log(`[backend:${slug}] ready`)
+  try {
+    await waitForPort(port, 45_000)
+    console.log(`[backend:${slug}] ready`)
+  } catch (e: any) {
+    console.warn(`[backend:${slug}] ${e.message}`)
+    processes.delete(slug)
+    throw e
+  }
   return { port, proxyPath: `/sites-api/${slug}` }
 }
 

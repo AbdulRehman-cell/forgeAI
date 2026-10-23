@@ -168,11 +168,23 @@ async function restoreWorkspace(repositoryId: string, backendDir: string): Promi
     }
 
     if (fs.existsSync(path.join(backendDir, 'package.json'))) {
-      console.log(`[startup] npm install in ${backendDir}…`)
-      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--prefer-offline', '--no-audit', '--no-fund'], {
-        cwd: backendDir, timeout: 180_000,
-        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256' },
-      }).catch((e: any) => console.warn(`[startup] npm install warning: ${e.message}`))
+      const nmDir = path.join(backendDir, 'node_modules')
+      const needsInstall = !fs.existsSync(nmDir) || fs.readdirSync(nmDir).length === 0
+      if (needsInstall) {
+        console.log(`[startup] npm install in ${backendDir}…`)
+        try {
+          await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], {
+            cwd: backendDir, timeout: 240_000,
+            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+          })
+          console.log(`[startup] npm install complete in ${backendDir}`)
+        } catch (e: any) {
+          console.error(`[startup] npm install FAILED in ${backendDir}: ${e.message}`)
+          return false
+        }
+      } else {
+        console.log(`[startup] node_modules exists in ${backendDir}, skipping npm install`)
+      }
     }
     return fs.existsSync(backendDir)
   } catch (e: any) {
@@ -306,6 +318,16 @@ app.use('/sites-api/:slug', async (req, res) => {
     proxyReq.end(body)
   }
   doProxy(3)
+})
+
+// Debug: list managed site backends and restore state
+app.get('/sites-api-status', (_req, res) => {
+  const { listBackends } = require('./lib/processManager')
+  res.json({
+    restoring: restorePromise !== null && !backendsRestored,
+    restored: backendsRestored,
+    backends: listBackends(),
+  })
 })
 
 // Self-hosted sites — served as static files with relaxed CSP so user-generated
