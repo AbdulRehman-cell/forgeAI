@@ -2428,7 +2428,7 @@ img, video, iframe, table, pre, canvas, svg { max-width: 100%; }
 
 /* ── Anti-dashed-border hard lock ── */
 /* The #1 "vibe-coded" tell: AI-injected dashed/dotted/solid borders on nav links.
-   Strip ALL borders and outlines from non-CTA nav links. */
+   Strip ALL borders and outlines from non-CTA nav links (including logo/brand). */
 nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand):not(.logo):not(.brand),
 header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
 .nav-links a:not([class*="btn"]),
@@ -2438,11 +2438,21 @@ header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo
   background: transparent !important;
   box-shadow: none !important;
 }
+/* Also clear borders/outlines from logo/brand links — keep background so pill logos work */
+.nav-brand, .nav-logo, nav .logo, nav .brand, header .logo, header .brand {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
 /* Restore keyboard-focus ring for accessibility */
 nav a:focus-visible:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand),
 header a:focus-visible:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
 .nav-links a:focus-visible:not([class*="btn"]),
 .nav-menu a:focus-visible:not([class*="btn"]) {
+  outline: 2px solid var(--primary, currentColor) !important;
+  outline-offset: 3px !important;
+}
+.nav-brand:focus-visible, .nav-logo:focus-visible, nav .logo:focus-visible, nav .brand:focus-visible {
   outline: 2px solid var(--primary, currentColor) !important;
   outline-offset: 3px !important;
 }
@@ -4708,21 +4718,13 @@ function healRoute(name: string): string {
   return [
     "const express = require('express');",
     `const ${N} = require('../models/${N}');`,
-    "const jwt = require('jsonwebtoken');",
     'const router = express.Router();',
-    '',
-    'function requireAdmin(req, res, next) {',
-    "  const h = req.headers.authorization || ''; const t = h.replace(/^Bearer\\s+/i, '').trim();",
-    "  if (!t) return res.status(401).json({ error: 'Admin authentication required' });",
-    "  try { jwt.verify(t, process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'); next(); }",
-    "  catch { res.status(401).json({ error: 'Invalid or expired admin token' }); }",
-    '}',
     '',
     `router.get('/', async (req, res) => { try { res.json(await ${N}.find().sort('-createdAt')); } catch (e) { res.status(500).json({ error: 'Failed to fetch.' }); } });`,
     `router.get('/:id', async (req, res) => { try { const doc = await ${N}.findById(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
     `router.post('/', async (req, res) => { try { res.status(201).json(await ${N}.create(req.body)); } catch (e) { res.status(400).json({ error: e.message }); } });`,
     `router.put('/:id', async (req, res) => { try { const doc = await ${N}.findByIdAndUpdate(req.params.id, req.body, { new: true }); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json(doc); } catch (e) { res.status(400).json({ error: e.message }); } });`,
-    `router.delete('/:id', requireAdmin, async (req, res) => { try { const doc = await ${N}.findByIdAndDelete(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json({ message: 'Deleted.' }); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
+    `router.delete('/:id', async (req, res) => { try { const doc = await ${N}.findByIdAndDelete(req.params.id); if (!doc) return res.status(404).json({ error: 'Not found.' }); res.json({ message: 'Deleted.' }); } catch (e) { res.status(404).json({ error: 'Not found.' }); } });`,
     '',
     'module.exports = router;',
     '',
@@ -5075,7 +5077,7 @@ export async function generateMernSite(
     await log(`🔌 Generating API routes for ${m.name}…`, (pct += 4))
     await sleep(1500)
     const ok = await gen(
-      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) for the ${m.name} model (require it from ../models/${m.name}).\n\nAuth rules — these are FIXED, no exceptions:\n• GET / → PUBLIC\n• GET /:id → PUBLIC\n• POST / → PUBLIC (anyone can create — visitors submit forms, admin panel creates records through the same endpoint)\n• PUT /:id → requireAdmin only\n• DELETE /:id → requireAdmin only\n\nInline requireAdmin directly in this file (verify JWT from req.headers.authorization, secret: process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'). Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
+      `${contract}\n\nGenerate server/routes/${lower}.routes.js — an Express router (CommonJS) for the ${m.name} model (require it from ../models/${m.name}).\n\nAuth rules — ALL routes are FULLY PUBLIC with ZERO authentication middleware:\n• GET / → PUBLIC\n• GET /:id → PUBLIC\n• POST / → PUBLIC\n• PUT /:id → PUBLIC\n• DELETE /:id → PUBLIC\n\nDo NOT add requireAdmin, requireAuth, authenticate, or any auth/JWT middleware to ANY route. Do NOT import jsonwebtoken. These are simple public CRUD endpoints — any visitor can create, update, and delete records. Every handler async with try/catch and proper status codes (201 create, 400 validation, 404 missing, 500 otherwise). module.exports the router.`,
       `server/routes/${lower}.routes.js`,
     )
     if (!ok) {

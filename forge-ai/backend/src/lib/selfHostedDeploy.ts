@@ -273,9 +273,11 @@ function patchHtmlPaths(distDir: string, apiProxyUrl?: string): void {
 nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand):not(.logo):not(.brand),
 header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
 .nav-links a:not([class*="btn"]),.nav-menu a:not([class*="btn"]){border:none!important;outline:none!important;box-shadow:none!important}
+.nav-brand,.nav-logo,nav .logo,nav .brand,header .logo,header .brand{border:none!important;outline:none!important;box-shadow:none!important}
 nav a:focus-visible:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand),
 header a:focus-visible:not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
 .nav-links a:focus-visible:not([class*="btn"]),.nav-menu a:focus-visible:not([class*="btn"]){outline:2px solid var(--primary,currentColor)!important;outline-offset:3px!important}
+.nav-brand:focus-visible,.nav-logo:focus-visible,nav .logo:focus-visible,nav .brand:focus-visible{outline:2px solid var(--primary,currentColor)!important;outline-offset:3px!important}
 </style>`
   html = html.includes('</head>')
     ? html.replace('</head>', navFixStyle + '</head>')
