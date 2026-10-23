@@ -206,7 +206,12 @@ async function restoreBackendsOnce() {
   }
 }
 
-// Kick off restore lazily on first /sites-api hit (DB may not be ready at process start)
+// Kick off restore lazily on first /sites-api hit (DB may not be ready at process start).
+// Also exported so index.ts can trigger it eagerly once DB is connected.
+export function triggerBackendRestore() {
+  if (!restorePromise) restorePromise = restoreBackendsOnce()
+}
+
 app.use('/sites-api', (_req, _res, next) => {
   if (!restorePromise) restorePromise = restoreBackendsOnce()
   next()

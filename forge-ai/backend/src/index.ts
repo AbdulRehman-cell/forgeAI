@@ -4,7 +4,7 @@ import path from 'path'
 // regardless of which directory npm run dev is invoked from.
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
 import http from 'http'
-import app from './app'
+import app, { triggerBackendRestore } from './app'
 import { connectDB } from './lib/database'
 import { setupWebSocket } from './modules/websocket'
 import { setupWorkers } from './lib/workers'
@@ -34,6 +34,10 @@ function startKeepAlive() {
 
 async function bootstrap() {
   await connectDB()
+
+  // Start restoring self-hosted site backends now that DB is ready.
+  // This runs in the background — the server starts immediately below.
+  triggerBackendRestore()
 
   const server = http.createServer(app)
   setupWebSocket(server)
