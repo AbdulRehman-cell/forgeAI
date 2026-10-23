@@ -2427,20 +2427,24 @@ img, video, iframe, table, pre, canvas, svg { max-width: 100%; }
 }
 
 /* ── Anti-dashed-border hard lock ── */
-/* The #1 "vibe-coded" tell: AI-injected dashed/dotted nav borders.
-   This rule wins over any AI-generated border-style on nav elements. */
-nav a, nav button, nav li a,
-header a, header button, header li a,
-.nav-links a, .nav-menu a, .navbar a,
-.nav-links button, .nav-menu button {
-  border-style: solid !important;
-}
-nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]),
-header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand),
+/* The #1 "vibe-coded" tell: AI-injected dashed/dotted/solid borders on nav links.
+   Strip ALL borders and outlines from non-CTA nav links. */
+nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand):not(.logo):not(.brand),
+header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
 .nav-links a:not([class*="btn"]),
 .nav-menu a:not([class*="btn"]) {
   border: none !important;
-  outline-style: solid !important;
+  outline: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+/* Restore keyboard-focus ring for accessibility */
+nav a:focus-visible:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand),
+header a:focus-visible:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
+.nav-links a:focus-visible:not([class*="btn"]),
+.nav-menu a:focus-visible:not([class*="btn"]) {
+  outline: 2px solid var(--primary, currentColor) !important;
+  outline-offset: 3px !important;
 }
 
 /* ── Gallery overlay cap ── */
