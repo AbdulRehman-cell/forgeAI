@@ -6139,9 +6139,10 @@ async function buildSite(job: Job) {
     // ── Create the GitHub repo and push ──
     let pushedFullName: string | null = null
     const fullUser = await User.findById(userId).select('+githubAccessToken')
-    if (fullUser?.githubAccessToken) {
+    const githubToken = fullUser?.githubAccessToken || process.env.GITHUB_TOKEN
+    if (githubToken) {
       await updateTask(task, { progress: 70 }, '🐙 Creating GitHub repository…')
-      const headers = { Authorization: `token ${fullUser.githubAccessToken}`, Accept: 'application/vnd.github+json' }
+      const headers = { Authorization: `token ${githubToken}`, Accept: 'application/vnd.github+json' }
       let ghRepo: any
       let githubAuthFailed = false
       const baseSlug = siteName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'site'
