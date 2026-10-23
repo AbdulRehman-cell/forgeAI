@@ -330,6 +330,73 @@ app.get('/sites-api-status', (_req, res) => {
   })
 })
 
+// Admin: rebuild + redeploy a self-hosted MERN site's frontend to R2.
+// Fixes source files, rebuilds client, uploads dist. Secured by a simple
+// server-side secret so it's not publicly callable.
+app.post('/admin/rebuild-site-frontend', async (req: any, res: any) => {
+  const secret = req.headers['x-admin-secret']
+  if (secret !== (process.env.ADMIN_REBUILD_SECRET ?? 'forgeai-rebuild-2026')) {
+    return res.status(401).json({ message: 'Unauthorized' })
+  }
+  const { repositoryId, slug, patches } = req.body
+  // patches: array of { file, find, replace } to apply before building
+  if (!repositoryId || !slug) return res.status(400).json({ message: 'repositoryId and slug required' })
+
+  try {
+    const repoDoc = await Repository.findById(repositoryId).select('localPath deployState').lean() as any
+    const localPath: string = repoDoc?.localPath
+    if (!localPath || !fs.existsSync(localPath)) {
+      return res.status(404).json({ message: `localPath not found: ${localPath}` })
+    }
+
+    // Apply text patches to source files
+    if (Array.isArray(patches)) {
+      for (const p of patches) {
+        const filePath = path.join(localPath, p.file)
+        if (fs.existsSync(filePath)) {
+          const before = fs.readFileSync(filePath, 'utf-8')
+          const after = before.split(p.find).join(p.replace)
+          if (before !== after) {
+            fs.writeFileSync(filePath, after, 'utf-8')
+            console.log(`[rebuild] Patched ${p.file}: "${p.find}" → "${p.replace}"`)
+          }
+        }
+      }
+    }
+
+    const clientDir = path.join(localPath, 'client')
+    if (!fs.existsSync(clientDir)) return res.status(400).json({ message: 'No client/ directory found' })
+
+    // npm install if needed
+    const nmDir = path.join(clientDir, 'node_modules')
+    if (!fs.existsSync(nmDir) || fs.readdirSync(nmDir).length === 0) {
+      console.log('[rebuild] npm install in client/…')
+      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], {
+        cwd: clientDir, timeout: 300_000,
+        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+      })
+    }
+
+    // Build
+    console.log('[rebuild] npm run build in client/…')
+    await execFileAsync('npm', ['run', 'build'], {
+      cwd: clientDir, timeout: 300_000,
+      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512' },
+    })
+
+    // Deploy to R2
+    const { selfHostedDeploy, patchHtmlPaths } = await import('./lib/selfHostedDeploy')
+    const apiProxyUrl = `${process.env.RENDER_EXTERNAL_URL ?? ''}/sites-api/${slug}`
+    const result = await selfHostedDeploy({ localPath, name: slug, existingSlug: slug, apiProxyUrl })
+    console.log('[rebuild] Deployed to', result.url)
+
+    res.json({ message: 'Rebuilt and deployed', url: result.url, slug: result.slug })
+  } catch (e: any) {
+    console.error('[rebuild] Failed:', e.message)
+    res.status(500).json({ message: e.message })
+  }
+})
+
 // Self-hosted sites — served as static files with relaxed CSP so user-generated
 // HTML/JS/CSS can run. We disable helmet's opinionated headers for this path only.
 const siteHeaders = (_req: any, res: any, next: any) => {
