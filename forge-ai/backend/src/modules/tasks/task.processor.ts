@@ -1047,7 +1047,10 @@ async function blitzDeploy(job: Job) {
         // domain), so a relative /sites-api/... would resolve against R2, not ForgeAI.
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
           await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
-          await execAsync('npm install --legacy-peer-deps', { cwd: backendRunDir, timeout: 180_000 })
+          await execAsync('npm install --legacy-peer-deps --no-audit --no-fund --prefer-offline', {
+            cwd: backendRunDir, timeout: 180_000,
+            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256' },
+          })
           // Write user-supplied env vars to .env (merge with any existing file)
           if (envVars && typeof envVars === 'object' && Object.keys(envVars).length > 0) {
             const envPath = path.join(backendRunDir, '.env')
@@ -1092,7 +1095,10 @@ async function blitzDeploy(job: Job) {
 
         await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
         // --include=dev ensures vite/esbuild are installed even when NODE_ENV=production (Render default)
-        await execAsync('npm install --legacy-peer-deps --include=dev', { cwd: buildCwd, timeout: 180_000 })
+        await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --prefer-offline', {
+          cwd: buildCwd, timeout: 180_000,
+          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256' },
+        })
 
         await updateTask(task, { progress: 40 }, '🔨 Building site…')
 
@@ -1108,7 +1114,10 @@ async function blitzDeploy(job: Job) {
 
         for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
           try {
-            await execAsync(buildCmd, { cwd: buildCwd, timeout: 180_000 })
+            await execAsync(buildCmd, {
+              cwd: buildCwd, timeout: 180_000,
+              env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256' },
+            })
             buildSucceeded = true
             break
           } catch (buildErr: any) {
