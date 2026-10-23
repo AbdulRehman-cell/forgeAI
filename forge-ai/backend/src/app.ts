@@ -391,7 +391,7 @@ app.post('/admin/rebuild-site-frontend', async (req: any, res: any) => {
     }
 
     // Deploy to R2
-    const { selfHostedDeploy, patchHtmlPaths } = await import('./lib/selfHostedDeploy')
+    const { selfHostedDeploy } = await import('./lib/selfHostedDeploy')
     const apiProxyUrl = `${process.env.RENDER_EXTERNAL_URL ?? ''}/sites-api/${slug}`
     const result = await selfHostedDeploy({ localPath, name: slug, existingSlug: slug, apiProxyUrl })
     console.log('[rebuild] Deployed to', result.url)
