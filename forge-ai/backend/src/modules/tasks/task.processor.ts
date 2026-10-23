@@ -3841,7 +3841,8 @@ RULES:
 - FOLLOW CATEGORY CONVENTIONS: build the sections, layout, and structure that best-in-class REAL sites in this site's CATEGORY use — the DESIGN BRIEF's REFERENCE names the category and its conventions. A hotel must feel like a hotel site (rooms, amenities, gallery, offers, location), a restaurant like a restaurant site (menu, reservations, gallery), etc. — not a generic template.
 - SUBSTANCE & DENSITY: build RICH, full pages — never thin one-section pages. Every major page MUST have 6–8 distinct sections. Landing/Home: hero → stats/social-proof → feature highlights (3-col grid) → how-it-works (step-row) → gallery or showcase → testimonials → CTA banner → footer. Listing pages: filter-bar + category-btn chips → grid of cards → pagination. Detail/single-item pages: hero image → key details + action button → description → related items grid. Form/booking pages: a prominent booking-card search bar → results → booking confirmation. Each section must have a real eyebrow label, a strong h2, a sub-paragraph, and the appropriate visual treatment. Pages that match what Lovable would build — never sparse.
 - No placeholders, no "...", no TODOs — complete working code only.
-- ONLY import from packages that exist in client/package.json: react, react-dom, react-router-dom, axios. NEVER import "framer-motion", "react-icons", "react-serif", "styled-components", "chakra-ui", "@mui/material", "date-fns", "lodash", or ANY other npm package — they are NOT installed and will crash the build. All styling is done via CSS classes; all utilities are written inline.
+- ONLY import from packages that exist in client/package.json: react, react-dom, react-router-dom, axios, recharts. NEVER import "framer-motion", "react-icons", "react-serif", "styled-components", "chakra-ui", "@mui/material", "date-fns", "lodash", or ANY other npm package — they are NOT installed and will crash the build. All styling is done via CSS classes; all utilities are written inline.
+- CHARTS — for any Dashboard, Analytics, or Stats page that shows charts: use Recharts (it IS installed). Import from 'recharts', e.g. \`import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts'\`. Wrap every chart in \`<ResponsiveContainer width="100%" height={300}>\`. CRITICAL COLOR RULE: chart bars, lines, and fills MUST use colors from the design system CSS variables (e.g. fill="var(--primary)" or fill="var(--accent)" or fill="#6366f1" matching the site palette) — NEVER use fill="none", fill="transparent", stroke="none", or hardcoded dark hex values that are invisible against a dark background. Always set \`stroke="var(--text,#e2e8f0)"\` on XAxis/YAxis tick text for visibility. Use \`<Tooltip contentStyle={{background:'var(--card-bg,#1e293b)',border:'1px solid var(--border,rgba(255,255,255,.1))',borderRadius:'8px',color:'var(--text,#e2e8f0)'}}/>\` for readable tooltips in any theme. Use bright, saturated fill colors (e.g. #6366f1, #22d3ee, #f59e0b, #10b981) so bars/lines are clearly visible on both light and dark backgrounds.
 - In CSS files, ALL @import rules (e.g. Google Fonts @import url(...)) MUST be the very first lines of the file — before any :root, *, or other rules. An @import after any other CSS rule is invalid and fails the build.
 
 Return ONLY the requested file, in exactly this format:
@@ -4025,6 +4026,7 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     // guarantees the client builds regardless of the install mode.
     dependencies: {
       axios: '^1.7.2', react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1',
+      recharts: '^2.12.7',
       vite: '^5.4.0', '@vitejs/plugin-react': '^4.3.1',
     },
   }
@@ -4770,7 +4772,7 @@ function fixCssImportOrder(files: ParsedChange[]): void {
  *  else is commented out so the file still parses. */
 function stripHallucinatedPackageImports(files: ParsedChange[]): void {
   const ALLOWED = new Set([
-    'react', 'react-dom', 'react-router-dom', 'axios',
+    'react', 'react-dom', 'react-router-dom', 'axios', 'recharts',
     'vite', '@vitejs/plugin-react',
   ])
   for (const f of files.filter((x) => /^client\/src\/.+\.(jsx?|tsx?)$/.test(x.path.replace(/\\/g, '/')))) {
@@ -5190,9 +5192,12 @@ export async function generateMernSite(
     await log(`📄 Generating ${p.file}…`, Math.min(70, (pct += 5)))
     await sleep(1500)
     const isLanding = p.route === '/'
+    const isDashboard = /dashboard|analytics|stats|overview|report/i.test(p.file + ' ' + p.purpose)
     const richness = isLanding
       ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. ⚠️ THIS IS REACT JSX — use className= everywhere, NEVER class=. Include, IN ORDER: (1) a full hero (eyebrow + big headline with a <span className="gradient-text"> accent + subhead + two CTAs), then AT LEAST SIX more full <section className="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial), a pricing/plans row, an FAQ, and a final cta-section — and a rich footer. Every section wrapped in <div className="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance animations (className="animate-in") and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
-      : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content (not one thin block). ⚠️ REACT JSX: always className= never class=.`
+      : isDashboard
+        ? `This is a DASHBOARD/ANALYTICS page — build a full data visualization experience. ⚠️ REACT JSX: always className= never class=. REQUIRED STRUCTURE: (1) Row of 4 KPI stat cards (total, growth, revenue, active users — fetch real numbers from the API) using className="stats" + className="stat-value"/"stat-label". (2) A BarChart using Recharts showing monthly/weekly trends — import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'. Wrap in <ResponsiveContainer width="100%" height={300}>. Use fill="#6366f1" on <Bar> for visibility. Set tick={{fill:'var(--muted,#94a3b8)'}} on XAxis/YAxis. Tooltip contentStyle={{background:'var(--card-bg,#1e293b)',border:'1px solid rgba(255,255,255,.1)',borderRadius:'8px',color:'var(--text,#e2e8f0)'}}. (3) A second chart — LineChart for a different metric (e.g. signups over time, revenue trend) with stroke="#22d3ee". (4) A recent-activity table showing the last 10 records. (5) Any relevant PieChart or donut for category breakdown with fill colors from this palette: ["#6366f1","#22d3ee","#f59e0b","#10b981","#f43f5e"]. Fetch all chart data from the backend API. Show loading skeletons while data is loading. Make the page feel like a real SaaS dashboard (Linear/Stripe-tier).`
+        : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content (not one thin block). ⚠️ REACT JSX: always className= never class=.`
     await gen(
       `${briefBlock}${contract}\n\nApp.jsx for reference:\n\`\`\`jsx\n${appJsx.slice(0, 3000)}\n\`\`\`\n\nGenerate client/src/pages/${p.file} — ${p.purpose}. Original request: ${prompt.slice(0, 300)}.\n\n${richness}\n\nWrite REAL, specific, on-brand copy — never lorem, never "..." or TODO. If the page fetches data (GET), show a loading skeleton or spinner while loading, then render the data. FORMS: if this page has any form, you MUST implement: (1) const [loading, setLoading] = useState(false) — disable submit button and show "Submitting…" text while true, (2) const [success, setSuccess] = useState(false) — when true, hide the form and show a large green success message (e.g. "✓ Your application was received! We'll be in touch within 48 hours."), (3) const [error, setError] = useState('') — show it in red below the form if the request fails. Always reset the form fields on success. CRITICAL: this is a PUBLIC page — never make POST, PUT, or DELETE requests from it EXCEPT for user submissions (forms, bookings, applications, registrations, contact, orders). Never make admin-style writes. Export default the component. Do NOT import any CSS file — styling is global via index.css, which main.jsx already imports.`,
       `client/src/pages/${p.file}`,
@@ -5654,7 +5659,8 @@ PAGES — fix real bugs only, do NOT touch working UI/layout/styling:
 • Never call JSON.parse() on data that already arrives from axios as a JS value (array or object)
 • SECURITY — this is critical: public-facing pages (Home, Browse, Products, etc.) must NOT contain Create, Edit, or Delete buttons, admin forms, or any data-write controls. Those belong exclusively in Admin.jsx. If you find a delete button or create form on a public page, remove it — public users should only read data
 • Scoring/results: send raw answers to the backend and use the server's response for the score; never calculate a score or grade client-side
-• Fix broken imports; useState initial values must match data shape ([] lists, {} objects, null/'' scalars)`,
+• Fix broken imports; useState initial values must match data shape ([] lists, {} objects, null/'' scalars)
+• CHARTS: any Recharts chart MUST have visible fills — fix fill="none", fill="transparent", or dark/invisible hex colors by replacing with bright accents like fill="#6366f1" (primary), fill="#22d3ee" (cyan), fill="#f59e0b" (amber), fill="#10b981" (green). Wrap every chart in <ResponsiveContainer width="100%" height={300}>. XAxis/YAxis must have tick={{fill:'var(--text,#e2e8f0)'}}. Tooltip must have contentStyle={{background:'var(--card-bg,#1e293b)',border:'1px solid rgba(255,255,255,.1)',borderRadius:'8px',color:'var(--text,#e2e8f0)'}}`,
     )
     await log(`✅ Frontend QA — ${n} file(s) improved`)
   }
