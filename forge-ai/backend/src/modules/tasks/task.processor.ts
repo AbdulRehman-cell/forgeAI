@@ -4318,6 +4318,20 @@ const UI = { toast, Button, Card, Spinner, Badge, Alert, Input, Select, Textarea
 export default UI
 `
 
+  const adminAuthMiddleware = `const jwt = require('jsonwebtoken')
+const ADMIN_SECRET = process.env.ADMIN_JWT_SECRET || 'forgeai-admin-secret-change-me'
+
+function requireAdmin(req, res, next) {
+  const header = req.headers.authorization || ''
+  const token = header.replace(/^Bearer\\s+/i, '').trim()
+  if (!token) return res.status(401).json({ error: 'Admin authentication required' })
+  try { jwt.verify(token, ADMIN_SECRET); next() }
+  catch { res.status(401).json({ error: 'Invalid or expired admin token' }) }
+}
+
+module.exports = { requireAdmin, ADMIN_SECRET }
+`
+
   return [
     { path: 'package.json', content: JSON.stringify(rootPkg, null, 2) + '\n' },
     { path: 'client/package.json', content: JSON.stringify(clientPkg, null, 2) + '\n' },
@@ -4325,6 +4339,7 @@ export default UI
     { path: 'client/index.html', content: indexHtml },
     { path: 'client/src/main.jsx', content: mainJsx },
     { path: 'client/src/components/ui.jsx', content: uiJsx },
+    { path: 'server/middleware/adminAuth.js', content: adminAuthMiddleware },
     { path: 'Dockerfile', content: dockerfile },
     { path: '.dockerignore', content: dockerignore },
     { path: '.gitignore', content: gitignore },
