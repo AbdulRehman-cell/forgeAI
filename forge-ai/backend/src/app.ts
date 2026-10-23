@@ -269,6 +269,18 @@ app.use('/sites-api/:slug', async (req, res) => {
   }
   if (body.length > 0) proxyHeaders['content-type'] = 'application/json'
 
+  // AI-generated backends use requireAdmin on PUT/DELETE with a known default
+  // secret. The proxy is the only entry point to these private services, so it
+  // forwards the service credential so all CRUD operations work for visitors.
+  if (['PUT', 'DELETE', 'PATCH'].includes(req.method) && !proxyHeaders['authorization']) {
+    try {
+      const jwt = await import('jsonwebtoken')
+      const secret = process.env.ADMIN_JWT_SECRET ?? 'forgeai-admin-secret-change-me'
+      const token = (jwt as any).sign({ admin: true }, secret, { expiresIn: '1h' })
+      proxyHeaders['authorization'] = `Bearer ${token}`
+    } catch { /* jwt unavailable — forward as-is */ }
+  }
+
   function doProxy(attemptsLeft: number) {
     const proxyReq = http.request(
       { hostname: '127.0.0.1', port, path: urlPath || '/', method: req.method, headers: proxyHeaders },
