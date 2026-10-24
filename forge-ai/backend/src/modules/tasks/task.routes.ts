@@ -316,9 +316,9 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   // HTML has no login/no data/no interactivity, which is not what the user
   // asked for. The user's explicit `stack` choice still wins if they set one.
   const backendSignals = /\b(login|log in|sign ?up|sign ?in|register|auth|account|user profile|profile page|dashboard|admin panel|messaging|chat|message board|comment|post(s|ing)?|feed|match(ing|es)?|swipe|dating|social network|marketplace|listing|booking|reservation|order|cart|checkout|payment|subscription|todo|task manager|kanban|crud|database|save data|store data|submit form|user data|members? area|forum)\b/i
-  const explicitStack = stack === 'mern' || stack === 'static' ? stack : null
+  const explicitStack = stack === 'mern' || stack === 'static' || stack === 'supabase' ? stack as 'static' | 'mern' | 'supabase' : null
   const autoDetectedNeedsBackend = !explicitStack && backendSignals.test(String(prompt ?? ''))
-  const siteStack: 'static' | 'mern' = explicitStack ?? (autoDetectedNeedsBackend ? 'mern' : 'static')
+  const siteStack: 'static' | 'mern' | 'supabase' = explicitStack ?? (autoDetectedNeedsBackend ? 'mern' : 'static')
 
   // Optional theme vibe that steers the design director (on top of the
   // automatic industry-matching). Anything else → 'auto' (no extra steering).
@@ -418,7 +418,7 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     name: siteName,
     fullName: siteName,
     description: `AI-built: ${prompt.slice(0, 140)}`,
-    language: siteStack === 'mern' ? 'JavaScript' : 'HTML',
+    language: siteStack !== 'static' ? 'JavaScript' : 'HTML',
     private: false,
     defaultBranch: 'main',
     cloneUrl: 'pending',

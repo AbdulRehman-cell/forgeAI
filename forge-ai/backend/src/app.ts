@@ -228,6 +228,7 @@ async function ensureSharedNodeModules(): Promise<void> {
         'react-dom': '^18.3.1',
         'react-router-dom': '^6.23.1',
         recharts: '^2.12.7',
+        '@supabase/supabase-js': '^2.44.0',
         vite: '^5.4.0',
         '@vitejs/plugin-react': '^4.3.1',
       },

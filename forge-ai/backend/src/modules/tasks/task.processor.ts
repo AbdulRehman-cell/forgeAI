@@ -1145,6 +1145,27 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
+        // Inject Supabase credentials from builderEnv (supabase-stack sites need
+        // VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY baked into the Vite build).
+        if (repositoryId) {
+          const repoForEnv = await Repository.findById(repositoryId).select('+builderEnv')
+          const builderEnv = repoForEnv?.builderEnv as Record<string, string> | undefined
+          if (builderEnv?.VITE_SUPABASE_URL) {
+            const envPath = path.join(buildCwd, '.env')
+            let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
+            for (const [k, v] of [
+              ['VITE_SUPABASE_URL', builderEnv.VITE_SUPABASE_URL],
+              ['VITE_SUPABASE_ANON_KEY', builderEnv.VITE_SUPABASE_ANON_KEY ?? ''],
+            ] as [string, string][]) {
+              if (!v) continue
+              const re = new RegExp(`^${k}=.*`, 'm')
+              envContent = re.test(envContent) ? envContent.replace(re, `${k}=${v}`) : envContent + `\n${k}=${v}\n`
+            }
+            fs.writeFileSync(envPath, envContent, 'utf-8')
+            await updateTask(task, {}, '🔐 Injected Supabase credentials into build .env')
+          }
+        }
+
         // ── Align with shared node_modules ───────────────────────────────────────────
         // Swap @vitejs/plugin-react-swc → @vitejs/plugin-react (shared node_modules
         // uses the Babel plugin; swapping lets the symlink fast-path work).
@@ -5369,6 +5390,268 @@ async function healMissingApiEndpoints(files: ParsedChange[], log: (m: string, p
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPABASE SITE GENERATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SupabaseTable {
+  name: string
+  columns: Array<{ name: string; type: string; nullable?: boolean }>
+  access: 'public_read' | 'auth_required' | 'public_write'
+}
+interface SupabasePlan {
+  tables: SupabaseTable[]
+  pages: Array<{ file: string; title: string; path: string; description: string }>
+  hasAuth: boolean
+  sqlSchema: string
+}
+
+async function planSupabaseSite(
+  provider: AIProvider,
+  prompt: string,
+  siteName: string,
+  enhancer: AIProvider | null,
+): Promise<SupabasePlan> {
+  const system = 'You are a database architect. Output ONLY valid JSON with no markdown fences.'
+  const instruction = `Plan a Supabase/PostgreSQL backend for: "${prompt}"
+
+Return JSON:
+{
+  "tables": [{ "name": "string", "columns": [{"name":"string","type":"text|integer|boolean|uuid|timestamptz|numeric|jsonb","nullable":false}], "access": "public_read|auth_required|public_write" }],
+  "pages": [{ "file": "PageName.jsx", "title": "string", "path": "/path", "description": "what this page shows" }],
+  "hasAuth": false,
+  "sqlSchema": "-- runnable PostgreSQL: CREATE TABLE + ALTER TABLE ENABLE ROW LEVEL SECURITY + CREATE POLICY"
+}
+
+Rules:
+- Always include id (uuid DEFAULT gen_random_uuid() PRIMARY KEY) and created_at (timestamptz DEFAULT now()) on every table
+- Enable RLS: ALTER TABLE t ENABLE ROW LEVEL SECURITY; then CREATE POLICY for each access pattern
+- 3-5 pages, max 4 tables
+- hasAuth only true if login is genuinely needed`
+
+  for (const p of [provider, ...(enhancer ? [enhancer] : [])]) {
+    try {
+      const res = await safeChat(p, instruction, system)
+      if (!res) continue
+      const raw = res.content.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim()
+      const plan: SupabasePlan = JSON.parse(raw)
+      if (plan.tables?.length && plan.pages?.length && plan.sqlSchema) return plan
+    } catch {}
+  }
+
+  return {
+    tables: [{ name: 'items', columns: [
+      { name: 'id', type: 'uuid' }, { name: 'title', type: 'text' },
+      { name: 'description', type: 'text', nullable: true }, { name: 'created_at', type: 'timestamptz' },
+    ], access: 'public_read' }],
+    pages: [
+      { file: 'Home.jsx', title: 'Home', path: '/', description: 'Landing page with hero and features' },
+      { file: 'Items.jsx', title: `${siteName} Items`, path: '/items', description: 'Browse and manage items' },
+      { file: 'About.jsx', title: 'About', path: '/about', description: 'About page' },
+    ],
+    hasAuth: false,
+    sqlSchema: `CREATE TABLE IF NOT EXISTS items (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title text NOT NULL,
+  description text,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_read" ON items FOR SELECT USING (true);
+CREATE POLICY "public_insert" ON items FOR INSERT WITH CHECK (true);`,
+  }
+}
+
+function supabaseScaffoldFiles(siteName: string): ParsedChange[] {
+  const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+  const supabaseLib = [
+    "import { createClient } from '@supabase/supabase-js'",
+    '',
+    'const supabaseUrl = import.meta.env.VITE_SUPABASE_URL',
+    'const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY',
+    '',
+    "if (!supabaseUrl || !supabaseAnonKey) console.warn('[Supabase] env vars not set — data calls will fail')",
+    '',
+    'export const supabase = createClient(supabaseUrl, supabaseAnonKey)',
+    '',
+  ].join('\n')
+
+  const packageJson = JSON.stringify({
+    name: slug, private: true, version: '0.0.1', type: 'module',
+    scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
+    dependencies: {
+      '@supabase/supabase-js': '^2.44.0',
+      react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1',
+    },
+    devDependencies: { '@vitejs/plugin-react': '^4.3.1', vite: '^5.4.0' },
+  }, null, 2)
+
+  const viteConfig = [
+    "import { defineConfig } from 'vite'",
+    "import react from '@vitejs/plugin-react'",
+    '',
+    'export default defineConfig({',
+    '  plugins: [react()],',
+    "  resolve: { dedupe: ['react', 'react-dom'] },",
+    '})',
+    '',
+  ].join('\n')
+
+  const indexHtml = [
+    '<!doctype html>',
+    '<html lang="en">',
+    '  <head>',
+    '    <meta charset="UTF-8" />',
+    '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    `    <title>${siteName}</title>`,
+    '    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>" />',
+    '    <link rel="preconnect" href="https://fonts.googleapis.com" />',
+    '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
+    '    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />',
+    `    <style>${HAMBURGER_CSS}</style>`,
+    '  </head>',
+    '  <body>',
+    '    <div id="root"><div class="app-loading" style="display:flex;align-items:center;justify-content:center;min-height:100vh"><div style="width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite"></div></div></div>',
+    '    <script type="module" src="/src/main.jsx"></script>',
+    `    <script>${HAMBURGER_JS}</script>`,
+    '    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>',
+    '  </body>',
+    '</html>',
+    '',
+  ].join('\n')
+
+  const mainJsx = [
+    "import React from 'react'",
+    "import ReactDOM from 'react-dom/client'",
+    "import { BrowserRouter } from 'react-router-dom'",
+    "import App from './App.jsx'",
+    "import './index.css'",
+    '',
+    "ReactDOM.createRoot(document.getElementById('root')).render(",
+    '  <React.StrictMode>',
+    '    <BrowserRouter>',
+    '      <App />',
+    '    </BrowserRouter>',
+    '  </React.StrictMode>,',
+    ')',
+    '',
+  ].join('\n')
+
+  return [
+    { path: 'src/lib/supabase.js', content: supabaseLib },
+    { path: 'package.json', content: packageJson },
+    { path: 'vite.config.js', content: viteConfig },
+    { path: 'index.html', content: indexHtml },
+    { path: 'src/main.jsx', content: mainJsx },
+  ]
+}
+
+const SUPABASE_SYSTEM = `You are an expert React developer building a Supabase-powered web application.
+
+CRITICAL RULES — violating any of these fails the build:
+1. ALL data access: import { supabase } from '../lib/supabase' (adjust relative path as needed)
+   - Read:   const { data, error } = await supabase.from('table').select('*')
+   - Create: await supabase.from('table').insert([{...}])
+   - Update: await supabase.from('table').update({...}).eq('id', id)
+   - Delete: await supabase.from('table').delete().eq('id', id)
+2. NEVER use axios, fetch('/api/...'), or any Express/Node.js patterns
+3. Semantic CSS classNames only — NO Tailwind utility classes
+4. Every async op: useState for loading/error, try/catch block
+5. react-router-dom NavLink/Link for navigation, useNavigate for programmatic nav
+6. Output ONLY: <file path="src/...">...content...</file>`
+
+export async function generateSupabaseSite(
+  provider: AIProvider,
+  prompt: string,
+  siteName: string,
+  designBrief: string,
+  log: (message: string, progress?: number) => Promise<unknown>,
+): Promise<{ files: ParsedChange[]; sqlSchema: string; summary: string }> {
+  const files: ParsedChange[] = []
+  const enhancer = createEnhancer()
+  const pack = selectPack(designBrief)
+  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n${getReactPackPromptNote()}\n\n`
+
+  await log('🧠 Planning Supabase schema + pages…', 10)
+  const plan = await planSupabaseSite(provider, prompt, siteName, enhancer ?? null)
+  await log(`📐 Tables: ${plan.tables.map(t => t.name).join(', ')} | Pages: ${plan.pages.map(p => p.file).join(', ')}`)
+
+  const schemaRef = plan.tables.map(t =>
+    `Table "${t.name}": ${t.columns.map(c => `${c.name} (${c.type})`).join(', ')}`
+  ).join('\n')
+
+  const contract = `SUPABASE SCHEMA (use EXACTLY these table/column names):\n${schemaRef}\n\nData pattern: import { supabase } from '../lib/supabase' then supabase.from('tableName').select/insert/update/delete`
+
+  const gen = async (instruction: string, expectPath: string): Promise<boolean> => {
+    const isJsx = expectPath.endsWith('.jsx')
+    let nudge = ''
+    for (const p of [provider, ...(enhancer ? [enhancer] : [])]) {
+      const maxAttempts = p === provider ? 3 : 2
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const res = await safeChat(p, instruction + nudge, SUPABASE_SYSTEM)
+        if (!res) { await sleep(attempt === 0 ? 2000 : 4000); continue }
+        const parsed = parseAIChanges(res.content)
+        const file = parsed.find(f => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase()) ?? parsed[0]
+        if (file?.content?.trim()) {
+          if (isJsx && attempt === 0 && looksTailwind(file.content)) {
+            nudge = '\n\nNO TAILWIND — use semantic className strings only. Rewrite with descriptive class names the stylesheet can target.'
+            await log(`🎨 ${expectPath.split('/').pop()} used Tailwind — regenerating with semantic classes`)
+            await sleep(1000)
+            continue
+          }
+          const content = isJsx ? sanitizeJsx(file.content) : file.content
+          files.push({ path: expectPath, content })
+          return true
+        }
+        await sleep(1500)
+      }
+    }
+    await log(`⚠️ Could not generate ${expectPath}`)
+    return false
+  }
+
+  // Static scaffold (configs, lib/supabase.js, main.jsx, index.html)
+  files.push(...supabaseScaffoldFiles(siteName))
+  await log('📦 Scaffold written', 15)
+
+  // ── Pages ──
+  let pct = 18
+  for (const page of plan.pages) {
+    await log(`🎨 Generating ${page.file}…`, (pct += Math.floor(42 / plan.pages.length)))
+    await sleep(1200)
+    await gen(
+      `${briefBlock}${contract}\n\nGenerate src/pages/${page.file} — ${page.description}.\nTables available: ${plan.tables.map(t => t.name).join(', ')}.\nRich UI: loading skeleton, empty-state, error message, responsive layout.`,
+      `src/pages/${page.file}`,
+    )
+  }
+
+  // ── App.jsx ──
+  await log('⚙️ Generating App.jsx + routing…', 72)
+  const routeLines = plan.pages.map(p => `<Route path="${p.path}" element={<${p.file.replace('.jsx', '')} />} />`).join('\n        ')
+  const importLines = plan.pages.map(p => `import ${p.file.replace('.jsx', '')} from './pages/${p.file}'`).join('\n')
+  await gen(
+    `${briefBlock}${contract}\n\nGenerate src/App.jsx.\n${importLines}\nUse react-router-dom Routes:\n${routeLines}\nInclude: sticky header (className="site-header") with nav-brand + nav-links + nav-cta, footer, scroll-to-top on route change.`,
+    'src/App.jsx',
+  )
+
+  // ── index.css ──
+  await log('🎨 Generating stylesheet…', 82)
+  await gen(
+    `${briefBlock}${contract}\n\nGenerate src/index.css — the complete stylesheet for "${siteName}".\nMust cover: CSS variables, reset, body/typography, .site-header, .nav-brand, .nav-links, .nav-cta, hero section, cards, forms, buttons, .loading-skeleton, .empty-state, footer, responsive @media breakpoints.\nNo Tailwind. Professional, polished, consistent with the design brief.`,
+    'src/index.css',
+  )
+
+  await log('✅ Supabase site generation complete', 90)
+  return {
+    files,
+    sqlSchema: plan.sqlSchema,
+    summary: `Built "${siteName}" (Supabase) — ${plan.tables.length} table(s), ${plan.pages.length} page(s)`,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function generateMernSite(
   provider: AIProvider,
   prompt: string,
@@ -6347,6 +6630,7 @@ async function buildSite(job: Job) {
     }
 
     let mernAdminPwd = ''
+    let supabaseCredentials: { ref: string; url: string; anonKey: string } | null = null
     if (stack === 'mern') {
       await updateTask(task, { progress: 10 }, '🧱 Building a full-stack MERN app…')
       const result = await generateMernSite(provider, prompt, siteName, designBrief, (message, progress) =>
@@ -6367,6 +6651,44 @@ async function buildSite(job: Job) {
         }
         task.markModified('metadata')
         await task.save()
+      }
+    } else if (stack === 'supabase') {
+      const { isSupabaseConfigured } = await import('../../lib/supabaseProvisioner')
+      if (!isSupabaseConfigured()) {
+        return await fail('Supabase mode requires SUPABASE_ACCESS_TOKEN in .env — add your Supabase personal access token (supabase.com → Account → Access Tokens).')
+      }
+      await updateTask(task, { progress: 10 }, '⚡ Building Supabase full-stack app…')
+      const result = await generateSupabaseSite(provider, prompt, siteName, designBrief,
+        (message, progress) => updateTask(task, progress ? { progress } : {}, message))
+      if (!result.files.some((f) => f.path === 'src/App.jsx')) {
+        return await fail('The AI could not generate the React app shell — please try again.')
+      }
+      generated.push(...result.files)
+      summaryLine = result.summary
+
+      // Provision Supabase backend and run SQL migrations
+      await updateTask(task, { progress: 65 }, '🔌 Provisioning Supabase backend (takes ~60s)…')
+      try {
+        const { provisionSupabaseProject, runSupabaseMigrations } = await import('../../lib/supabaseProvisioner')
+        const slugBase = siteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20)
+        const creds = await provisionSupabaseProject(slugBase)
+        await runSupabaseMigrations(creds.ref, result.sqlSchema)
+        supabaseCredentials = creds
+
+        // Persist credentials so deploy step can inject them into the Vite build env
+        repo.set('builderEnv', { VITE_SUPABASE_URL: creds.url, VITE_SUPABASE_ANON_KEY: creds.anonKey })
+
+        // Write .env.local for local dev (gitignored)
+        fs.writeFileSync(
+          path.join(sitePath, '.env.local'),
+          `VITE_SUPABASE_URL=${creds.url}\nVITE_SUPABASE_ANON_KEY=${creds.anonKey}\n`,
+        )
+        task.metadata = { ...task.metadata as object, supabaseRef: creds.ref, supabaseUrl: creds.url }
+        task.markModified('metadata')
+        await task.save()
+        await updateTask(task, { progress: 68 }, `✅ Supabase project live — ${creds.url}`)
+      } catch (e: any) {
+        await updateTask(task, {}, `⚠️ Supabase provisioning failed: ${e.message} — set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY manually before deploying`, 'warn')
       }
     } else {
       // A rebuild must out-do the site it replaces, so the generator is told
@@ -6397,8 +6719,9 @@ async function buildSite(job: Job) {
     // ── Claude QA / enhancement pass (targeted, best-effort) ──
     const enhancer = createEnhancer()
     if (enhancer) {
-      await updateTask(task, {}, '✨ Claude QA pass — reviewing models, server wiring, every page, routes & database…')
+      await updateTask(task, {}, '✨ Claude QA pass — reviewing every page, routes & data layer…')
       if (stack === 'mern') await runMernQA(enhancer, generated, (m) => updateTask(task, {}, m))
+      else if (stack === 'supabase') await runMernQA(enhancer, generated, (m) => updateTask(task, {}, m))
       else await runStaticQA(enhancer, generated, (m) => updateTask(task, {}, m))
       await updateTask(task, {}, '✅ Claude QA pass complete')
     } else {
@@ -6407,7 +6730,7 @@ async function buildSite(job: Job) {
 
     // ── Post-QA hardening ── runs after ALL AI passes so nothing can reintroduce
     // the two most common deploy-breaking bugs: @import mid-file and a broken ui.jsx
-    if (stack === 'mern') {
+    if (stack === 'mern' || stack === 'supabase') {
       // 1. @imports must be at the very top of index.css — claudePolishCss strips
       //    them from its own chunk, but run fixCssImportOrder as a final guarantee.
       fixCssImportOrder(generated)
@@ -6438,7 +6761,7 @@ async function buildSite(job: Job) {
     }
 
     // ── SEO injection (static sites only) ──
-    if (stack !== 'mern') {
+    if (stack !== 'mern' && stack !== 'supabase') {
       const htmlFiles = generated.filter((f) => f.path.endsWith('.html'))
       for (const f of htmlFiles) {
         const abs = path.join(sitePath, f.path)
@@ -6731,6 +7054,8 @@ async function buildSite(job: Job) {
         ? ['', mongoUri
             ? '**Run locally:** `npm install && npm run build && npm start` (see README.md). Your MongoDB connection string is already wired into `.env` and will be applied on deploy.'
             : '**Run locally:** `npm install && npm run build && npm start` (see README.md). The site works as-is; to enable the API, set `MONGODB_URI` in `.env` — a free MongoDB Atlas cluster works.']
+        : stack === 'supabase' && supabaseCredentials
+        ? ['', `**Supabase project:** [${supabaseCredentials.ref}.supabase.co](${supabaseCredentials.url}) (free tier, auto-provisioned). Credentials are in \`.env.local\` for local dev (\`npm install && npm run dev\`) and will be injected automatically on deploy.`]
         : []),
       '',
       `Next: open the workspace to refine it with the Agent, or hit **Deploy** to put it live.`,

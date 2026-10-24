@@ -59,7 +59,7 @@ function ScoreRow({ score }: { score: { performance: number; seo: number; access
 
 export default function Builder() {
   const [prompt, setPrompt] = useState('')
-  const [stack, setStack] = useState<'static' | 'mern'>('static')
+  const [stack, setStack] = useState<'static' | 'mern' | 'supabase'>('static')
   const [style, setStyle] = useState<'auto' | 'minimal' | 'bold' | 'elegant'>('auto')
   const [paletteId, setPaletteId] = useState<string>('')
   const [importUrl, setImportUrl] = useState('')
@@ -374,10 +374,11 @@ export default function Builder() {
             <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
               Project type
             </label>
-            <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="grid grid-cols-3 gap-2 mb-2">
               {([
                 { id: 'static', title: 'Static site', text: 'HTML/CSS/JS — portfolios, landing pages, blogs' },
-                { id: 'mern', title: 'MERN full-stack', text: 'React + Express + MongoDB — apps with data & APIs' },
+                { id: 'supabase', title: 'Supabase app', text: 'React + Supabase — full-stack, zero backend hosting' },
+                { id: 'mern', title: 'MERN full-stack', text: 'React + Express + MongoDB — custom API & logic' },
               ] as const).map((opt) => (
                 <button
                   key={opt.id}
