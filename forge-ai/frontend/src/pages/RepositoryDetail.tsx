@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
-import { Zap, GitBranch, FileCode2, Clock, Loader2, AlertCircle, Share2, Copy, Check, Rocket, ExternalLink, RefreshCw, Globe } from 'lucide-react'
+import { Zap, GitBranch, FileCode2, Clock, Loader2, AlertCircle, Share2, Copy, Check, Rocket, ExternalLink, RefreshCw, Globe, ChevronDown, KeyRound } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function RepositoryDetail() {
@@ -26,6 +26,8 @@ export default function RepositoryDetail() {
   const [copied, setCopied] = useState(false)
   const [deployTask, setDeployTask] = useState<any>(null)
   const [urlCopied, setUrlCopied] = useState(false)
+  const [envVarsRaw, setEnvVarsRaw] = useState('')
+  const [envVarsOpen, setEnvVarsOpen] = useState(false)
 
   // Poll deploy task until settled
   const { data: polledTask } = useQuery({
@@ -51,7 +53,21 @@ export default function RepositoryDetail() {
   }, [polledTask?.status])
 
   const deployMutation = useMutation({
-    mutationFn: () => api.post('/tasks/blitz-deploy', { repositoryId: id, platform: 'self-hosted' }),
+    mutationFn: () => {
+      const envVars: Record<string, string> = {}
+      for (const line of envVarsRaw.split('\n')) {
+        const t = line.trim()
+        if (!t || t.startsWith('#')) continue
+        const eq = t.indexOf('=')
+        if (eq < 1) continue
+        envVars[t.slice(0, eq).trim()] = t.slice(eq + 1).trim()
+      }
+      return api.post('/tasks/blitz-deploy', {
+        repositoryId: id,
+        platform: 'self-hosted',
+        ...(Object.keys(envVars).length > 0 ? { envVars } : {}),
+      })
+    },
     onSuccess: ({ data }) => {
       setDeployTask(data.task)
       toast.success('Deploy started!')
@@ -216,6 +232,30 @@ export default function RepositoryDetail() {
                 {liveUrl ? 'Redeploy' : 'Deploy now'}
               </button>
             </div>
+          </div>
+
+          {/* Env vars expander */}
+          <div className="mt-3 pt-3 border-t border-surface-700">
+            <button
+              onClick={() => setEnvVarsOpen(o => !o)}
+              className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              <KeyRound size={11} />
+              Environment variables (MONGODB_URI, API keys…)
+              <ChevronDown size={11} className={`transition-transform ${envVarsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {envVarsOpen && (
+              <div className="mt-2">
+                <textarea
+                  value={envVarsRaw}
+                  onChange={e => setEnvVarsRaw(e.target.value)}
+                  placeholder={'MONGODB_URI=mongodb+srv://...\nSECRET_KEY=...'}
+                  rows={4}
+                  className="w-full text-xs font-mono bg-surface-800 border border-surface-600 rounded-md p-2 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-brand-500 resize-none"
+                />
+                <p className="text-xs text-zinc-600 mt-1">One KEY=VALUE per line. These are written to the backend's .env before start.</p>
+              </div>
+            )}
           </div>
 
           {/* Live URL row */}

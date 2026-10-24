@@ -258,6 +258,13 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
     metadata: { platform: resolvedPlatform },
   })
 
+  // Merge saved builder env vars (from the env-vars textarea) with any envVars
+  // passed in the request body. Request body takes precedence on key conflicts.
+  const builderEnv = (repo as any).builderEnv ?? {}
+  const mergedEnvVars = Object.keys(builderEnv).length > 0
+    ? { ...builderEnv, ...(envVars && typeof envVars === 'object' ? envVars : {}) }
+    : (envVars && typeof envVars === 'object' ? envVars : undefined)
+
   await enqueueJob('blitz-deploy', {
     taskId: task._id.toString(),
     repositoryId,
@@ -272,7 +279,7 @@ router.post('/blitz-deploy', checkQuota('deploys'), async (req, res) => {
     needsGitHubPush,
     aiProvider: user.aiProvider,
     type: 'blitz_deploy',
-    envVars: envVars && typeof envVars === 'object' ? envVars : undefined,
+    envVars: mergedEnvVars,
   })
 
   res.status(201).json({ task })

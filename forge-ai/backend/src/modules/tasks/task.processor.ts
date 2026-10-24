@@ -1045,11 +1045,31 @@ async function blitzDeploy(job: Job) {
         // For MERN apps: install + start the Node backend first so we can bake VITE_API_URL.
         // VITE_API_URL must be an ABSOLUTE URL — the frontend is served from R2 (different
         // domain), so a relative /sites-api/... would resolve against R2, not ForgeAI.
+        // If the repo was wiped by an ephemeral-disk restart, re-clone before installing.
+        if (!fs.existsSync(localPath)) {
+          await updateTask(task, { progress: 11 }, '♻️ Restoring workspace from backup…')
+          if (repositoryId) {
+            const { restoreWorkspace } = await import('../../app') as any
+            if (typeof restoreWorkspace === 'function') {
+              await restoreWorkspace(repositoryId, localPath)
+            }
+          }
+          if (!fs.existsSync(localPath)) {
+            // Last resort: fresh clone from GitHub
+            const repo = repositoryId ? await (await import('../repository/repository.model')).Repository.findById(repositoryId) : null
+            if (repo?.cloneUrl) {
+              await execAsync(`git clone --depth=1 ${repo.cloneUrl} "${localPath}"`, { timeout: 120_000 })
+            } else {
+              throw new Error('Cannot deploy: workspace files are missing and no clone URL is available. Push the repo to GitHub and redeploy.')
+            }
+          }
+        }
+
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
           await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
-          await execAsync('npm install --legacy-peer-deps --no-audit --no-fund --prefer-offline', {
-            cwd: backendRunDir, timeout: 180_000,
-            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256' },
+          await execAsync('npm install --legacy-peer-deps --no-audit --no-fund', {
+            cwd: backendRunDir, timeout: 240_000,
+            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
           })
           // Write user-supplied env vars to .env (merge with any existing file)
           if (envVars && typeof envVars === 'object' && Object.keys(envVars).length > 0) {
@@ -1095,9 +1115,9 @@ async function blitzDeploy(job: Job) {
 
         await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
         // --include=dev ensures vite/esbuild are installed even when NODE_ENV=production (Render default)
-        await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --prefer-offline', {
-          cwd: buildCwd, timeout: 180_000,
-          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256' },
+        await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund', {
+          cwd: buildCwd, timeout: 240_000,
+          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
         })
 
         await updateTask(task, { progress: 40 }, '🔨 Building site…')

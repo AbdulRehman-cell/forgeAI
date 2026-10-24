@@ -131,7 +131,7 @@ function writeEnvFile(backendDir: string, envVars: any) {
 
 // Re-extract workspace zip from MongoDB and npm install so the backend can start
 // after Render wipes the ephemeral filesystem on every redeploy.
-async function restoreWorkspace(repositoryId: string, backendDir: string): Promise<boolean> {
+export async function restoreWorkspace(repositoryId: string, backendDir: string): Promise<boolean> {
   try {
     const repoWithZip = await Repository.findById(repositoryId).select('+workspaceZip localPath cloneUrl').lean() as any
     const zipBuf: Buffer | undefined = repoWithZip?.workspaceZip?.buffer ?? repoWithZip?.workspaceZip
@@ -196,6 +196,24 @@ async function restoreWorkspace(repositoryId: string, backendDir: string): Promi
 async function restoreBackendsOnce() {
   if (backendsRestored) return
   backendsRestored = true
+  try {
+    // Mark any tasks that were left in 'running' state when the server last died.
+    // These will never progress on their own — reset them so users can retry.
+    const cutoff = new Date(Date.now() - 5 * 60 * 1000) // 5 minutes ago
+    const stuck = await Task.updateMany(
+      { status: 'running', updatedAt: { $lt: cutoff } },
+      {
+        status: 'failed',
+        error: 'Server restarted while this task was running. Please try again.',
+      },
+    )
+    if (stuck.modifiedCount > 0) {
+      console.log(`[startup] Marked ${stuck.modifiedCount} stuck running task(s) as failed`)
+    }
+  } catch (e: any) {
+    console.warn('[startup] Failed to recover stuck tasks:', e.message)
+  }
+
   try {
     const { Deployment } = await import('./modules/hosting/deployment.model')
     const deploys = await Deployment.find({ backendDir: { $exists: true, $ne: null } }).lean()
