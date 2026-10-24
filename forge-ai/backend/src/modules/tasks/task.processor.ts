@@ -6905,10 +6905,15 @@ async function buildSite(job: Job) {
     // ── Create the GitHub repo and push ──
     let pushedFullName: string | null = null
     const fullUser = await User.findById(userId).select('+githubAccessToken')
-    const githubToken = fullUser?.githubAccessToken || process.env.GITHUB_TOKEN
+    // Prefer user's own OAuth token; fall back to server-wide PAT if the user
+    // token is absent or expired (we retry with GITHUB_TOKEN on 401/403).
+    const userGithubToken = fullUser?.githubAccessToken
+    const serverGithubToken = process.env.GITHUB_TOKEN
+    const githubToken = userGithubToken || serverGithubToken
     if (githubToken) {
       await updateTask(task, { progress: 70 }, '🐙 Creating GitHub repository…')
-      const headers = { Authorization: `token ${githubToken}`, Accept: 'application/vnd.github+json' }
+      let activeToken = githubToken
+      const headers = { Authorization: `token ${activeToken}`, Accept: 'application/vnd.github+json' }
       let ghRepo: any
       let githubAuthFailed = false
       const baseSlug = siteName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'site'
@@ -6922,11 +6927,30 @@ async function buildSite(job: Job) {
             description: `Built with ForgeAI Builder: ${String(prompt).slice(0, 120)}`,
             private: false,
             auto_init: true,
-          }, { headers })
+          }, { headers: { Authorization: `token ${activeToken}`, Accept: 'application/vnd.github+json' } })
           ghRepo = data
           break
         } catch (err: any) {
           const status = err.response?.status
+          if ((status === 401 || status === 403) && activeToken === userGithubToken && serverGithubToken) {
+            // User's OAuth token is expired — retry once with server PAT
+            activeToken = serverGithubToken
+            try {
+              const { data } = await axios.post('https://api.github.com/user/repos', {
+                name,
+                description: `Built with ForgeAI Builder: ${String(prompt).slice(0, 120)}`,
+                private: false,
+                auto_init: true,
+              }, { headers: { Authorization: `token ${activeToken}`, Accept: 'application/vnd.github+json' } })
+              ghRepo = data
+              break
+            } catch (err2: any) {
+              const s2 = err2.response?.status
+              if (s2 === 401 || s2 === 403) { githubAuthFailed = true; break }
+              if (s2 !== 422) throw err2
+            }
+            continue
+          }
           if (status === 401 || status === 403) { githubAuthFailed = true; break }
           if (status !== 422) throw err
           const ghMsg = err.response?.data?.message ?? 'name conflict'
