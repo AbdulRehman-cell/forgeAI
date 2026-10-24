@@ -1138,9 +1138,55 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
+        // ── Externalize recharts to CDN (removes ~300 transitive deps from npm install) ──
+        // Applied both to freshly-generated sites and to older sites that already have
+        // recharts in their package.json, so every deploy benefits from the lighter install.
+        const clientPkgPath = path.join(buildCwd, 'package.json')
+        if (fs.existsSync(clientPkgPath)) {
+          const cpkg = JSON.parse(fs.readFileSync(clientPkgPath, 'utf-8'))
+          if (cpkg.dependencies?.recharts || cpkg.devDependencies?.recharts) {
+            delete cpkg.dependencies?.recharts
+            delete cpkg.devDependencies?.recharts
+            fs.writeFileSync(clientPkgPath, JSON.stringify(cpkg, null, 2) + '\n', 'utf-8')
+
+            // Patch vite.config.js/.ts to externalize recharts
+            for (const cfgName of ['vite.config.js', 'vite.config.ts']) {
+              const cfgPath = path.join(buildCwd, cfgName)
+              if (fs.existsSync(cfgPath)) {
+                let cfg = fs.readFileSync(cfgPath, 'utf-8')
+                if (!cfg.includes("external: ['recharts']") && !cfg.includes('external: ["recharts"]')) {
+                  // Inject before the closing }) of defineConfig
+                  cfg = cfg.replace(
+                    /(\})\s*\)\s*$/,
+                    `  build: {\n    rollupOptions: {\n      external: ['recharts'],\n      output: { globals: { recharts: 'Recharts' } },\n    },\n  },\n$1)\n`,
+                  )
+                  fs.writeFileSync(cfgPath, cfg, 'utf-8')
+                }
+                break
+              }
+            }
+
+            // Patch index.html to load recharts from CDN
+            const htmlPath = path.join(buildCwd, 'index.html')
+            if (fs.existsSync(htmlPath)) {
+              let html = fs.readFileSync(htmlPath, 'utf-8')
+              const cdnTag = '<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.umd.min.js" crossorigin="anonymous"></script>'
+              if (!html.includes('Recharts.umd')) {
+                html = html.replace('</head>', `  ${cdnTag}\n  </head>`)
+                fs.writeFileSync(htmlPath, html, 'utf-8')
+              }
+            }
+
+            await updateTask(task, {}, '📦 Externalized recharts → CDN (removes 300+ transitive deps from npm install)…')
+          }
+        }
+
         // ── Install frontend deps (still no backend child process — lowest possible memory) ──
         const frontendNmDir = path.join(buildCwd, 'node_modules')
-        const frontendNeedsInstall = !fs.existsSync(frontendNmDir) || fs.readdirSync(frontendNmDir).length === 0
+        // Check for vite binary specifically — a partial/stale install might have the dir
+        // but miss the critical build tool, causing the build to fail silently.
+        const frontendNeedsInstall = !fs.existsSync(path.join(frontendNmDir, '.bin', 'vite')) &&
+                                     !fs.existsSync(path.join(frontendNmDir, 'vite', 'package.json'))
         if (frontendNeedsInstall) {
           await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
           // --include=dev: vite/esbuild needed even on NODE_ENV=production (Render default)
@@ -4118,8 +4164,10 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     // the server serves no assets (CSS as text/plain, JS 404). Keeping them here
     // guarantees the client builds regardless of the install mode.
     dependencies: {
+      // recharts is NOT installed via npm — it's loaded via CDN in index.html and
+      // externalized in vite.config.js. This removes ~300 transitive d3/lodash packages
+      // from the npm install, cutting peak RSS well under Render's 512MB free-tier limit.
       axios: '^1.7.2', react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1',
-      recharts: '^2.12.7',
       vite: '^5.4.0', '@vitejs/plugin-react': '^4.3.1',
     },
   }
@@ -4133,6 +4181,14 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     "  // 'Cannot read properties of null (reading useEffect)' from a duplicate React copy.",
     "  resolve: { dedupe: ['react', 'react-dom'] },",
     "  server: { proxy: { '/api': 'http://localhost:4000' } },",
+    '  build: {',
+    '    rollupOptions: {',
+    "      // recharts is served from CDN (see index.html) — don't bundle it.",
+    "      // Rollup maps `import { X } from 'recharts'` → `const { X } = Recharts` (global).",
+    "      external: ['recharts'],",
+    "      output: { globals: { recharts: 'Recharts' } },",
+    '    },',
+    '  },',
     '})',
     '',
   ].join('\n')
@@ -4147,6 +4203,8 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     '    <link rel="preconnect" href="https://fonts.googleapis.com" />',
     '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
     '    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=Poppins:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />',
+    '    <!-- recharts UMD: loaded before the app so Rollup externals resolve correctly -->',
+    '    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.umd.min.js" crossorigin="anonymous"></script>',
     '  </head>',
     '  <body>',
     '    <div id="root"><div class="app-loading"><div class="spinner"></div></div></div>',
