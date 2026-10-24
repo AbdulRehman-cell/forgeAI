@@ -4529,13 +4529,15 @@ function mernServerEntry(siteName: string, plan: MernPlan, files: ParsedChange[]
     '  res.status(err.status || 500).json({ error: err.message || \'Internal server error\' })',
     '})',
     '',
-    '// ── Serve the built React client ─────────────────────────────────────────────',
+    '// ── Serve the built React client (only when dist exists — not on ForgeAI proxy hosting) ──',
     "const dist = path.join(__dirname, '..', 'client', 'dist')",
-    'app.use(express.static(dist))',
-    "app.get('*', function (req, res, next) {",
-    "  if (req.path.indexOf('/api/') === 0) return next()",
-    "  res.sendFile(path.join(dist, 'index.html'))",
-    "})",
+    "if (require('fs').existsSync(dist)) {",
+    '  app.use(express.static(dist))',
+    "  app.get('*', function (req, res, next) {",
+    "    if (req.path.indexOf('/api/') === 0) return next()",
+    "    res.sendFile(path.join(dist, 'index.html'))",
+    '  })',
+    '}',
     '',
     'const PORT = process.env.PORT || 4000',
     `const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/${siteName}'`,
@@ -5587,6 +5589,15 @@ export async function generateMernSite(
               .map((f) => f.path.replace(/\\/g, '/').replace('server/models/', '').replace('.js', ''))
           )
           let seedContent = seedFile.content
+          // Strip require('./models') bare directory imports — no index.js is generated
+          seedContent = seedContent.replace(
+            /^(const|let|var)\s+(\w+)\s*=\s*require\s*\(\s*['"]\.\/models['"]\s*\)\s*;?\s*$/gm,
+            (_line: string, _decl: string, varName: string) => {
+              console.warn(`[seed] removed bare require('./models') into var "${varName}"`)
+              return `// [ForgeAI] no models/index.js — skipped`
+            },
+          )
+          // Strip require('./models/X') for models that were never generated
           seedContent = seedContent.replace(
             /^(const|let|var)\s+\w+\s*=\s*require\s*\(\s*['"]\.\/models\/(\w+)['"]\s*\)\s*;?\s*$/gm,
             (line: string, _decl: string, modelName: string) => {
