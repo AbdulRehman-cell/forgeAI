@@ -28,8 +28,10 @@ async function apiReq(method: string, endpoint: string, body?: object): Promise<
 
 async function getOrgId(): Promise<string> {
   const orgs: any[] = await apiReq('GET', '/v1/organizations')
-  if (!orgs?.length) throw new Error('No Supabase organizations found. Create one at supabase.com first.')
-  return orgs[0].id
+  if (orgs?.length) return orgs[0].id
+  // Auto-create a default org on first use
+  const org = await apiReq('POST', '/v1/organizations', { name: 'ForgeAI' })
+  return org.id
 }
 
 function genPassword(len = 22): string {
