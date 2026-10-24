@@ -982,10 +982,13 @@ async function blitzDeploy(job: Job) {
   // ── Self-hosted deploy (no GitHub / no third-party service needed) ──────────
   if (platform === 'self-hosted') {
     await updateTask(task, { status: 'running', progress: 10 }, '🚀 Starting ForgeAI deploy…')
+    let pausedBackends: Array<{ slug: string; serverDir: string }> = []
+    let _resumeBackends: ((backends: Array<{ slug: string; serverDir: string }>) => void) | null = null
     try {
       const { selfHostedDeploy, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild, makeSlug } = await import('../../lib/selfHostedDeploy')
       const { Deployment } = await import('../hosting/deployment.model')
       const { startBackend, pauseAllBackends, resumeBackends } = await import('../../lib/processManager')
+      _resumeBackends = resumeBackends
 
       // Reuse existing slug if the repo was already deployed self-hosted; otherwise generate
       // the slug NOW (before the build) so VITE_API_URL can be baked in correctly.
@@ -1073,7 +1076,6 @@ async function blitzDeploy(job: Job) {
         }
 
         // Pause any running backends to free memory for npm installs — restored after R2 upload.
-        let pausedBackends: Array<{ slug: string; serverDir: string }> = []
         if (hasMernLayout) {
           pausedBackends = pauseAllBackends()
           if (pausedBackends.length > 0) {
@@ -1325,8 +1327,8 @@ INSTRUCTIONS:
       emitTaskUpdate(taskId, task.toObject())
     } catch (err: any) {
       // Always restore paused backends even on failure
-      if (typeof pausedBackends !== 'undefined' && pausedBackends.length > 0) {
-        try { resumeBackends(pausedBackends) } catch {}
+      if (pausedBackends.length > 0 && _resumeBackends) {
+        try { _resumeBackends(pausedBackends) } catch {}
       }
       task.status = 'failed'
       task.summary = `## ❌ Self-hosted deploy failed\n\n${err.message}`
