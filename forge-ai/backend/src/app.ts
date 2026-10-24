@@ -193,43 +193,53 @@ export async function restoreWorkspace(repositoryId: string, backendDir: string)
   }
 }
 
-/** Pre-populate /tmp/.npm-cache with the packages every ForgeAI site uses.
- *  Must run while no backends are running (low baseline RSS ~150 MB).
- *  Deploy-time npm install then uses --prefer-offline so it reads from cache
- *  instead of the network — peak RSS drops from ~300 MB to ~50 MB.
+/** Install template packages into /tmp/forge-shared-nm ONCE at startup.
+ *  Runs before any managed backends start, so ForgeAI has maximum free RAM
+ *  (~360 MB headroom on the 512 MB Render free tier).
+ *  Deploy tasks can then symlink client/node_modules → /tmp/forge-shared-nm
+ *  instead of running npm install — zero npm peak RSS at deploy time.
  */
-async function warmNpmCache(): Promise<void> {
-  const tmpDir = '/tmp/forge-npm-warmup'
+const SHARED_NM = '/tmp/forge-shared-nm'
+const SHARED_NM_READY = '/tmp/forge-shared-nm.ready'
+
+async function ensureSharedNodeModules(): Promise<void> {
+  if (fs.existsSync(SHARED_NM_READY) && fs.existsSync(SHARED_NM)) {
+    console.log('[warmup] Shared node_modules already ready — skipping install')
+    return
+  }
+  const tmpInstall = '/tmp/forge-nm-install-tmp'
   try {
-    if (fs.existsSync(path.join('/tmp/.npm-cache', '_locks'))) {
-      console.log('[warmup] npm cache already populated, skipping')
-      return
-    }
-    fs.mkdirSync(tmpDir, { recursive: true })
-    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({
-      name: 'forge-warmup', version: '1.0.0',
+    fs.rmSync(tmpInstall, { recursive: true, force: true })
+    fs.mkdirSync(tmpInstall, { recursive: true })
+    fs.writeFileSync(path.join(tmpInstall, 'package.json'), JSON.stringify({
+      name: 'forge-template', version: '1.0.0',
       dependencies: {
         axios: '^1.7.2',
         react: '^18.3.1',
         'react-dom': '^18.3.1',
         'react-router-dom': '^6.23.1',
         vite: '^5.4.0',
-        '@vitejs/plugin-react-swc': '^3.7.2',
+        '@vitejs/plugin-react': '^4.3.1',
       },
     }))
-    console.log('[warmup] Pre-warming npm cache for template packages…')
+    console.log('[warmup] Installing shared node_modules for ForgeAI site template…')
     await execFileAsync('npm', [
       'install', '--legacy-peer-deps', '--no-audit', '--no-fund',
       '--no-package-lock', '--ignore-scripts', '--maxsockets=1',
     ], {
-      cwd: tmpDir, timeout: 600_000,
+      cwd: tmpInstall, timeout: 900_000,
       env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
     })
-    console.log('[warmup] npm cache warm — future deploys will use --prefer-offline')
+    // Move the installed node_modules to the shared location atomically
+    fs.rmSync(SHARED_NM, { recursive: true, force: true })
+    fs.renameSync(path.join(tmpInstall, 'node_modules'), SHARED_NM)
+    fs.writeFileSync(SHARED_NM_READY, 'ready')
+    console.log('[warmup] Shared node_modules ready at', SHARED_NM, '— deploys will symlink instead of npm install')
   } catch (e: any) {
-    console.warn('[warmup] npm cache warmup failed (non-fatal):', e.message)
+    console.warn('[warmup] Shared node_modules setup failed (non-fatal):', e.message)
+    console.warn('[warmup] Deploys will fall back to individual npm install')
   } finally {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+    try { fs.rmSync(tmpInstall, { recursive: true, force: true }) } catch {}
   }
 }
 
@@ -237,8 +247,8 @@ async function restoreBackendsOnce() {
   if (backendsRestored) return
   backendsRestored = true
 
-  // Warm the npm cache FIRST while no backends are running (most free memory).
-  await warmNpmCache()
+  // Install shared node_modules FIRST while no backends are running (most free memory).
+  await ensureSharedNodeModules()
 
   try {
     // Mark any tasks that were left in 'running' state when the server last died.
@@ -290,6 +300,8 @@ export function triggerBackendRestore() {
 export function waitForBackendRestore(): Promise<void> {
   return restorePromise ?? Promise.resolve()
 }
+
+export { SHARED_NM, SHARED_NM_READY }
 
 app.use('/sites-api', (_req, _res, next) => {
   if (!restorePromise) restorePromise = restoreBackendsOnce()

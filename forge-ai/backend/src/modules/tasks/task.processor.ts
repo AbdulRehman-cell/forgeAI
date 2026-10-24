@@ -1145,11 +1145,10 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
-        // ── Slim the dependency tree before npm install ──────────────────────────────
-        // Applies to every deploy (new and old sites) to keep peak RSS under 512MB.
-        //   1. recharts → CDN  (-300 d3/lodash transitive packages)
-        //   2. @vitejs/plugin-react → @vitejs/plugin-react-swc  (-80 Babel packages)
-        //      SWC is a native Rust compiler; its npm footprint is ~5 packages vs ~85.
+        // ── Slim the dependency tree + align with shared node_modules ────────────────
+        // 1. recharts → CDN  (-300 d3/lodash transitive packages)
+        // 2. @vitejs/plugin-react-swc → @vitejs/plugin-react (shared node_modules
+        //    uses the Babel plugin; swapping back lets the symlink fast-path work)
         const clientPkgPath = path.join(buildCwd, 'package.json')
         if (fs.existsSync(clientPkgPath)) {
           const cpkg = JSON.parse(fs.readFileSync(clientPkgPath, 'utf-8'))
@@ -1162,11 +1161,12 @@ async function blitzDeploy(job: Job) {
             pkgPatched = true
           }
 
-          // 2. swap @vitejs/plugin-react → @vitejs/plugin-react-swc
-          if (cpkg.dependencies?.['@vitejs/plugin-react'] || cpkg.devDependencies?.['@vitejs/plugin-react']) {
-            const bucket = cpkg.dependencies?.['@vitejs/plugin-react'] ? 'dependencies' : 'devDependencies'
-            delete cpkg[bucket]['@vitejs/plugin-react']
-            cpkg[bucket]['@vitejs/plugin-react-swc'] = '^3.7.2'
+          // 2. normalize to @vitejs/plugin-react (shared node_modules contains this)
+          const hasSWC = cpkg.dependencies?.['@vitejs/plugin-react-swc'] || cpkg.devDependencies?.['@vitejs/plugin-react-swc']
+          if (hasSWC) {
+            const bucket = cpkg.dependencies?.['@vitejs/plugin-react-swc'] ? 'dependencies' : 'devDependencies'
+            delete cpkg[bucket]['@vitejs/plugin-react-swc']
+            cpkg[bucket]['@vitejs/plugin-react'] = '^4.3.1'
             pkgPatched = true
           }
 
@@ -1174,17 +1174,17 @@ async function blitzDeploy(job: Job) {
             fs.writeFileSync(clientPkgPath, JSON.stringify(cpkg, null, 2) + '\n', 'utf-8')
           }
 
-          // Patch vite.config.js/.ts — externalize recharts + swap plugin import
+          // Patch vite.config.js/.ts
           for (const cfgName of ['vite.config.js', 'vite.config.ts']) {
             const cfgPath = path.join(buildCwd, cfgName)
             if (fs.existsSync(cfgPath)) {
               let cfg = fs.readFileSync(cfgPath, 'utf-8')
               let cfgPatched = false
 
-              // swap plugin-react → plugin-react-swc
-              if (cfg.includes('@vitejs/plugin-react') && !cfg.includes('plugin-react-swc')) {
-                cfg = cfg.replace(/@vitejs\/plugin-react'/g, "@vitejs/plugin-react-swc'")
-                         .replace(/@vitejs\/plugin-react"/g, '@vitejs/plugin-react-swc"')
+              // swap plugin-react-swc → plugin-react
+              if (cfg.includes('@vitejs/plugin-react-swc')) {
+                cfg = cfg.replace(/@vitejs\/plugin-react-swc'/g, "@vitejs/plugin-react'")
+                         .replace(/@vitejs\/plugin-react-swc"/g, '@vitejs/plugin-react"')
                 cfgPatched = true
               }
 
@@ -1214,7 +1214,7 @@ async function blitzDeploy(job: Job) {
           }
 
           if (pkgPatched) {
-            await updateTask(task, {}, '📦 Slimmed deps: recharts→CDN, plugin-react→swc (~380 fewer packages)…')
+            await updateTask(task, {}, '📦 Patched: recharts→CDN, aligned plugin-react for shared modules…')
           }
         }
 
@@ -1225,15 +1225,25 @@ async function blitzDeploy(job: Job) {
         const frontendNeedsInstall = !fs.existsSync(path.join(frontendNmDir, '.bin', 'vite')) &&
                                      !fs.existsSync(path.join(frontendNmDir, 'vite', 'package.json'))
         if (frontendNeedsInstall) {
-          await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
-          // --include=dev: vite/esbuild needed even on NODE_ENV=production (Render default)
-          // --ignore-scripts: skip lifecycle hooks (the largest single memory spike); Vite 6+
-          //   ships esbuild as an optional dep so no postinstall binary download is needed
-          // --maxsockets=2 + 192MB heap: sequential downloads + aggressive GC keep RSS low
-          await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --no-package-lock --ignore-scripts --maxsockets=2 --prefer-offline', {
-            cwd: buildCwd, timeout: 600_000,
-            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
-          })
+          // Fast path: symlink shared node_modules installed at server startup.
+          // Uses ~0 MB extra RSS vs ~300 MB for a live npm install.
+          const { SHARED_NM, SHARED_NM_READY } = await import('../../app') as any
+          const sharedReady = SHARED_NM && SHARED_NM_READY &&
+            fs.existsSync(SHARED_NM_READY) && fs.existsSync(path.join(SHARED_NM, '.bin', 'vite'))
+
+          if (sharedReady) {
+            await updateTask(task, { progress: 22 }, '⚡ Linking shared node_modules (no npm install — saves ~300 MB peak RSS)…')
+            if (fs.existsSync(frontendNmDir)) fs.rmSync(frontendNmDir, { recursive: true, force: true })
+            fs.symlinkSync(SHARED_NM, frontendNmDir)
+          } else {
+            await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
+            // Fallback: full npm install when shared modules aren't ready.
+            // --prefer-offline reads from /tmp/.npm-cache populated during startup warmup.
+            await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --no-package-lock --ignore-scripts --maxsockets=2 --prefer-offline', {
+              cwd: buildCwd, timeout: 600_000,
+              env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+            })
+          }
         } else {
           await updateTask(task, { progress: 25 }, `✅ Frontend dependencies present — skipping install…`)
         }
@@ -4201,16 +4211,16 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     // the server serves no assets (CSS as text/plain, JS 404). Keeping them here
     // guarantees the client builds regardless of the install mode.
     dependencies: {
-      // recharts → CDN (removes ~300 d3/lodash transitive packages)
-      // @vitejs/plugin-react-swc (SWC-based) vs @vitejs/plugin-react (Babel-based):
-      //   saves ~80 Babel packages, cutting npm install from ~180 to ~30 packages total.
+      // recharts → CDN (removes ~300 d3/lodash transitive packages).
+      // Uses @vitejs/plugin-react (Babel) — matches the shared node_modules installed at
+      // server startup so deploys symlink instead of running npm install (zero npm peak RSS).
       axios: '^1.7.2', react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1',
-      vite: '^5.4.0', '@vitejs/plugin-react-swc': '^3.7.2',
+      vite: '^5.4.0', '@vitejs/plugin-react': '^4.3.1',
     },
   }
   const viteConfig = [
     "import { defineConfig } from 'vite'",
-    "import react from '@vitejs/plugin-react-swc'",
+    "import react from '@vitejs/plugin-react'",
     '',
     'export default defineConfig({',
     '  plugins: [react()],',
