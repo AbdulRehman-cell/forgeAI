@@ -1145,23 +1145,16 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
-        // ── Slim the dependency tree + align with shared node_modules ────────────────
-        // 1. recharts → CDN  (-300 d3/lodash transitive packages)
-        // 2. @vitejs/plugin-react-swc → @vitejs/plugin-react (shared node_modules
-        //    uses the Babel plugin; swapping back lets the symlink fast-path work)
+        // ── Align with shared node_modules ───────────────────────────────────────────
+        // Swap @vitejs/plugin-react-swc → @vitejs/plugin-react (shared node_modules
+        // uses the Babel plugin; swapping lets the symlink fast-path work).
+        // recharts is included in shared node_modules so no CDN externalization needed.
         const clientPkgPath = path.join(buildCwd, 'package.json')
         if (fs.existsSync(clientPkgPath)) {
           const cpkg = JSON.parse(fs.readFileSync(clientPkgPath, 'utf-8'))
           let pkgPatched = false
 
-          // 1. externalize recharts
-          if (cpkg.dependencies?.recharts || cpkg.devDependencies?.recharts) {
-            delete cpkg.dependencies?.recharts
-            delete cpkg.devDependencies?.recharts
-            pkgPatched = true
-          }
-
-          // 2. normalize to @vitejs/plugin-react (shared node_modules contains this)
+          // normalize to @vitejs/plugin-react (shared node_modules contains this)
           const hasSWC = cpkg.dependencies?.['@vitejs/plugin-react-swc'] || cpkg.devDependencies?.['@vitejs/plugin-react-swc']
           if (hasSWC) {
             const bucket = cpkg.dependencies?.['@vitejs/plugin-react-swc'] ? 'dependencies' : 'devDependencies'
@@ -1174,26 +1167,16 @@ async function blitzDeploy(job: Job) {
             fs.writeFileSync(clientPkgPath, JSON.stringify(cpkg, null, 2) + '\n', 'utf-8')
           }
 
-          // Patch vite.config.js/.ts
+          // Patch vite.config.js/.ts — swap plugin-react-swc → plugin-react only
           for (const cfgName of ['vite.config.js', 'vite.config.ts']) {
             const cfgPath = path.join(buildCwd, cfgName)
             if (fs.existsSync(cfgPath)) {
               let cfg = fs.readFileSync(cfgPath, 'utf-8')
               let cfgPatched = false
 
-              // swap plugin-react-swc → plugin-react
               if (cfg.includes('@vitejs/plugin-react-swc')) {
                 cfg = cfg.replace(/@vitejs\/plugin-react-swc'/g, "@vitejs/plugin-react'")
                          .replace(/@vitejs\/plugin-react-swc"/g, '@vitejs/plugin-react"')
-                cfgPatched = true
-              }
-
-              // add recharts external if not already present
-              if (!cfg.includes("external: ['recharts']") && !cfg.includes('external: ["recharts"]')) {
-                cfg = cfg.replace(
-                  /(\})\s*\)\s*$/,
-                  `  build: {\n    rollupOptions: {\n      external: ['recharts'],\n      output: { globals: { recharts: 'Recharts' } },\n    },\n  },\n$1)\n`,
-                )
                 cfgPatched = true
               }
 
@@ -1202,19 +1185,8 @@ async function blitzDeploy(job: Job) {
             }
           }
 
-          // Patch index.html to load recharts from CDN
-          const htmlPath = path.join(buildCwd, 'index.html')
-          if (fs.existsSync(htmlPath)) {
-            let html = fs.readFileSync(htmlPath, 'utf-8')
-            const cdnTag = '<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.umd.min.js" crossorigin="anonymous"></script>'
-            if (!html.includes('Recharts.umd')) {
-              html = html.replace('</head>', `  ${cdnTag}\n  </head>`)
-              fs.writeFileSync(htmlPath, html, 'utf-8')
-            }
-          }
-
           if (pkgPatched) {
-            await updateTask(task, {}, '📦 Patched: recharts→CDN, aligned plugin-react for shared modules…')
+            await updateTask(task, {}, '📦 Patched: aligned plugin-react for shared modules…')
           }
         }
 
@@ -4348,11 +4320,10 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     // the server serves no assets (CSS as text/plain, JS 404). Keeping them here
     // guarantees the client builds regardless of the install mode.
     dependencies: {
-      // recharts → CDN (removes ~300 d3/lodash transitive packages).
-      // Uses @vitejs/plugin-react (Babel) — matches the shared node_modules installed at
-      // server startup so deploys symlink instead of running npm install (zero npm peak RSS).
+      // Uses @vitejs/plugin-react (Babel) + recharts — all match the shared node_modules
+      // installed at server startup so deploys symlink instead of running npm install.
       axios: '^1.7.2', react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1',
-      vite: '^5.4.0', '@vitejs/plugin-react': '^4.3.1',
+      recharts: '^2.12.7', vite: '^5.4.0', '@vitejs/plugin-react': '^4.3.1',
     },
   }
   const viteConfig = [
@@ -4365,14 +4336,6 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     "  // 'Cannot read properties of null (reading useEffect)' from a duplicate React copy.",
     "  resolve: { dedupe: ['react', 'react-dom'] },",
     "  server: { proxy: { '/api': 'http://localhost:4000' } },",
-    '  build: {',
-    '    rollupOptions: {',
-    "      // recharts is served from CDN (see index.html) — don't bundle it.",
-    "      // Rollup maps `import { X } from 'recharts'` → `const { X } = Recharts` (global).",
-    "      external: ['recharts'],",
-    "      output: { globals: { recharts: 'Recharts' } },",
-    '    },',
-    '  },',
     '})',
     '',
   ].join('\n')
@@ -4387,8 +4350,6 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     '    <link rel="preconnect" href="https://fonts.googleapis.com" />',
     '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
     '    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=Poppins:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />',
-    '    <!-- recharts UMD: loaded before the app so Rollup externals resolve correctly -->',
-    '    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.umd.min.js" crossorigin="anonymous"></script>',
     '  </head>',
     '  <body>',
     '    <div id="root"><div class="app-loading"><div class="spinner"></div></div></div>',
