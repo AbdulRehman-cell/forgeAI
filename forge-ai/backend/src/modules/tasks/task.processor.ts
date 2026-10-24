@@ -1141,10 +1141,11 @@ async function blitzDeploy(job: Job) {
         const frontendNeedsInstall = !fs.existsSync(frontendNmDir) || fs.readdirSync(frontendNmDir).length === 0
         if (frontendNeedsInstall) {
           await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
-          // --include=dev ensures vite/esbuild are installed even when NODE_ENV=production (Render default)
-          // --maxsockets=2 and reduced heap force more aggressive GC, keeping peak RSS under 512MB on Render free
-          // --no-package-lock skips lock-file writing (saves ~30MB I/O peak)
-          await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --no-package-lock --maxsockets=2', {
+          // --include=dev: vite/esbuild needed even on NODE_ENV=production (Render default)
+          // --ignore-scripts: skip lifecycle hooks (the largest single memory spike); Vite 6+
+          //   ships esbuild as an optional dep so no postinstall binary download is needed
+          // --maxsockets=2 + 192MB heap: sequential downloads + aggressive GC keep RSS low
+          await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --no-package-lock --ignore-scripts --maxsockets=2', {
             cwd: buildCwd, timeout: 600_000,
             env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
           })
