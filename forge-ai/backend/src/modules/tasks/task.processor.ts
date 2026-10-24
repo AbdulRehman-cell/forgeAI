@@ -1075,6 +1075,13 @@ async function blitzDeploy(job: Job) {
           }
         }
 
+        // Wait for startup restore to finish so all backends are in the process map before we pause.
+        // Without this, backends still installing at startup escape the pause and compete for RSS.
+        const { waitForBackendRestore } = await import('../../app') as any
+        if (typeof waitForBackendRestore === 'function') {
+          await waitForBackendRestore()
+        }
+
         // Pause any running backends to free memory for npm installs — restored after R2 upload.
         if (hasMernLayout) {
           pausedBackends = pauseAllBackends()

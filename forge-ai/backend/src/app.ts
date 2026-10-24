@@ -173,9 +173,9 @@ export async function restoreWorkspace(repositoryId: string, backendDir: string)
       if (needsInstall) {
         console.log(`[startup] npm install in ${backendDir}…`)
         try {
-          await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], {
+          await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund', '--no-package-lock', '--ignore-scripts', '--maxsockets=1'], {
             cwd: backendDir, timeout: 240_000,
-            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=128', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
           })
           console.log(`[startup] npm install complete in ${backendDir}`)
         } catch (e: any) {
@@ -240,6 +240,11 @@ async function restoreBackendsOnce() {
 // Also exported so index.ts can trigger it eagerly once DB is connected.
 export function triggerBackendRestore() {
   if (!restorePromise) restorePromise = restoreBackendsOnce()
+}
+
+/** Resolves once all previously deployed backends have been restored (or skipped). */
+export function waitForBackendRestore(): Promise<void> {
+  return restorePromise ?? Promise.resolve()
 }
 
 app.use('/sites-api', (_req, _res, next) => {
