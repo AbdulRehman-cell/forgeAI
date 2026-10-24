@@ -1066,11 +1066,17 @@ async function blitzDeploy(job: Job) {
         }
 
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
-          await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
-          await execAsync('npm install --legacy-peer-deps --no-audit --no-fund', {
-            cwd: backendRunDir, timeout: 240_000,
-            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
-          })
+          const backendNmDir = path.join(backendRunDir, 'node_modules')
+          const backendNeedsInstall = !fs.existsSync(backendNmDir) || fs.readdirSync(backendNmDir).length === 0
+          if (backendNeedsInstall) {
+            await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
+            await execAsync('npm install --legacy-peer-deps --no-audit --no-fund', {
+              cwd: backendRunDir, timeout: 600_000,
+              env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+            })
+          } else {
+            await updateTask(task, { progress: 15 }, '✅ Backend dependencies present — skipping install…')
+          }
           // Write user-supplied env vars to .env (merge with any existing file)
           if (envVars && typeof envVars === 'object' && Object.keys(envVars).length > 0) {
             const envPath = path.join(backendRunDir, '.env')
@@ -1113,12 +1119,18 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
-        await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
-        // --include=dev ensures vite/esbuild are installed even when NODE_ENV=production (Render default)
-        await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund', {
-          cwd: buildCwd, timeout: 240_000,
-          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
-        })
+        const frontendNmDir = path.join(buildCwd, 'node_modules')
+        const frontendNeedsInstall = !fs.existsSync(frontendNmDir) || fs.readdirSync(frontendNmDir).length === 0
+        if (frontendNeedsInstall) {
+          await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
+          // --include=dev ensures vite/esbuild are installed even when NODE_ENV=production (Render default)
+          await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund', {
+            cwd: buildCwd, timeout: 600_000,
+            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=256', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+          })
+        } else {
+          await updateTask(task, { progress: 25 }, `✅ Frontend dependencies present — skipping install…`)
+        }
 
         await updateTask(task, { progress: 40 }, '🔨 Building site…')
 
