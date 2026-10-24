@@ -137,6 +137,20 @@ export function getBackendPort(slug: string): number | null {
   return processes.get(slug)?.port ?? null
 }
 
-export function listBackends(): Array<{ slug: string; port: number; startedAt: Date; restarts: number }> {
-  return [...processes.values()].map(({ slug, port, startedAt, restarts }) => ({ slug, port, startedAt, restarts }))
+export function listBackends(): Array<{ slug: string; port: number; startedAt: Date; restarts: number; serverDir: string }> {
+  return [...processes.values()].map(({ slug, port, startedAt, restarts, serverDir }) => ({ slug, port, startedAt, restarts, serverDir }))
+}
+
+/** Stop every running backend and return their info so they can be restarted later. */
+export function pauseAllBackends(): Array<{ slug: string; serverDir: string }> {
+  const running = listBackends().map(({ slug, serverDir }) => ({ slug, serverDir }))
+  for (const { slug } of running) stopBackend(slug)
+  return running
+}
+
+/** Restart backends that were paused with pauseAllBackends (best-effort, non-blocking). */
+export function resumeBackends(backends: Array<{ slug: string; serverDir: string }>): void {
+  for (const { slug, serverDir } of backends) {
+    startBackend(slug, serverDir).catch(e => console.warn(`[processManager] Failed to resume ${slug}: ${e.message}`))
+  }
 }

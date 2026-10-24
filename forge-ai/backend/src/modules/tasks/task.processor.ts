@@ -985,7 +985,7 @@ async function blitzDeploy(job: Job) {
     try {
       const { selfHostedDeploy, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild, makeSlug } = await import('../../lib/selfHostedDeploy')
       const { Deployment } = await import('../hosting/deployment.model')
-      const { startBackend } = await import('../../lib/processManager')
+      const { startBackend, pauseAllBackends, resumeBackends } = await import('../../lib/processManager')
 
       // Reuse existing slug if the repo was already deployed self-hosted; otherwise generate
       // the slug NOW (before the build) so VITE_API_URL can be baked in correctly.
@@ -1065,13 +1065,22 @@ async function blitzDeploy(job: Job) {
           }
         }
 
+        // Pause any running backends to free memory for npm installs — restored after R2 upload.
+        let pausedBackends: Array<{ slug: string; serverDir: string }> = []
+        if (hasMernLayout) {
+          pausedBackends = pauseAllBackends()
+          if (pausedBackends.length > 0) {
+            await updateTask(task, {}, `⏸️ Paused ${pausedBackends.length} other backend(s) to free memory for install…`)
+          }
+        }
+
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
           // Pre-compute the public proxy URL — we need it for VITE_API_URL before starting the
           // backend process, so we can install + build frontend first (lower peak memory).
           const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
           viteApiUrl = `${publicBase}/sites-api/${deploySlug}`
 
-          // ── Install backend deps (no child process running yet) ────────────────
+          // ── Install backend deps (no other child processes running) ────────────
           const backendNmDir = path.join(backendRunDir, 'node_modules')
           const backendNeedsInstall = !fs.existsSync(backendNmDir) || fs.readdirSync(backendNmDir).length === 0
           if (backendNeedsInstall) {
@@ -1281,6 +1290,12 @@ INSTRUCTIONS:
         }
       }
 
+      // Resume any backends that were paused for memory headroom during installs
+      if (pausedBackends.length > 0) {
+        resumeBackends(pausedBackends)
+        await updateTask(task, {}, `▶️ Resumed ${pausedBackends.length} other backend(s)`)
+      }
+
       // Store slug on the repo so redeploys reuse the same URL
       if (repo) {
         repo.deployState = { ...(repo.deployState ?? {}), 'self-hosted': { slug: result.slug, url: result.url } }
@@ -1299,6 +1314,10 @@ INSTRUCTIONS:
         `## ✅ Deployed to ForgeAI\n\nYour site is live at: **${result.url}**\n\n${providerNote}${backendNote}`, 'info')
       emitTaskUpdate(taskId, task.toObject())
     } catch (err: any) {
+      // Always restore paused backends even on failure
+      if (typeof pausedBackends !== 'undefined' && pausedBackends.length > 0) {
+        try { resumeBackends(pausedBackends) } catch {}
+      }
       task.status = 'failed'
       task.summary = `## ❌ Self-hosted deploy failed\n\n${err.message}`
       await task.save()
