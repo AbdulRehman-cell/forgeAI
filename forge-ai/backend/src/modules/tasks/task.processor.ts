@@ -2425,14 +2425,82 @@ const MOBILE_MENU_JS = `(function(){
   try { new MutationObserver(setup).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 })();`
 
-const HAMBURGER_CSS = `/* ── Professional sticky header + mobile nav (deterministic baseline) ── */
+const HAMBURGER_CSS = `/* ── Deterministic header layout — overrides AI inconsistencies ── */
+/* 1. Outer shell: always flex, always vertically centred, consistent height */
 header, .site-header, .navbar, .main-header {
-  transition: box-shadow .3s ease, background .3s ease, padding .25s ease, backdrop-filter .3s ease;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  min-height: 68px !important;
+  padding-left: clamp(1rem, 5vw, 2.5rem) !important;
+  padding-right: clamp(1rem, 5vw, 2.5rem) !important;
+  gap: 1.5rem !important;
+  box-sizing: border-box !important;
+  transition: box-shadow .3s ease, background .3s ease, min-height .25s ease, backdrop-filter .3s ease;
 }
 header.scrolled, .site-header.scrolled, .navbar.scrolled, .main-header.scrolled {
+  min-height: 58px !important;
   box-shadow: 0 4px 24px rgba(0,0,0,.13);
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
+}
+
+/* 2. Logo / brand — always flex-row, vertically centred, never wraps */
+header .nav-brand, .site-header .nav-brand,
+header .logo, .site-header .logo,
+header > a:first-child, .site-header > a:first-child,
+header > .brand, .site-header > .brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: .45rem !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  text-decoration: none !important;
+  line-height: 1 !important;
+}
+
+/* 3. Nav links row — flex, centred, consistent gap, no list bullets */
+header nav, .site-header nav,
+header .nav-links, .site-header .nav-links,
+header .nav-menu, .site-header .nav-menu {
+  display: flex !important;
+  align-items: center !important;
+  gap: clamp(1.1rem, 2.2vw, 1.9rem) !important;
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  flex-shrink: 1 !important;
+}
+header nav ul, .site-header nav ul {
+  display: flex !important;
+  align-items: center !important;
+  gap: clamp(1.1rem, 2.2vw, 1.9rem) !important;
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+/* Remove any margin/padding the AI puts on individual <li> items */
+header nav li, .site-header nav li { margin: 0 !important; padding: 0 !important; }
+
+/* 4. Individual nav links — inline-flex so icon + text align, never wrap */
+header nav a, .site-header nav a,
+header .nav-links a, .site-header .nav-links a {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: .3rem !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+  text-decoration: none !important;
+  padding: .3rem 0 !important;
+}
+
+/* 5. CTA button — flex-shrink: 0 so it never squishes, always on one line */
+header .nav-cta, .site-header .nav-cta,
+header .cta-btn, .site-header .cta-btn,
+header nav .btn, .site-header nav .btn {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  line-height: 1 !important;
 }
 /* Hamburger button — hidden on desktop */
 .nav-toggle {
