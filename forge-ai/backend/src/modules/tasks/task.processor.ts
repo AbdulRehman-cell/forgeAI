@@ -2261,7 +2261,7 @@ QUALITY BAR — the site must look like a designer built it (think Linear, Strip
 - MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, gallery2, feature3) so each image is distinct and STABLE across reloads (sizes hero ≥ 1600 wide, gallery/cards ≥ 600 wide); avatars via https://i.pravatar.cc/300?img={n}. The HOME hero MUST have a full-bleed background image (a positioned <img> covering the section, or CSS background-image) WITH a dark gradient overlay so the headline stays perfectly legible. Put PLENTY of images across every page. Include at least one VIDEO — a relevant YouTube embed (<iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen> in a responsive 16:9 wrapper), or a muted autoplay <video autoplay muted loop playsinline>. Present images CLEANLY: object-fit: cover, tidy rounded corners — NEVER rotate/tilt/skew/overlap. Explicit width & height + descriptive alt on every <img>. Never reference local files that don't exist.
 - DYNAMIC & ANIMATED: make the site feel alive — smooth entrance/scroll-reveal animations, hover/focus micro-interactions, and a loading animation on page load. Rich and lively, never gratuitous.
 - Every section earns its place: a real hero with headline + subhead + primary CTA, a sticky translucent (backdrop-blur) nav, meaningful content sections, and a rich footer. Working links between all pages.
-- HEADER (professional, non-negotiable): ONE <nav> per page only — no duplicate nav for mobile/desktop, no extra .mobile-nav elements. Mobile hamburger is injected by script.js automatically. The <header> must be sticky (position: sticky; top: 0; z-index: 50), semi-opaque (≥85% opacity) with backdrop-filter: blur(12px). Brand logo left, nav links center/right, a visible CTA button ("Get Started" / "Contact" / appropriate call-to-action) rightmost. Nav links must be on ONE ROW — never stacked by default on desktop. Add a .scrolled class via JS when window.scrollY > 60 that darkens the background slightly. Active page link gets a visible accent-color underline or indicator. Never dashed borders on any nav element.
+- HEADER (professional, non-negotiable): ONE <nav> per page only — no duplicate nav for mobile/desktop, no extra .mobile-nav elements. Mobile hamburger is injected by script.js automatically — do NOT add your own hamburger button or mobile toggle. The <header> must be: sticky (position: sticky; top: 0; z-index: 100), semi-opaque (background with ≥88% opacity), backdrop-filter: blur(14px), -webkit-backdrop-filter: blur(14px), border-bottom: 1px solid var(--border) at rest. Layout: display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(1rem, 5vw, 2.5rem); height: 68px. Brand logo LEFT (font-weight: 700, font-size: 1.25rem, letter-spacing: -0.02em, no text-decoration). Nav links CENTER or RIGHT: display: flex; align-items: center; gap: clamp(1rem, 2.5vw, 2rem); each link font-weight: 500; font-size: .95rem; letter-spacing: .01em; text-decoration: none; padding: .3rem 0; border-bottom: 2px solid transparent; transition: color .2s, border-color .2s — active page link gets border-bottom-color: var(--primary). CTA button RIGHTMOST: background: var(--primary); color: #fff; padding: .55rem 1.3rem; border-radius: 8px; font-weight: 600; font-size: .9rem; white-space: nowrap; transition: opacity .2s, transform .15s; hover: opacity .88, translateY(-1px). On .scrolled: box-shadow: 0 4px 24px rgba(0,0,0,.12), height shrinks to 58px, background opacity increases to 96%. DESKTOP: nav links always on ONE ROW, never wrap. Add .scrolled via JS at scrollY > 60 (script.js handles this automatically).
 - Semantic HTML5; interactivity lives in script.js, styles live in styles.css — do NOT inline <style> or <script> blocks in HTML pages beyond tiny critical snippets.
 
 ⚠️ DESIGN SYSTEM RULES — BREAKS THAT MAKE SITES LOOK AMATEUR:
@@ -2425,30 +2425,83 @@ const MOBILE_MENU_JS = `(function(){
   try { new MutationObserver(setup).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 })();`
 
-const HAMBURGER_CSS = `/* ── Mobile hamburger nav + professional sticky header (deterministic) ── */
-/* Scroll-shrink: all headers get a subtle tightening on .scrolled */
+const HAMBURGER_CSS = `/* ── Professional sticky header + mobile nav (deterministic baseline) ── */
 header, .site-header, .navbar, .main-header {
-  transition: box-shadow .25s ease, background .25s ease, padding .2s ease;
+  transition: box-shadow .3s ease, background .3s ease, padding .25s ease, backdrop-filter .3s ease;
 }
 header.scrolled, .site-header.scrolled, .navbar.scrolled, .main-header.scrolled {
-  box-shadow: 0 2px 20px rgba(0,0,0,.12);
+  box-shadow: 0 4px 24px rgba(0,0,0,.13);
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
-.nav-toggle { display: none; align-items: center; justify-content: center; flex-direction: column; gap: 5px; width: 44px; height: 44px; padding: 0; background: transparent; border: 0; cursor: pointer; color: inherit; z-index: 60; }
-.nav-toggle span { display: block; width: 24px; height: 2px; background: var(--text, #1a1a1a); border-radius: 2px; }
-@media (max-width: 780px) {
-  header, .site-header, .navbar, .main-header { position: relative; }
+/* Hamburger button — hidden on desktop */
+.nav-toggle {
+  display: none; align-items: center; justify-content: center; flex-direction: column;
+  gap: 5px; width: 48px; height: 48px; min-width: 48px; padding: 0; background: transparent;
+  border: 0; cursor: pointer; color: inherit; z-index: 200; flex-shrink: 0;
+  border-radius: 8px; transition: background .2s;
+}
+.nav-toggle:hover { background: rgba(0,0,0,.06); }
+.nav-toggle span {
+  display: block; width: 22px; height: 2px; background: var(--text, #1a1a1a);
+  border-radius: 2px; transition: transform .3s ease, opacity .25s ease, width .25s ease;
+  transform-origin: center;
+}
+/* X animation when open */
+.nav-toggle.nav-open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.nav-toggle.nav-open span:nth-child(2) { opacity: 0; width: 0; }
+.nav-toggle.nav-open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+@media (max-width: 820px) {
+  header, .site-header, .navbar, .main-header { position: relative !important; }
   .nav-toggle { display: inline-flex !important; }
-  /* !important is required: the model often puts inline style="display:flex" on
-     the <nav>, and inline styles beat class/media-query CSS without it. */
+
+  /* The nav panel — slides down with opacity fade */
   header nav, .site-header nav, .navbar nav, header .nav-links {
-    display: none !important; position: absolute !important; top: 100%; left: 0; right: 0;
-    flex-direction: column !important; align-items: flex-start !important; gap: .15rem !important;
-    background: color-mix(in srgb, var(--bg, #ffffff) 97%, transparent); padding: .75rem 1.25rem 1rem;
-    border-top: 1px solid var(--border, rgba(0,0,0,.12)); box-shadow: 0 18px 34px -22px rgba(0,0,0,.55); max-height: 76vh; overflow-y: auto;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0 !important;
+    position: absolute !important; top: 100%; left: 0; right: 0;
+    background: color-mix(in srgb, var(--bg, #fff) 97%, transparent) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border-top: 1px solid var(--border, rgba(0,0,0,.1));
+    box-shadow: 0 20px 40px -16px rgba(0,0,0,.35);
+    max-height: 0; overflow: hidden;
+    padding: 0 !important;
+    transition: max-height .35s cubic-bezier(.4,0,.2,1), padding .3s ease, opacity .3s ease;
+    opacity: 0; pointer-events: none;
+    z-index: 190;
   }
-  header nav.nav-open, .site-header nav.nav-open, .navbar nav.nav-open, header .nav-links.nav-open { display: flex !important; }
-  header nav ul, .site-header nav ul, .navbar nav ul { flex-direction: column !important; align-items: flex-start !important; width: 100%; }
-  header nav a, .site-header nav a, .navbar nav a, header .nav-links a { width: 100%; padding: .55rem 0; }
+  header nav.nav-open, .site-header nav.nav-open, .navbar nav.nav-open, header .nav-links.nav-open {
+    max-height: 78vh; overflow-y: auto;
+    padding: .5rem 0 1rem !important;
+    opacity: 1; pointer-events: auto;
+  }
+
+  /* Nav list items inside mobile drawer */
+  header nav ul, .site-header nav ul, .navbar nav ul {
+    flex-direction: column !important; align-items: stretch !important; width: 100% !important;
+    gap: 0 !important; padding: 0 !important; margin: 0 !important; list-style: none !important;
+  }
+  /* Touch-friendly link targets — 48px min height */
+  header nav a, .site-header nav a, .navbar nav a, header .nav-links a, header nav li a {
+    display: flex !important; align-items: center !important;
+    min-height: 48px !important; padding: .6rem 1.25rem !important;
+    width: 100% !important; box-sizing: border-box !important;
+    font-size: 1rem !important; font-weight: 500 !important;
+    border-bottom: 1px solid var(--border, rgba(0,0,0,.07)) !important;
+    transition: background .15s, color .15s !important;
+  }
+  header nav a:hover, .site-header nav a:hover { background: rgba(0,0,0,.04) !important; }
+  header nav li:last-child a { border-bottom: 0 !important; }
+
+  /* CTA button inside mobile drawer gets full-width treatment */
+  header .nav-cta, .site-header .nav-cta, header nav .btn, header nav .cta-btn {
+    margin: .75rem 1.25rem .25rem !important; width: calc(100% - 2.5rem) !important;
+    min-height: 48px !important; display: flex !important; align-items: center !important; justify-content: center !important;
+  }
 }
 `
 const HAMBURGER_JS = `(function(){
@@ -2456,28 +2509,33 @@ const HAMBURGER_JS = `(function(){
     var navs = document.querySelectorAll('header nav, .site-header nav, .navbar nav, header .nav-links');
     for (var i = 0; i < navs.length; i++) {
       var nav = navs[i];
-      var header = nav.closest('header, .site-header, .navbar, .main-header') || nav.parentElement;
-      if (!header || header.querySelector('.nav-toggle')) continue;
+      var hdr = nav.closest('header, .site-header, .navbar, .main-header') || nav.parentElement;
+      if (!hdr || hdr.querySelector('.nav-toggle')) continue;
       var btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'nav-toggle'; btn.setAttribute('aria-label', 'Toggle menu');
       btn.innerHTML = '<span></span><span></span><span></span>';
-      (function(nav){
-        btn.addEventListener('click', function(){ nav.classList.toggle('nav-open'); });
-        nav.addEventListener('click', function(e){ if (e.target && e.target.closest && e.target.closest('a')) nav.classList.remove('nav-open'); });
-      })(nav);
-      // Insert into the nav's own flex row (with the brand) so it sits level with
-      // the logo — not appended to the outer <header> where it drops to a new line.
-      (nav.parentElement || header).appendChild(btn);
+      (function(nav, btn, hdr){
+        function open(){ nav.classList.add('nav-open'); btn.classList.add('nav-open'); btn.setAttribute('aria-expanded','true'); document.body.style.overflow='hidden'; }
+        function close(){ nav.classList.remove('nav-open'); btn.classList.remove('nav-open'); btn.setAttribute('aria-expanded','false'); document.body.style.overflow=''; }
+        function toggle(){ nav.classList.contains('nav-open') ? close() : open(); }
+        btn.addEventListener('click', function(e){ e.stopPropagation(); toggle(); });
+        // Close when any link inside is tapped
+        nav.addEventListener('click', function(e){ if (e.target && e.target.closest && e.target.closest('a')) close(); });
+        // Close on outside click
+        document.addEventListener('click', function(e){ if (!hdr.contains(e.target)) close(); });
+        // Close on Escape
+        document.addEventListener('keydown', function(e){ if ((e.key||e.keyCode) === 'Escape' || (e.key||e.keyCode) === 27) close(); });
+      })(nav, btn, hdr);
+      (nav.parentElement || hdr).appendChild(btn);
     }
   }
   if (document.readyState !== 'loading') enhance(); else document.addEventListener('DOMContentLoaded', enhance);
-  try { new MutationObserver(enhance).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
-  // Add .scrolled class to ALL headers at 60px scroll — works regardless of the
-  // class the AI chose (nav-minimal, nav-pill, site-header, or plain header).
+  try { new MutationObserver(enhance).observe(document.documentElement, { childList: true, subtree: true }); } catch(e){}
+  // .scrolled class on all headers at 60px scroll
   function watchScroll(){
     var headers = document.querySelectorAll('header, .site-header, .navbar, .main-header');
     if (!headers.length) return;
-    function onScroll(){ var y = window.scrollY || window.pageYOffset; for (var i=0;i<headers.length;i++){ headers[i].classList.toggle('scrolled', y > 60); } }
+    function onScroll(){ var y = window.scrollY||window.pageYOffset; for(var i=0;i<headers.length;i++){ headers[i].classList.toggle('scrolled', y > 60); } }
     window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
   }
   if (document.readyState !== 'loading') watchScroll(); else document.addEventListener('DOMContentLoaded', watchScroll);
@@ -5423,7 +5481,7 @@ export async function generateMernSite(
   await sleep(1500)
   const routeList = plan.pages.map((p) => `${p.route} → pages/${p.file}`).join(', ')
   await gen(
-    `${briefBlock}${contract}\n\nGenerate client/src/App.jsx — the root component with a professional sticky header, <Routes>, and a rich footer.\n\nHEADER REQUIREMENTS (professional grade — this is the #1 thing visitors judge):\n- ONE <nav> element only — never duplicate the nav (no separate mobile-nav element). Mobile is handled by the CSS hamburger system automatically.\n- Sticky header: position sticky, top 0, z-index 50, semi-opaque backdrop-blur background (≥85% opacity + backdrop-filter blur(12px)).\n- Brand logo on the left (icon emoji + site name in a stylish font), nav links in the center or right.\n- On scroll past 60px, add a scrolled class via useEffect + window.addEventListener('scroll') that tightens padding and darkens the background.\n- NavLink active state with a distinctive underline or accent color.\n- A visible CTA button (e.g. "Get Started") on the right side of the nav.\n- Mobile: the hamburger system in index.html handles it — do NOT add any mobile-specific nav elements, hamburger buttons, or display:none tricks.\n\nBrand name: "${siteName}". NavLinks to every route: ${routeList}.\n\nUse semantic classNames (header, .site-header, .nav-brand, .nav-links, .nav-cta) so index.css can make it look premium. REMINDER: main.jsx already provides <BrowserRouter> — do not render any Router here.`,
+    `${briefBlock}${contract}\n\nGenerate client/src/App.jsx — the root component with a HIGHLY PROFESSIONAL sticky header, <Routes>, and a rich footer.\n\nHEADER REQUIREMENTS (the #1 thing visitors judge — get this perfect):\n- ONE <header> with ONE <nav> inside — never two navs, no .mobile-nav sibling. The CSS hamburger system in index.css handles mobile automatically; do NOT add hamburger buttons, display:none toggles, or mobile-specific nav elements.\n- JSX structure: <header className="site-header"> wrapping: <div className="nav-brand"> (logo left), <nav className="nav-links"> (links center/right), <button className="nav-cta"> (CTA rightmost). This className contract lets index.css target every element precisely.\n- Sticky + frosted glass: position:'sticky', top:0, zIndex:100. The inline style or class must set: background with ≥88% opacity + backdropFilter:'blur(14px)' + WebkitBackdropFilter:'blur(14px)' + borderBottom:'1px solid var(--border)'. Height: 68px. Padding: 0 clamp(1rem,5vw,2.5rem). Display: flex, alignItems: center, justifyContent: space-between.\n- Scroll shrink: useEffect that adds/removes className "scrolled" at scrollY > 60. scrolled state: box-shadow 0 4px 24px rgba(0,0,0,.12), height 58px, slightly darker bg. ALWAYS clean up the listener: return () => window.removeEventListener('scroll', handler).\n- nav-brand: font-weight 700, font-size 1.25rem, letterSpacing -0.02em, no underline, display:flex, alignItems:center, gap:.5rem. Include an emoji icon matching the site theme.\n- nav-links: display:flex, alignItems:center, gap:clamp(1rem,2.5vw,2rem), listStyle:none. Each <NavLink> gets className={({isActive})=>isActive?'active':''} — active link shows accent underline (borderBottom: 2px solid var(--primary)). Link font: weight 500, size .95rem.\n- nav-cta: a <Link> styled as a pill button — background var(--primary), color #fff, padding .55rem 1.3rem, borderRadius 8px, fontWeight 600, fontSize .9rem, whiteSpace nowrap, textDecoration none, transition opacity .2s + translateY(-1px) on hover. Label it something action-oriented matching the site ("Get Started", "Book Now", "Try Free", etc.).\n- Footer: 3–4 columns on desktop (stacks to 1 on mobile), dark or surface background, brand description left, nav links columns, social icons, copyright.\n\nBrand name: "${siteName}". Routes and pages: ${routeList}.\n\nREMINDER: main.jsx already wraps in <BrowserRouter> — do NOT add another Router here.`,
     'client/src/App.jsx',
   )
 
