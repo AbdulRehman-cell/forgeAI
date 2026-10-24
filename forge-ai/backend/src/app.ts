@@ -193,25 +193,34 @@ export async function restoreWorkspace(repositoryId: string, backendDir: string)
   }
 }
 
-/** Install template packages into /tmp/forge-shared-nm ONCE at startup.
- *  Runs before any managed backends start, so ForgeAI has maximum free RAM
- *  (~360 MB headroom on the 512 MB Render free tier).
- *  Deploy tasks can then symlink client/node_modules → /tmp/forge-shared-nm
- *  instead of running npm install — zero npm peak RSS at deploy time.
+/** Install template packages ONCE at startup into /tmp/forge-shared-parent/.
+ *  Runs before any managed backends start so ForgeAI has maximum free RAM.
+ *
+ *  WHY a parent wrapper directory matters for Node module resolution:
+ *  When vite (real path /tmp/forge-shared-parent/node_modules/vite/) resolves
+ *  a peer import like `esbuild`, Node.js walks UP the real path looking for
+ *  a `node_modules/` directory at each level.  It skips directories NAMED
+ *  `node_modules` during the walk, then checks their parent for another
+ *  `node_modules/`.  So from vite's directory it eventually checks:
+ *    /tmp/forge-shared-parent/node_modules/esbuild  ← found ✓
+ *  If we symlinked directly to the contents (no parent), vite's real path
+ *  would be /tmp/forge-shared-nm/vite/ and the walk would look for
+ *    /tmp/forge-shared-nm/node_modules/esbuild      ← not found ✗
+ *  because there is no nested node_modules/ inside the flat directory.
  */
-const SHARED_NM = '/tmp/forge-shared-nm'
-const SHARED_NM_READY = '/tmp/forge-shared-nm.ready'
+const SHARED_PARENT = '/tmp/forge-shared-parent'
+const SHARED_NM = path.join(SHARED_PARENT, 'node_modules')
+const SHARED_NM_READY = '/tmp/forge-shared-parent.ready'
 
 async function ensureSharedNodeModules(): Promise<void> {
-  if (fs.existsSync(SHARED_NM_READY) && fs.existsSync(SHARED_NM)) {
+  if (fs.existsSync(SHARED_NM_READY) && fs.existsSync(path.join(SHARED_NM, '.bin', 'vite'))) {
     console.log('[warmup] Shared node_modules already ready — skipping install')
     return
   }
-  const tmpInstall = '/tmp/forge-nm-install-tmp'
   try {
-    fs.rmSync(tmpInstall, { recursive: true, force: true })
-    fs.mkdirSync(tmpInstall, { recursive: true })
-    fs.writeFileSync(path.join(tmpInstall, 'package.json'), JSON.stringify({
+    fs.rmSync(SHARED_PARENT, { recursive: true, force: true })
+    fs.mkdirSync(SHARED_PARENT, { recursive: true })
+    fs.writeFileSync(path.join(SHARED_PARENT, 'package.json'), JSON.stringify({
       name: 'forge-template', version: '1.0.0',
       dependencies: {
         axios: '^1.7.2',
@@ -223,23 +232,22 @@ async function ensureSharedNodeModules(): Promise<void> {
       },
     }))
     console.log('[warmup] Installing shared node_modules for ForgeAI site template…')
+    // Note: NOT using --ignore-scripts here — esbuild's postinstall is needed to set
+    // up its binary.  Peak RSS: ~150 MB (ForgeAI) + ~250 MB (npm) = ~400 MB, within 512 MB.
     await execFileAsync('npm', [
       'install', '--legacy-peer-deps', '--no-audit', '--no-fund',
-      '--no-package-lock', '--ignore-scripts', '--maxsockets=1',
+      '--no-package-lock', '--maxsockets=1',
     ], {
-      cwd: tmpInstall, timeout: 900_000,
+      cwd: SHARED_PARENT, timeout: 900_000,
       env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
     })
-    // Move the installed node_modules to the shared location atomically
-    fs.rmSync(SHARED_NM, { recursive: true, force: true })
-    fs.renameSync(path.join(tmpInstall, 'node_modules'), SHARED_NM)
     fs.writeFileSync(SHARED_NM_READY, 'ready')
-    console.log('[warmup] Shared node_modules ready at', SHARED_NM, '— deploys will symlink instead of npm install')
+    console.log('[warmup] Shared node_modules ready — deploys will symlink instead of npm install')
   } catch (e: any) {
     console.warn('[warmup] Shared node_modules setup failed (non-fatal):', e.message)
     console.warn('[warmup] Deploys will fall back to individual npm install')
-  } finally {
-    try { fs.rmSync(tmpInstall, { recursive: true, force: true }) } catch {}
+    try { fs.rmSync(SHARED_PARENT, { recursive: true, force: true }) } catch {}
+    try { fs.rmSync(SHARED_NM_READY, { force: true }) } catch {}
   }
 }
 
