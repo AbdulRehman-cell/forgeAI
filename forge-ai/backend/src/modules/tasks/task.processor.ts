@@ -1398,10 +1398,18 @@ INSTRUCTIONS:
         }
       }
 
-      // Resume any backends that were paused for memory headroom during installs
+      // Retire old backends instead of resuming them — only the newly deployed
+      // one should run. On a 512 MB container multiple backends exhaust RAM.
+      // Clearing backendDir from their Deployment records prevents them from
+      // auto-restoring on the next Render restart.
       if (pausedBackends.length > 0) {
-        resumeBackends(pausedBackends)
-        await updateTask(task, {}, `▶️ Resumed ${pausedBackends.length} other backend(s)`)
+        const { Deployment } = await import('../hosting/deployment.model')
+        const slugsToRetire = pausedBackends.map((b: { slug: string }) => b.slug)
+        await Deployment.updateMany(
+          { slug: { $in: slugsToRetire } },
+          { $unset: { backendDir: '', backendPort: '' } },
+        )
+        await updateTask(task, {}, `🗑️ Retired ${pausedBackends.length} older backend(s) — only the new deploy runs`)
       }
 
       // Store slug on the repo so redeploys reuse the same URL
