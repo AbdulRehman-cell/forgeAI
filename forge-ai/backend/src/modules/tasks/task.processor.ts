@@ -1066,6 +1066,12 @@ async function blitzDeploy(job: Job) {
         }
 
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
+          // Pre-compute the public proxy URL — we need it for VITE_API_URL before starting the
+          // backend process, so we can install + build frontend first (lower peak memory).
+          const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
+          viteApiUrl = `${publicBase}/sites-api/${deploySlug}`
+
+          // ── Install backend deps (no child process running yet) ────────────────
           const backendNmDir = path.join(backendRunDir, 'node_modules')
           const backendNeedsInstall = !fs.existsSync(backendNmDir) || fs.readdirSync(backendNmDir).length === 0
           if (backendNeedsInstall) {
@@ -1077,7 +1083,8 @@ async function blitzDeploy(job: Job) {
           } else {
             await updateTask(task, { progress: 15 }, '✅ Backend dependencies present — skipping install…')
           }
-          // Write user-supplied env vars to .env (merge with any existing file)
+
+          // Write user-supplied env vars to backend .env now so they're there when the process starts
           if (envVars && typeof envVars === 'object' && Object.keys(envVars).length > 0) {
             const envPath = path.join(backendRunDir, '.env')
             let existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
@@ -1089,12 +1096,6 @@ async function blitzDeploy(job: Job) {
             fs.writeFileSync(envPath, existing, 'utf-8')
             await updateTask(task, {}, `🔐 Wrote ${Object.keys(envVars).length} env var(s) to backend .env`)
           }
-          await updateTask(task, { progress: 16 }, '🚀 Starting managed backend process…')
-          const backendResult = await startBackend(deploySlug, backendRunDir)
-          managedBackendPort = backendResult.port
-          const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
-          viteApiUrl = `${publicBase}/sites-api/${deploySlug}`
-          await updateTask(task, { progress: 18 }, `✅ Backend started — API proxied at ${viteApiUrl}`)
         }
 
         // Patch React Router to HashRouter — makes SPA routes work on static hosts
@@ -1119,6 +1120,7 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
+        // ── Install frontend deps (still no backend child process — lowest possible memory) ──
         const frontendNmDir = path.join(buildCwd, 'node_modules')
         const frontendNeedsInstall = !fs.existsSync(frontendNmDir) || fs.readdirSync(frontendNmDir).length === 0
         if (frontendNeedsInstall) {
@@ -1204,6 +1206,14 @@ INSTRUCTIONS:
 
         if (!buildSucceeded) {
           throw new Error(`Build failed after ${MAX_FIX_ATTEMPTS} AI-assisted attempts.\n\n${lastBuildError.slice(0, 1000)}`)
+        }
+
+        // ── Start backend AFTER both npm installs and the Vite build (peak memory is now over) ──
+        if (hasMernLayout && backendRunDir && viteApiUrl && !managedBackendPort) {
+          await updateTask(task, { progress: 58 }, '🚀 Starting managed backend process…')
+          const backendResult = await startBackend(deploySlug, backendRunDir)
+          managedBackendPort = backendResult.port
+          await updateTask(task, { progress: 59 }, `✅ Backend started — API proxied at ${viteApiUrl}`)
         }
 
         await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
