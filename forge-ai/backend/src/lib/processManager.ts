@@ -72,7 +72,10 @@ export async function startBackend(slug: string, serverDir: string): Promise<{ p
 
   const proc = spawn(cmd, args, {
     cwd: serverDir,
-    env: { ...process.env, PORT: String(port), NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=256' },
+    // 96 MB is ample for a Mongoose/Express MERN backend.
+    // Keeping it low lets ForgeAI + several managed backends coexist on the
+    // 512 MB Render free-tier container (150 MB + 5×~60 MB actual RSS ≈ 450 MB).
+    env: { ...process.env, PORT: String(port), NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=96' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 
@@ -108,7 +111,7 @@ function _respawn(slug: string, serverDir: string, port: number, restarts: numbe
   const { cmd, args } = detectStartCommand(serverDir)
   const proc = spawn(cmd, args, {
     cwd: serverDir,
-    env: { ...process.env, PORT: String(port), NODE_ENV: 'production' },
+    env: { ...process.env, PORT: String(port), NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=96' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   proc.stdout?.on('data', d => process.stdout.write(`[backend:${slug}] ${d}`))
