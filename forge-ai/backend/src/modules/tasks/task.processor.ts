@@ -1138,46 +1138,76 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 20 }, `⚙️  Set VITE_API_URL=${viteApiUrl} in build environment…`)
         }
 
-        // ── Externalize recharts to CDN (removes ~300 transitive deps from npm install) ──
-        // Applied both to freshly-generated sites and to older sites that already have
-        // recharts in their package.json, so every deploy benefits from the lighter install.
+        // ── Slim the dependency tree before npm install ──────────────────────────────
+        // Applies to every deploy (new and old sites) to keep peak RSS under 512MB.
+        //   1. recharts → CDN  (-300 d3/lodash transitive packages)
+        //   2. @vitejs/plugin-react → @vitejs/plugin-react-swc  (-80 Babel packages)
+        //      SWC is a native Rust compiler; its npm footprint is ~5 packages vs ~85.
         const clientPkgPath = path.join(buildCwd, 'package.json')
         if (fs.existsSync(clientPkgPath)) {
           const cpkg = JSON.parse(fs.readFileSync(clientPkgPath, 'utf-8'))
+          let pkgPatched = false
+
+          // 1. externalize recharts
           if (cpkg.dependencies?.recharts || cpkg.devDependencies?.recharts) {
             delete cpkg.dependencies?.recharts
             delete cpkg.devDependencies?.recharts
+            pkgPatched = true
+          }
+
+          // 2. swap @vitejs/plugin-react → @vitejs/plugin-react-swc
+          if (cpkg.dependencies?.['@vitejs/plugin-react'] || cpkg.devDependencies?.['@vitejs/plugin-react']) {
+            const bucket = cpkg.dependencies?.['@vitejs/plugin-react'] ? 'dependencies' : 'devDependencies'
+            delete cpkg[bucket]['@vitejs/plugin-react']
+            cpkg[bucket]['@vitejs/plugin-react-swc'] = '^3.7.2'
+            pkgPatched = true
+          }
+
+          if (pkgPatched) {
             fs.writeFileSync(clientPkgPath, JSON.stringify(cpkg, null, 2) + '\n', 'utf-8')
+          }
 
-            // Patch vite.config.js/.ts to externalize recharts
-            for (const cfgName of ['vite.config.js', 'vite.config.ts']) {
-              const cfgPath = path.join(buildCwd, cfgName)
-              if (fs.existsSync(cfgPath)) {
-                let cfg = fs.readFileSync(cfgPath, 'utf-8')
-                if (!cfg.includes("external: ['recharts']") && !cfg.includes('external: ["recharts"]')) {
-                  // Inject before the closing }) of defineConfig
-                  cfg = cfg.replace(
-                    /(\})\s*\)\s*$/,
-                    `  build: {\n    rollupOptions: {\n      external: ['recharts'],\n      output: { globals: { recharts: 'Recharts' } },\n    },\n  },\n$1)\n`,
-                  )
-                  fs.writeFileSync(cfgPath, cfg, 'utf-8')
-                }
-                break
+          // Patch vite.config.js/.ts — externalize recharts + swap plugin import
+          for (const cfgName of ['vite.config.js', 'vite.config.ts']) {
+            const cfgPath = path.join(buildCwd, cfgName)
+            if (fs.existsSync(cfgPath)) {
+              let cfg = fs.readFileSync(cfgPath, 'utf-8')
+              let cfgPatched = false
+
+              // swap plugin-react → plugin-react-swc
+              if (cfg.includes('@vitejs/plugin-react') && !cfg.includes('plugin-react-swc')) {
+                cfg = cfg.replace(/@vitejs\/plugin-react'/g, "@vitejs/plugin-react-swc'")
+                         .replace(/@vitejs\/plugin-react"/g, '@vitejs/plugin-react-swc"')
+                cfgPatched = true
               }
-            }
 
-            // Patch index.html to load recharts from CDN
-            const htmlPath = path.join(buildCwd, 'index.html')
-            if (fs.existsSync(htmlPath)) {
-              let html = fs.readFileSync(htmlPath, 'utf-8')
-              const cdnTag = '<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.umd.min.js" crossorigin="anonymous"></script>'
-              if (!html.includes('Recharts.umd')) {
-                html = html.replace('</head>', `  ${cdnTag}\n  </head>`)
-                fs.writeFileSync(htmlPath, html, 'utf-8')
+              // add recharts external if not already present
+              if (!cfg.includes("external: ['recharts']") && !cfg.includes('external: ["recharts"]')) {
+                cfg = cfg.replace(
+                  /(\})\s*\)\s*$/,
+                  `  build: {\n    rollupOptions: {\n      external: ['recharts'],\n      output: { globals: { recharts: 'Recharts' } },\n    },\n  },\n$1)\n`,
+                )
+                cfgPatched = true
               }
-            }
 
-            await updateTask(task, {}, '📦 Externalized recharts → CDN (removes 300+ transitive deps from npm install)…')
+              if (cfgPatched) fs.writeFileSync(cfgPath, cfg, 'utf-8')
+              break
+            }
+          }
+
+          // Patch index.html to load recharts from CDN
+          const htmlPath = path.join(buildCwd, 'index.html')
+          if (fs.existsSync(htmlPath)) {
+            let html = fs.readFileSync(htmlPath, 'utf-8')
+            const cdnTag = '<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.umd.min.js" crossorigin="anonymous"></script>'
+            if (!html.includes('Recharts.umd')) {
+              html = html.replace('</head>', `  ${cdnTag}\n  </head>`)
+              fs.writeFileSync(htmlPath, html, 'utf-8')
+            }
+          }
+
+          if (pkgPatched) {
+            await updateTask(task, {}, '📦 Slimmed deps: recharts→CDN, plugin-react→swc (~380 fewer packages)…')
           }
         }
 
@@ -4164,16 +4194,16 @@ function mernScaffoldConfigs(siteName: string, plan: MernPlan): ParsedChange[] {
     // the server serves no assets (CSS as text/plain, JS 404). Keeping them here
     // guarantees the client builds regardless of the install mode.
     dependencies: {
-      // recharts is NOT installed via npm — it's loaded via CDN in index.html and
-      // externalized in vite.config.js. This removes ~300 transitive d3/lodash packages
-      // from the npm install, cutting peak RSS well under Render's 512MB free-tier limit.
+      // recharts → CDN (removes ~300 d3/lodash transitive packages)
+      // @vitejs/plugin-react-swc (SWC-based) vs @vitejs/plugin-react (Babel-based):
+      //   saves ~80 Babel packages, cutting npm install from ~180 to ~30 packages total.
       axios: '^1.7.2', react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1',
-      vite: '^5.4.0', '@vitejs/plugin-react': '^4.3.1',
+      vite: '^5.4.0', '@vitejs/plugin-react-swc': '^3.7.2',
     },
   }
   const viteConfig = [
     "import { defineConfig } from 'vite'",
-    "import react from '@vitejs/plugin-react'",
+    "import react from '@vitejs/plugin-react-swc'",
     '',
     'export default defineConfig({',
     '  plugins: [react()],',
