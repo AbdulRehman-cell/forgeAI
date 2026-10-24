@@ -993,6 +993,13 @@ async function blitzDeploy(job: Job) {
       const existingSlug = repo?.deployState?.['self-hosted']?.slug as string | undefined
       const deploySlug = existingSlug ?? makeSlug(repoName ?? 'site')
 
+      // Persist slug immediately so retry deploys reuse the same workspace path
+      // (and therefore the same node_modules, skipping the npm install entirely).
+      if (!existingSlug && repo) {
+        repo.deployState = { ...(repo.deployState ?? {}), 'self-hosted': { slug: deploySlug, url: '' } }
+        await repo.save()
+      }
+
       // Detect backend layout — covers split MERN (client/+server/) AND monolith
       // (single package.json with express dep + both build & start scripts).
       const hasSplitMern =
