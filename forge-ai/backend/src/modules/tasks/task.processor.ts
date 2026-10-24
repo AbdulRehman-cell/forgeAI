@@ -1101,7 +1101,7 @@ async function blitzDeploy(job: Job) {
           const backendNeedsInstall = !fs.existsSync(backendNmDir) || fs.readdirSync(backendNmDir).length === 0
           if (backendNeedsInstall) {
             await updateTask(task, { progress: 13 }, '🔧 Installing backend dependencies…')
-            await execAsync('npm install --legacy-peer-deps --no-audit --no-fund --no-package-lock --maxsockets=2', {
+            await execAsync('npm install --legacy-peer-deps --no-audit --no-fund --no-package-lock --ignore-scripts --maxsockets=2 --prefer-offline', {
               cwd: backendRunDir, timeout: 600_000,
               env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
             })
@@ -1230,7 +1230,7 @@ async function blitzDeploy(job: Job) {
           // --ignore-scripts: skip lifecycle hooks (the largest single memory spike); Vite 6+
           //   ships esbuild as an optional dep so no postinstall binary download is needed
           // --maxsockets=2 + 192MB heap: sequential downloads + aggressive GC keep RSS low
-          await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --no-package-lock --ignore-scripts --maxsockets=2', {
+          await execAsync('npm install --legacy-peer-deps --include=dev --no-audit --no-fund --no-package-lock --ignore-scripts --maxsockets=2 --prefer-offline', {
             cwd: buildCwd, timeout: 600_000,
             env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
           })

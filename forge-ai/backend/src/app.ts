@@ -193,9 +193,53 @@ export async function restoreWorkspace(repositoryId: string, backendDir: string)
   }
 }
 
+/** Pre-populate /tmp/.npm-cache with the packages every ForgeAI site uses.
+ *  Must run while no backends are running (low baseline RSS ~150 MB).
+ *  Deploy-time npm install then uses --prefer-offline so it reads from cache
+ *  instead of the network — peak RSS drops from ~300 MB to ~50 MB.
+ */
+async function warmNpmCache(): Promise<void> {
+  const tmpDir = '/tmp/forge-npm-warmup'
+  try {
+    if (fs.existsSync(path.join('/tmp/.npm-cache', '_locks'))) {
+      console.log('[warmup] npm cache already populated, skipping')
+      return
+    }
+    fs.mkdirSync(tmpDir, { recursive: true })
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({
+      name: 'forge-warmup', version: '1.0.0',
+      dependencies: {
+        axios: '^1.7.2',
+        react: '^18.3.1',
+        'react-dom': '^18.3.1',
+        'react-router-dom': '^6.23.1',
+        vite: '^5.4.0',
+        '@vitejs/plugin-react-swc': '^3.7.2',
+      },
+    }))
+    console.log('[warmup] Pre-warming npm cache for template packages…')
+    await execFileAsync('npm', [
+      'install', '--legacy-peer-deps', '--no-audit', '--no-fund',
+      '--no-package-lock', '--ignore-scripts', '--maxsockets=1',
+    ], {
+      cwd: tmpDir, timeout: 600_000,
+      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+    })
+    console.log('[warmup] npm cache warm — future deploys will use --prefer-offline')
+  } catch (e: any) {
+    console.warn('[warmup] npm cache warmup failed (non-fatal):', e.message)
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+  }
+}
+
 async function restoreBackendsOnce() {
   if (backendsRestored) return
   backendsRestored = true
+
+  // Warm the npm cache FIRST while no backends are running (most free memory).
+  await warmNpmCache()
+
   try {
     // Mark any tasks that were left in 'running' state when the server last died.
     // These will never progress on their own — reset them so users can retry.
