@@ -44,7 +44,7 @@ export function setupWorkers() {
   // don't sit at "running" forever in the UI.
   import('../modules/tasks/task.model').then(({ Task }) =>
     Task.updateMany(
-      { status: { $in: ['pending', 'running'] } },
+      { status: 'running' },
       { $set: { status: 'failed', error: 'Interrupted by a server restart — please run the task again' } },
     ).then((r) => {
       if (r.modifiedCount) console.log(`[queue] Marked ${r.modifiedCount} interrupted task(s) as failed`)
