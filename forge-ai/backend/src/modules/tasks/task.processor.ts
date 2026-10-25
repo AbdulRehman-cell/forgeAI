@@ -115,7 +115,10 @@ async function safeChat(
   } catch (err: any) {
     controller.abort()
     const msg = providerErrorMessage(err)
-    console.warn('[builder] AI call failed —', msg, '| raw:', String(err?.message ?? err).slice(0, 300))
+    const raw = String(err?.message ?? err).slice(0, 300)
+    console.warn('[builder] AI call failed —', msg, '| raw:', raw)
+    // Attach error string so gen() can surface it in the task log
+    ;(safeChat as any)._lastError = `${msg} | ${raw}`
     return null
   }
 }
@@ -5713,7 +5716,9 @@ export async function generateSupabaseSite(
         const wrapped = `${instruction}${nudge}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag — no markdown fences around it.`
         const res = await safeChat(p, wrapped, SUPABASE_SYSTEM, 120_000)
         if (!res) {
-          console.warn(`[gen] null response for ${expectPath} provider=${p?.constructor?.name ?? typeof p} attempt=${attempt}`)
+          const lastErr = (safeChat as any)._lastError ?? 'no error info'
+          console.warn(`[gen] null response for ${expectPath} provider=${p?.constructor?.name ?? typeof p} attempt=${attempt} error=${lastErr}`)
+          if (attempt === 0) await log(`⚠️ AI error on ${expectPath.split('/').pop()} (attempt ${attempt+1}): ${lastErr.slice(0, 120)}`)
           await sleep(attempt === 0 ? 5000 : 10000)
           continue
         }
