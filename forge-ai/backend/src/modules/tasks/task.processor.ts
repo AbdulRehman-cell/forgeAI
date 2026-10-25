@@ -59,11 +59,14 @@ async function chatWithContinuation(
   provider: AIProvider,
   messages: AIMessage[],
   systemPrompt?: string,
+  signal?: AbortSignal,
 ): Promise<AIResponse> {
   const res = await provider.chat(messages, systemPrompt)
   let content = res.content
   for (let round = 0; looksTruncated(content) && round < 4; round++) {
+    if (signal?.aborted) break
     await sleep(1500)
+    if (signal?.aborted) break
     const cont = await provider.chat(
       [...messages, { role: 'assistant', content }, { role: 'user', content: CONTINUE_PROMPT }],
       systemPrompt,
@@ -97,15 +100,20 @@ async function safeChat(
   systemPrompt: string,
   timeoutMs = 120_000,
 ): Promise<AIResponse | null> {
+  const controller = new AbortController()
   try {
     const timeout = new Promise<never>((_, rej) =>
-      setTimeout(() => rej(new Error(`AI call timed out after ${timeoutMs / 1000}s`)), timeoutMs),
+      setTimeout(() => {
+        controller.abort()
+        rej(new Error(`AI call timed out after ${timeoutMs / 1000}s`))
+      }, timeoutMs),
     )
     return await Promise.race([
-      chatWithContinuation(provider, [{ role: 'user', content: instruction }], systemPrompt),
+      chatWithContinuation(provider, [{ role: 'user', content: instruction }], systemPrompt, controller.signal),
       timeout,
     ])
   } catch (err: any) {
+    controller.abort()
     console.warn('[builder] AI call failed —', providerErrorMessage(err))
     return null
   }
@@ -3641,7 +3649,7 @@ SITE SUMMARY: one sentence describing the site`,
   // a long input: the hybrid provider routes it to Gemini automatically.
   const allPagesHtml = () => generated
     .filter((f) => f.path.endsWith('.html'))
-    .map((f) => `### ${f.path}\n\`\`\`html\n${f.content.slice(0, 6000)}\n\`\`\``)
+    .map((f) => `### ${f.path}\n\`\`\`html\n${f.content.slice(0, 1500)}\n\`\`\``)
     .join('\n\n')
 
   // 3. styles.css — written AFTER every page exists, covering all of them.
