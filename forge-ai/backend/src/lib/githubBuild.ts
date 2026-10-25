@@ -130,7 +130,17 @@ export async function buildWithGitHubActions(params: {
   let lastRunId: number | null = null
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    // 2. Commit ALL changes (patches + workflow) with a unique token so each attempt triggers a new run
+    // 2. Sync with remote first (remote may be ahead if files were pushed via API)
+    try {
+      await execAsync('git fetch origin', { cwd: localPath, timeout: 30_000, env: gitEnv })
+      await execAsync('git rebase origin/HEAD', { cwd: localPath, timeout: 30_000, env: gitEnv })
+    } catch {
+      // If rebase fails (e.g. conflicts), abort and force-align local to remote
+      try { await execAsync('git rebase --abort', { cwd: localPath, timeout: 10_000, env: gitEnv }) } catch { }
+      await execAsync('git reset --hard origin/HEAD', { cwd: localPath, timeout: 30_000, env: gitEnv })
+    }
+
+    // Commit ALL changes (patches + workflow) with a unique token so each attempt triggers a new run
     const triggerToken = Date.now().toString(36)
     fs.writeFileSync(workflowPath, workflowYaml(varNames, triggerToken), 'utf-8')
 
