@@ -5692,12 +5692,25 @@ export async function generateSupabaseSite(
   log: (message: string, progress?: number) => Promise<unknown>,
 ): Promise<{ files: ParsedChange[]; sqlSchema: string; summary: string }> {
   const files: ParsedChange[] = []
-  const enhancer = createEnhancer()
+
+  // Provider order: Gemini generates pages (fast, free), Claude polishes styling.
+  // Falls back gracefully when either key is absent.
+  let genProvider: AIProvider = provider
+  let genEnhancer: AIProvider | null = createEnhancer()
+  try {
+    const gk = process.env.GEMINI_API_KEY
+    if (gk && !gk.includes('...')) genProvider = createProvider('gemini')
+  } catch { /* keep passed provider */ }
+  try {
+    const ak = process.env.ANTHROPIC_API_KEY
+    if (ak && !ak.includes('...')) genEnhancer = createProvider('claude')
+  } catch { /* no claude enhancer */ }
+
   const pack = selectPack(designBrief)
   const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n`
 
   await log('🧠 Planning Supabase schema + pages…', 10)
-  const plan = await planSupabaseSite(provider, prompt, siteName, enhancer ?? null)
+  const plan = await planSupabaseSite(genProvider, prompt, siteName, genEnhancer)
   await log(`📐 Tables: ${plan.tables.map(t => t.name).join(', ')} | Pages: ${plan.pages.map(p => p.file).join(', ')}`)
 
   const schemaRef = plan.tables.map(t =>
@@ -5709,8 +5722,8 @@ export async function generateSupabaseSite(
   const gen = async (instruction: string, expectPath: string): Promise<boolean> => {
     const isJsx = expectPath.endsWith('.jsx')
     let nudge = ''
-    for (const p of [provider, ...(enhancer ? [enhancer] : [])]) {
-      const maxAttempts = p === provider ? 3 : 2
+    for (const p of [genProvider, ...(genEnhancer ? [genEnhancer] : [])]) {
+      const maxAttempts = p === genProvider ? 3 : 2
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         // Explicit wrapper reminder so the model uses <file> tags, not markdown fences
         const wrapped = `${instruction}${nudge}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag — no markdown fences around it.`
