@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nodemon --exec \"node --max-old-space-size=8192 -r ts-node/register src/index.ts\"",
     "build": "npx tsc",
-    "start": "node --max-old-space-size=8192 -r ts-node/register src/index.ts"
+    "start": "node --max-old-space-size=400 -r ts-node/register src/index.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1153.0",
