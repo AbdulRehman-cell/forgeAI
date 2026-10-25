@@ -6,7 +6,7 @@ services:
     region: oregon
     branch: main
     buildCommand: "cd forge-ai && npm install && npm run build && npm install --prefix site-template --legacy-peer-deps --no-audit --no-fund --no-package-lock"
-    startCommand: "node --max-old-space-size=150 forge-ai/backend/dist/index.js"
+    startCommand: "node --max-old-space-size=120 forge-ai/backend/dist/index.js"
     healthCheckPath: /health
     autoDeploy: true
     envVars:

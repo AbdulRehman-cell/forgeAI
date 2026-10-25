@@ -1248,17 +1248,19 @@ async function blitzDeploy(job: Job) {
         let lastBuildError = ''
         let buildSucceeded = false
 
-        // Prefer local bin so node_modules/.bin/vite is found even when PATH doesn't include it
+        // Prefer local bin so node_modules/.bin/vite is found even when PATH doesn't include it.
+        // --minify=false skips the esbuild minification pass which is the biggest memory spike
+        // (~60-80 MB extra RSS). Slightly larger output but safe on Render's 512 MB free tier.
         const buildCmd = fs.existsSync(path.join(buildCwd, 'node_modules', '.bin', 'vite'))
-          ? './node_modules/.bin/vite build'
+          ? './node_modules/.bin/vite build --minify=false'
           : 'npm run build'
 
         for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
           try {
             await execAsync(buildCmd, {
               cwd: buildCwd, timeout: 180_000,
-              // 512 MB Render free container: server ~220 MB RSS + vite child.
-              // Cap vite V8 heap at 80 MB so combined stays well under 512 MB.
+              // 512 MB Render free container: server ~200 MB RSS + vite child ~100 MB.
+              // NODE_OPTIONS caps the vite subprocess V8 heap.
               env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=80' },
             })
             buildSucceeded = true
