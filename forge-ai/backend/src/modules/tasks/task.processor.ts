@@ -95,9 +95,16 @@ async function safeChat(
   provider: AIProvider,
   instruction: string,
   systemPrompt: string,
+  timeoutMs = 120_000,
 ): Promise<AIResponse | null> {
   try {
-    return await chatWithContinuation(provider, [{ role: 'user', content: instruction }], systemPrompt)
+    const timeout = new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error(`AI call timed out after ${timeoutMs / 1000}s`)), timeoutMs),
+    )
+    return await Promise.race([
+      chatWithContinuation(provider, [{ role: 'user', content: instruction }], systemPrompt),
+      timeout,
+    ])
   } catch (err: any) {
     console.warn('[builder] AI call failed —', providerErrorMessage(err))
     return null
