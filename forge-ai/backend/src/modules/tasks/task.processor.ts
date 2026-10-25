@@ -5541,7 +5541,7 @@ Return JSON:
 Rules:
 - Always include id (uuid DEFAULT gen_random_uuid() PRIMARY KEY) and created_at (timestamptz DEFAULT now()) on every table
 - Enable RLS: ALTER TABLE t ENABLE ROW LEVEL SECURITY; then CREATE POLICY for each access pattern
-- 3-5 pages, max 4 tables
+- EXACTLY 3 pages, max 3 tables (keep it lean for fast builds)
 - hasAuth only true if login is genuinely needed`
 
   for (const p of [provider, ...(enhancer ? [enhancer] : [])]) {
@@ -5550,7 +5550,11 @@ Rules:
       if (!res) continue
       const raw = res.content.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim()
       const plan: SupabasePlan = JSON.parse(raw)
-      if (plan.tables?.length && plan.pages?.length && plan.sqlSchema) return plan
+      if (plan.tables?.length && plan.pages?.length && plan.sqlSchema) {
+        plan.pages = plan.pages.slice(0, 3)
+        plan.tables = plan.tables.slice(0, 3)
+        return plan
+      }
     } catch {}
   }
 
@@ -5706,7 +5710,7 @@ export async function generateSupabaseSite(
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         // Explicit wrapper reminder so the model uses <file> tags, not markdown fences
         const wrapped = `${instruction}${nudge}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag — no markdown fences around it.`
-        const res = await safeChat(p, wrapped, SUPABASE_SYSTEM)
+        const res = await safeChat(p, wrapped, SUPABASE_SYSTEM, 90_000)
         if (!res) { await sleep(attempt === 0 ? 2000 : 4000); continue }
         const parsed = parseAIChanges(res.content)
         const file = parsed.find(f => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase()) ?? parsed[0]
@@ -5736,11 +5740,12 @@ export async function generateSupabaseSite(
   let pct = 18
   for (const page of plan.pages) {
     await log(`🎨 Generating ${page.file}…`, (pct += Math.floor(42 / plan.pages.length)))
-    await sleep(1200)
+    await sleep(2000)
     await gen(
       `${briefBlock}${contract}\n\nGenerate src/pages/${page.file} — ${page.description}.\nTables available: ${plan.tables.map(t => t.name).join(', ')}.\nRich UI: loading skeleton, empty-state, error message, responsive layout.`,
       `src/pages/${page.file}`,
     )
+    await sleep(1000)
   }
 
   // ── App.jsx ──
