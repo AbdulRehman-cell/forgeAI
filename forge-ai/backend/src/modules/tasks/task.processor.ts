@@ -1257,10 +1257,9 @@ async function blitzDeploy(job: Job) {
           try {
             await execAsync(buildCmd, {
               cwd: buildCwd, timeout: 180_000,
-              // 512 MB Render container: ForgeAI ~150 MB + vite subprocess.
-              // Lowering vite's V8 heap to 128 MB + --optimize-for-size keeps
-              // vite RSS ~200 MB, leaving ~160 MB headroom for the container.
-              env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=128' },
+              // 512 MB Render free container: server ~220 MB RSS + vite child.
+              // Cap vite V8 heap at 80 MB so combined stays well under 512 MB.
+              env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=80' },
             })
             buildSucceeded = true
             break
