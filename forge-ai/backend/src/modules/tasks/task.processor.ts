@@ -3288,19 +3288,21 @@ async function appendMissingStyles(
   await onMissing?.(initialMissing.length)
 
   // Output caps fit ~60 classes per reply — loop in batches, recomputing
-  // what's still missing after each append, until covered (max 6 rounds).
-  for (let round = 0; round < 6; round++) {
+  // what's still missing after each append, until covered (max 2 rounds to
+  // avoid OOM on Render 512 MB free tier from accumulating large AI buffers).
+  for (let round = 0; round < 2; round++) {
     const missing = findUnstyledClasses(files, cssPath, markupExts)
     if (!missing.length) break
     const batch = missing.slice(0, 60)
     const batchSet = new Set(batch)
 
-    // Only send markup files that actually use classes from this batch
+    // Only send markup files that actually use classes from this batch.
+    // Snippets are capped at 2000 chars to keep prompt size small.
     const markup = files
       .filter((f) => markupExts.some((e) => f.path.endsWith(e)))
       .filter((f) => [...f.content.matchAll(/class(?:Name)?="([^"]+)"/g)]
         .some((m) => m[1].split(/\s+/).some((c) => batchSet.has(c))))
-      .map((f) => `### ${f.path}\n\`\`\`\n${f.content.slice(0, 4000)}\n\`\`\``)
+      .map((f) => `### ${f.path}\n\`\`\`\n${f.content.slice(0, 2000)}\n\`\`\``)
       .join('\n\n')
     const rootBlock = cssEntry.content.match(/:root\s*{[^}]*}/)?.[0] ?? ''
 
@@ -3497,6 +3499,9 @@ async function generateStaticSite(
    *  Claude is shown "here's what you must beat by 100%" — so the new design
    *  cannot regress on visual specificity vs the site it replaces. */
   originalCss?: string,
+  /** If set, write each generated file to this directory as a checkpoint so
+   *  a server restart during appendMissingStyles does not lose all work. */
+  checkpointDir?: string,
 ): Promise<{ files: ParsedChange[]; summary?: string } | null> {
   const generated: ParsedChange[] = []
   // The design brief is identical for every file in this build, so it rides in
@@ -3672,6 +3677,19 @@ SITE SUMMARY: one sentence describing the site`,
   }
 
   sanitizeCss(generated, 'styles.css')
+
+  // Checkpoint: write core files to disk before the CSS extension pass so a
+  // server restart during appendMissingStyles does not lose the whole build.
+  if (checkpointDir) {
+    for (const file of generated) {
+      const abs = path.join(checkpointDir, file.path)
+      if (path.resolve(abs).startsWith(path.resolve(checkpointDir))) {
+        fs.mkdirSync(path.dirname(abs), { recursive: true })
+        fs.writeFileSync(abs, file.content, 'utf-8')
+      }
+    }
+  }
+
   // Follow-up styling pass rides the same stylist as styles.css itself, so a
   // rebuild's whole CSS lineage stays on Claude when it's available.
   await appendMissingStyles(stylist ?? provider, generated, 'styles.css', ['.html'], BUILDER_SYSTEM_PROMPT,
@@ -6791,6 +6809,7 @@ async function buildSite(job: Job) {
           : undefined,
         stylist,
         sourceProfile?.originalCss,
+        sitePath,
       )
       if (!result) {
         return await fail('The AI did not produce an index.html — please try again (rephrase the description slightly).')
