@@ -6775,6 +6775,8 @@ async function buildSite(job: Job) {
         await task.save()
       }
     } else if (stack === 'supabase') {
+      const supaToken = process.env.SUPABASE_ACCESS_TOKEN
+      console.log('[SUPA_DEBUG] token present:', !!supaToken, '| len:', supaToken?.length ?? 0, '| keys:', Object.keys(process.env).filter(k => k.startsWith('SUPA')))
       const { isSupabaseConfigured } = await import('../../lib/supabaseProvisioner')
       if (!isSupabaseConfigured()) {
         return await fail('Supabase mode requires SUPABASE_ACCESS_TOKEN in .env — add your Supabase personal access token (supabase.com → Account → Access Tokens).')
