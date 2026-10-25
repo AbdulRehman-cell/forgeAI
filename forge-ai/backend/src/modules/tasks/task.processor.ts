@@ -1271,6 +1271,45 @@ async function blitzDeploy(job: Job) {
             githubToken: ghToken!,
             buildEnvVars: builderEnvForBuild,
             onProgress: async (msg) => { await updateTask(task, {}, msg) },
+            maxAttempts: 3,
+            onBuildError: async (jobLog, fixCwd) => {
+              // Use AI to fix source files from the build error log
+              const errorFilePaths = extractErrorFilePaths(jobLog, fixCwd)
+              const fileContext = errorFilePaths.map(p => {
+                try {
+                  const content = fs.readFileSync(p, 'utf-8').slice(0, 4000)
+                  return `<file path="${path.relative(fixCwd, p)}">\n${content}\n</file>`
+                } catch { return '' }
+              }).filter(Boolean).join('\n\n')
+
+              const fixProvider = createProvider(resolveProvider(aiProvider))
+              try {
+                const fixResult = await fixProvider.chat([{ role: 'user', content: `You are fixing a JavaScript/React build error on GitHub Actions. Return ONLY the corrected files using <file path="relative/path"> tags. No explanations, no markdown fences around the file tags.
+
+BUILD ERROR LOG:
+${jobLog.slice(-2000)}
+
+CURRENT FILES:
+${fileContext || '(no files extracted — create or fix based on the error message)'}
+
+INSTRUCTIONS:
+- If a file is imported but doesn't exist, CREATE it with the appropriate content.
+- If an import path is wrong, fix the import path.
+- Return COMPLETE corrected file content for every file you change or create.
+- Format: <file path="src/components/ui.jsx">...complete content...</file>` }])
+
+                const fixes = parseAIChanges(fixResult.content)
+                for (const fix of fixes) {
+                  const absPath = path.join(fixCwd, fix.path)
+                  fs.mkdirSync(path.dirname(absPath), { recursive: true })
+                  fs.writeFileSync(absPath, fix.content, 'utf-8')
+                }
+                await updateTask(task, {}, `🔧 AI applied ${fixes.length} fix(es) — retrying build on GitHub Actions…`)
+                return fixes.length > 0
+              } catch {
+                return false
+              }
+            },
           })
         } else {
           // ── Local Vite build (fallback) ─────────────────────────────────────────
