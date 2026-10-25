@@ -1031,10 +1031,16 @@ async function blitzDeploy(job: Job) {
         ? localPath
         : serverDir
 
-      // Always rebuild on self-hosted deploy — ensures HashRouter patch, correct
-      // VITE_API_URL, and fresh assets are baked in. Skipping the build would
-      // serve a stale dist with BrowserRouter (routes break on R2) or wrong API URL.
-      const needsBuild = true
+      // Build is needed for React/Vite projects (package.json + build script).
+      // Plain static sites (just index.html at root, no package.json) skip the
+      // build step — selfHostedDeploy's findDeployRoot() picks up the HTML directly.
+      const buildCwdCheck = hasSplitMern
+        ? (fs.existsSync(path.join(localPath, 'client')) ? path.join(localPath, 'client') : path.join(localPath, 'frontend'))
+        : localPath
+      const pkgCheck = fs.existsSync(path.join(buildCwdCheck, 'package.json'))
+        ? (() => { try { return JSON.parse(fs.readFileSync(path.join(buildCwdCheck, 'package.json'), 'utf-8')) } catch { return {} } })()
+        : {}
+      const needsBuild = !!(pkgCheck.scripts?.build)
 
       // When GitHub Actions build succeeds this holds the extracted dist parent dir.
       // selfHostedDeploy will use this as localPath so findDeployRoot finds dist/index.html.
