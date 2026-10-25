@@ -5686,7 +5686,7 @@ export async function generateSupabaseSite(
   const files: ParsedChange[] = []
   const enhancer = createEnhancer()
   const pack = selectPack(designBrief)
-  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n${getReactPackPromptNote()}\n\n`
+  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n`
 
   await log('🧠 Planning Supabase schema + pages…', 10)
   const plan = await planSupabaseSite(provider, prompt, siteName, enhancer ?? null)
@@ -5704,7 +5704,9 @@ export async function generateSupabaseSite(
     for (const p of [provider, ...(enhancer ? [enhancer] : [])]) {
       const maxAttempts = p === provider ? 3 : 2
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const res = await safeChat(p, instruction + nudge, SUPABASE_SYSTEM)
+        // Explicit wrapper reminder so the model uses <file> tags, not markdown fences
+        const wrapped = `${instruction}${nudge}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag — no markdown fences around it.`
+        const res = await safeChat(p, wrapped, SUPABASE_SYSTEM)
         if (!res) { await sleep(attempt === 0 ? 2000 : 4000); continue }
         const parsed = parseAIChanges(res.content)
         const file = parsed.find(f => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase()) ?? parsed[0]
