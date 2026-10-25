@@ -114,7 +114,8 @@ async function safeChat(
     ])
   } catch (err: any) {
     controller.abort()
-    console.warn('[builder] AI call failed —', providerErrorMessage(err))
+    const msg = providerErrorMessage(err)
+    console.warn('[builder] AI call failed —', msg, '| raw:', String(err?.message ?? err).slice(0, 300))
     return null
   }
 }
@@ -5710,22 +5711,27 @@ export async function generateSupabaseSite(
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         // Explicit wrapper reminder so the model uses <file> tags, not markdown fences
         const wrapped = `${instruction}${nudge}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag — no markdown fences around it.`
-        const res = await safeChat(p, wrapped, SUPABASE_SYSTEM, 90_000)
-        if (!res) { await sleep(attempt === 0 ? 2000 : 4000); continue }
+        const res = await safeChat(p, wrapped, SUPABASE_SYSTEM, 120_000)
+        if (!res) {
+          console.warn(`[gen] null response for ${expectPath} provider=${p?.constructor?.name ?? typeof p} attempt=${attempt}`)
+          await sleep(attempt === 0 ? 5000 : 10000)
+          continue
+        }
         const parsed = parseAIChanges(res.content)
         const file = parsed.find(f => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase()) ?? parsed[0]
         if (file?.content?.trim()) {
           if (isJsx && attempt === 0 && looksTailwind(file.content)) {
             nudge = '\n\nNO TAILWIND — use semantic className strings only. Rewrite with descriptive class names the stylesheet can target.'
             await log(`🎨 ${expectPath.split('/').pop()} used Tailwind — regenerating with semantic classes`)
-            await sleep(1000)
+            await sleep(3000)
             continue
           }
           const content = isJsx ? sanitizeJsx(file.content) : file.content
           files.push({ path: expectPath, content })
           return true
         }
-        await sleep(1500)
+        console.warn(`[gen] no valid file tag in response for ${expectPath} attempt=${attempt} content_len=${res.content?.length ?? 0} preview=${res.content?.slice(0,200)}`)
+        await sleep(3000)
       }
     }
     await log(`⚠️ Could not generate ${expectPath}`)
@@ -5740,12 +5746,12 @@ export async function generateSupabaseSite(
   let pct = 18
   for (const page of plan.pages) {
     await log(`🎨 Generating ${page.file}…`, (pct += Math.floor(42 / plan.pages.length)))
-    await sleep(2000)
+    await sleep(3000)
     await gen(
       `${briefBlock}${contract}\n\nGenerate src/pages/${page.file} — ${page.description}.\nTables available: ${plan.tables.map(t => t.name).join(', ')}.\nRich UI: loading skeleton, empty-state, error message, responsive layout.`,
       `src/pages/${page.file}`,
     )
-    await sleep(1000)
+    await sleep(5000)
   }
 
   // ── App.jsx ──
