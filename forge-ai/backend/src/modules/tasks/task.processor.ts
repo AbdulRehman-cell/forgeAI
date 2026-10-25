@@ -3690,10 +3690,12 @@ SITE SUMMARY: one sentence describing the site`,
     }
   }
 
-  // Follow-up styling pass rides the same stylist as styles.css itself, so a
-  // rebuild's whole CSS lineage stays on Claude when it's available.
-  await appendMissingStyles(stylist ?? provider, generated, 'styles.css', ['.html'], BUILDER_SYSTEM_PROMPT,
-    (n) => updateTask(task, { progress: 55 }, `🎨 ${n} class(es) missing styles — extending styles.css…`))
+  // Follow-up styling pass. Skipped on free-tier (SKIP_STYLE_EXTENSION=1)
+  // to avoid OOM on Render 512 MB during the AI CSS extension call.
+  if (!process.env.SKIP_STYLE_EXTENSION) {
+    await appendMissingStyles(stylist ?? provider, generated, 'styles.css', ['.html'], BUILDER_SYSTEM_PROMPT,
+      (n) => updateTask(task, { progress: 55 }, `🎨 ${n} class(es) missing styles — extending styles.css…`))
+  }
   sanitizeCss(generated, 'styles.css')
   fixBlurNavBackground(generated, 'styles.css')
 
