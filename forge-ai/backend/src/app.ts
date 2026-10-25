@@ -207,20 +207,54 @@ export async function restoreWorkspace(repositoryId: string, backendDir: string)
  *  would be /tmp/forge-shared-nm/vite/ and the walk would look for
  *    /tmp/forge-shared-nm/node_modules/esbuild      ← not found ✗
  *  because there is no nested node_modules/ inside the flat directory.
+ *
+ *  On Render, the Render build step runs `cd forge-ai && npm install` which
+ *  hoists all workspace deps (vite, react, etc.) into forge-ai/node_modules/.
+ *  We point SHARED_NM there so no warmup install is needed — the deps are
+ *  already present in the deployed image and survive container restarts.
  */
-const SHARED_PARENT = '/tmp/forge-shared-parent'
-const SHARED_NM = path.join(SHARED_PARENT, 'node_modules')
-const SHARED_NM_READY = '/tmp/forge-shared-parent.ready'
+
+// forge-ai/node_modules/ is always at process.cwd()/forge-ai/node_modules/ on
+// Render (build command: cd forge-ai && npm install runs from repo root).
+// On local dev it may differ; fall back to /tmp if the workspace dir is missing.
+function resolveSharedNm(): { SHARED_NM: string; SHARED_NM_READY: string } {
+  const candidates = [
+    // Primary: site-template/ is installed at Render build time — always available after deploy
+    path.join(process.cwd(), 'forge-ai', 'site-template', 'node_modules'),
+    // Local dev: cwd=forge-ai/backend → ../../site-template/node_modules
+    path.join(process.cwd(), '..', '..', 'site-template', 'node_modules'),
+    // Secondary: workspace root (may lack @supabase/supabase-js on some installs)
+    path.join(process.cwd(), 'forge-ai', 'node_modules'),
+    path.join(process.cwd(), '..', '..', 'node_modules'),
+    path.join(process.cwd(), '..', 'node_modules'),
+  ]
+  for (const nm of candidates) {
+    if (fs.existsSync(path.join(nm, '.bin', 'vite'))) {
+      return { SHARED_NM: nm, SHARED_NM_READY: path.join(nm, '.bin', 'vite') }
+    }
+  }
+  // Fallback: use /tmp install (original behaviour) so local dev still works
+  return {
+    SHARED_NM: '/tmp/forge-shared-parent/node_modules',
+    SHARED_NM_READY: '/tmp/forge-shared-parent.ready',
+  }
+}
+
+const { SHARED_NM, SHARED_NM_READY } = resolveSharedNm()
 
 async function ensureSharedNodeModules(): Promise<void> {
-  if (fs.existsSync(SHARED_NM_READY) && fs.existsSync(path.join(SHARED_NM, '.bin', 'vite'))) {
-    console.log('[warmup] Shared node_modules already ready — skipping install')
+  // If vite binary already exists (Render workspace install or previous warmup), nothing to do.
+  const viteBin = path.join(SHARED_NM, '.bin', 'vite')
+  if (fs.existsSync(viteBin)) {
+    console.log(`[warmup] Shared node_modules ready at ${SHARED_NM} — skipping install`)
     return
   }
+  // Fallback: only reaches here on local dev or when the deployed node_modules is missing.
+  const sharedParent = path.dirname(SHARED_NM)
   try {
-    fs.rmSync(SHARED_PARENT, { recursive: true, force: true })
-    fs.mkdirSync(SHARED_PARENT, { recursive: true })
-    fs.writeFileSync(path.join(SHARED_PARENT, 'package.json'), JSON.stringify({
+    fs.rmSync(sharedParent, { recursive: true, force: true })
+    fs.mkdirSync(sharedParent, { recursive: true })
+    fs.writeFileSync(path.join(sharedParent, 'package.json'), JSON.stringify({
       name: 'forge-template', version: '1.0.0',
       dependencies: {
         axios: '^1.7.2',
@@ -234,22 +268,18 @@ async function ensureSharedNodeModules(): Promise<void> {
       },
     }))
     console.log('[warmup] Installing shared node_modules for ForgeAI site template…')
-    // Note: NOT using --ignore-scripts here — esbuild's postinstall is needed to set
-    // up its binary.  Peak RSS: ~150 MB (ForgeAI) + ~250 MB (npm) = ~400 MB, within 512 MB.
     await execFileAsync('npm', [
       'install', '--legacy-peer-deps', '--no-audit', '--no-fund',
       '--no-package-lock', '--maxsockets=1',
     ], {
-      cwd: SHARED_PARENT, timeout: 900_000,
-      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=192', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
+      cwd: sharedParent, timeout: 900_000,
+      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=96', NPM_CONFIG_CACHE: '/tmp/.npm-cache' },
     })
-    fs.writeFileSync(SHARED_NM_READY, 'ready')
     console.log('[warmup] Shared node_modules ready — deploys will symlink instead of npm install')
   } catch (e: any) {
     console.warn('[warmup] Shared node_modules setup failed (non-fatal):', e.message)
     console.warn('[warmup] Deploys will fall back to individual npm install')
-    try { fs.rmSync(SHARED_PARENT, { recursive: true, force: true }) } catch {}
-    try { fs.rmSync(SHARED_NM_READY, { force: true }) } catch {}
+    try { fs.rmSync(sharedParent, { recursive: true, force: true }) } catch {}
   }
 }
 
