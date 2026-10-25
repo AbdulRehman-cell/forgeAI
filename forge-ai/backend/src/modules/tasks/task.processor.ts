@@ -1036,6 +1036,10 @@ async function blitzDeploy(job: Job) {
       // serve a stale dist with BrowserRouter (routes break on R2) or wrong API URL.
       const needsBuild = true
 
+      // When GitHub Actions build succeeds this holds the extracted dist parent dir.
+      // selfHostedDeploy will use this as localPath so findDeployRoot finds dist/index.html.
+      let ghActionsTmpDir: string | null = null
+
       if (needsBuild) {
         // Detect where to run the frontend build:
         // split MERN → client/ or frontend/  |  monolith / plain SPA → root
@@ -1241,49 +1245,71 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 25 }, `✅ Frontend dependencies present — skipping install…`)
         }
 
-        await updateTask(task, { progress: 40 }, '🔨 Building site…')
+        // ── Build strategy: GitHub Actions (7 GB RAM) or local Vite fallback ────────
+        // Render free tier (512 MB) is too small to run server + Vite simultaneously.
+        // When the repo is on GitHub and GITHUB_TOKEN is available, offload the build
+        // to a free GitHub Actions runner (7 GB RAM). Otherwise fall back to local Vite.
+        const ghToken = process.env.GITHUB_TOKEN
+        const canUseGitHubActions = !hasMernLayout && !!repoFullName && /^[^/]+\/[^/]+$/.test(repoFullName ?? '') && !!ghToken
 
-        // Auto-fix build errors — up to 3 AI-powered attempts
-        const MAX_FIX_ATTEMPTS = 3
-        let lastBuildError = ''
-        let buildSucceeded = false
+        if (canUseGitHubActions) {
+          await updateTask(task, { progress: 40 }, '🚀 Building site on GitHub Actions (7 GB RAM — avoids 512 MB Render limit)…')
 
-        // Prefer local bin so node_modules/.bin/vite is found even when PATH doesn't include it.
-        // --minify=false skips the esbuild minification pass which is the biggest memory spike
-        // (~60-80 MB extra RSS). Slightly larger output but safe on Render's 512 MB free tier.
-        const buildCmd = fs.existsSync(path.join(buildCwd, 'node_modules', '.bin', 'vite'))
-          ? './node_modules/.bin/vite build --minify=false'
-          : 'npm run build'
+          const builderEnvForBuild: Record<string, string> = {}
+          if (repositoryId) {
+            const repoForEnv = await Repository.findById(repositoryId).select('+builderEnv')
+            const benv = repoForEnv?.builderEnv as Record<string, string> | undefined
+            if (benv?.VITE_SUPABASE_URL) builderEnvForBuild.VITE_SUPABASE_URL = benv.VITE_SUPABASE_URL
+            if (benv?.VITE_SUPABASE_ANON_KEY) builderEnvForBuild.VITE_SUPABASE_ANON_KEY = benv.VITE_SUPABASE_ANON_KEY ?? ''
+          }
+          if (viteApiUrl) builderEnvForBuild.VITE_API_URL = viteApiUrl
 
-        for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
-          try {
-            await execAsync(buildCmd, {
-              cwd: buildCwd, timeout: 180_000,
-              // 512 MB Render free container: server ~200 MB RSS + vite child ~100 MB.
-              // NODE_OPTIONS caps the vite subprocess V8 heap.
-              env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=80' },
-            })
-            buildSucceeded = true
-            break
-          } catch (buildErr: any) {
-            lastBuildError = buildErr.stderr || buildErr.stdout || buildErr.message || String(buildErr)
+          const { buildWithGitHubActions } = await import('../../lib/githubBuild')
+          ghActionsTmpDir = await buildWithGitHubActions({
+            localPath: buildCwd,
+            repoFullName: repoFullName!,
+            githubToken: ghToken!,
+            buildEnvVars: builderEnvForBuild,
+            onProgress: async (msg) => { await updateTask(task, {}, msg) },
+          })
+        } else {
+          // ── Local Vite build (fallback) ─────────────────────────────────────────
+          await updateTask(task, { progress: 40 }, '🔨 Building site…')
 
-            if (attempt === MAX_FIX_ATTEMPTS) break
+          const MAX_FIX_ATTEMPTS = 3
+          let lastBuildError = ''
+          let buildSucceeded = false
 
-            await updateTask(task, { progress: 40 + attempt * 8 },
-              `⚠️ Build failed (attempt ${attempt}/${MAX_FIX_ATTEMPTS}) — asking AI to fix…\n\`\`\`\n${lastBuildError.slice(0, 600)}\n\`\`\``)
+          const buildCmd = fs.existsSync(path.join(buildCwd, 'node_modules', '.bin', 'vite'))
+            ? './node_modules/.bin/vite build --minify=false'
+            : 'npm run build'
 
-            // Extract file paths mentioned in the error (Vite/Rollup/webpack/tsc patterns)
-            const errorFilePaths = extractErrorFilePaths(lastBuildError, buildCwd)
-            const fileContext = errorFilePaths.map(p => {
-              try {
-                const content = fs.readFileSync(p, 'utf-8').slice(0, 4000)
-                return `<file path="${path.relative(buildCwd, p)}">\n${content}\n</file>`
-              } catch { return '' }
-            }).filter(Boolean).join('\n\n')
+          for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
+            try {
+              await execAsync(buildCmd, {
+                cwd: buildCwd, timeout: 180_000,
+                env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=80' },
+              })
+              buildSucceeded = true
+              break
+            } catch (buildErr: any) {
+              lastBuildError = buildErr.stderr || buildErr.stdout || buildErr.message || String(buildErr)
 
-            const fixProvider = createProvider(resolveProvider(aiProvider))
-            const fixPrompt = `You are fixing a JavaScript/React build error. Return ONLY the corrected files using <file path="relative/path"> tags. No explanations, no markdown fences around the file tags.
+              if (attempt === MAX_FIX_ATTEMPTS) break
+
+              await updateTask(task, { progress: 40 + attempt * 8 },
+                `⚠️ Build failed (attempt ${attempt}/${MAX_FIX_ATTEMPTS}) — asking AI to fix…\n\`\`\`\n${lastBuildError.slice(0, 600)}\n\`\`\``)
+
+              const errorFilePaths = extractErrorFilePaths(lastBuildError, buildCwd)
+              const fileContext = errorFilePaths.map(p => {
+                try {
+                  const content = fs.readFileSync(p, 'utf-8').slice(0, 4000)
+                  return `<file path="${path.relative(buildCwd, p)}">\n${content}\n</file>`
+                } catch { return '' }
+              }).filter(Boolean).join('\n\n')
+
+              const fixProvider = createProvider(resolveProvider(aiProvider))
+              const fixPrompt = `You are fixing a JavaScript/React build error. Return ONLY the corrected files using <file path="relative/path"> tags. No explanations, no markdown fences around the file tags.
 
 BUILD ERROR:
 ${lastBuildError.slice(0, 2000)}
@@ -1299,24 +1325,25 @@ INSTRUCTIONS:
 ...complete file...
 </file>`
 
-            try {
-              const fixResult = await fixProvider.chat([{ role: 'user', content: fixPrompt }])
-              const fixes = parseAIChanges(fixResult.content)
-              for (const fix of fixes) {
-                const absPath = path.join(buildCwd, fix.path)
-                fs.mkdirSync(path.dirname(absPath), { recursive: true })
-                fs.writeFileSync(absPath, fix.content, 'utf-8')
+              try {
+                const fixResult = await fixProvider.chat([{ role: 'user', content: fixPrompt }])
+                const fixes = parseAIChanges(fixResult.content)
+                for (const fix of fixes) {
+                  const absPath = path.join(buildCwd, fix.path)
+                  fs.mkdirSync(path.dirname(absPath), { recursive: true })
+                  fs.writeFileSync(absPath, fix.content, 'utf-8')
+                }
+                await updateTask(task, { progress: 40 + attempt * 8 + 4 },
+                  `🔧 AI applied ${fixes.length} fix(es) — retrying build…`)
+              } catch {
+                // AI call failed — just retry the build as-is
               }
-              await updateTask(task, { progress: 40 + attempt * 8 + 4 },
-                `🔧 AI applied ${fixes.length} fix(es) — retrying build…`)
-            } catch {
-              // AI call failed — just retry the build as-is
             }
           }
-        }
 
-        if (!buildSucceeded) {
-          throw new Error(`Build failed after ${MAX_FIX_ATTEMPTS} AI-assisted attempts.\n\n${lastBuildError.slice(0, 1000)}`)
+          if (!buildSucceeded) {
+            throw new Error(`Build failed after ${MAX_FIX_ATTEMPTS} AI-assisted attempts.\n\n${lastBuildError.slice(0, 1000)}`)
+          }
         }
 
         // ── Start backend AFTER both npm installs and the Vite build (peak memory is now over) ──
@@ -1336,12 +1363,19 @@ INSTRUCTIONS:
       // mernProxyUrl stays undefined, so no interceptor is injected.
       const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
       const mernProxyUrl = hasMernLayout ? `${publicBase}/sites-api/${deploySlug}` : undefined
+      // When GitHub Actions built the site, ghActionsTmpDir/dist/ holds the output.
+      // findDeployRoot(ghActionsTmpDir) will discover dist/index.html there.
+      const deploySourcePath = ghActionsTmpDir ?? localPath
       const result = await selfHostedDeploy({
-        localPath,
+        localPath: deploySourcePath,
         name: repoName ?? 'site',
         existingSlug: deploySlug,
         apiProxyUrl: mernProxyUrl,
       })
+      // Clean up the temp dir extracted from the GitHub Actions artifact
+      if (ghActionsTmpDir) {
+        try { fs.rmSync(ghActionsTmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+      }
 
       // Upsert deployment record
       await Deployment.findOneAndUpdate(
