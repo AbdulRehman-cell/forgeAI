@@ -6,11 +6,9 @@ services:
     region: oregon
     branch: main
     buildCommand: "cd forge-ai && npm install && npm run build"
-    startCommand: "node --max-old-space-size=400 forge-ai/backend/dist/index.js"
+    startCommand: "node --max-old-space-size=220 forge-ai/backend/dist/index.js"
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: VITE_API_URL
         value: /api
