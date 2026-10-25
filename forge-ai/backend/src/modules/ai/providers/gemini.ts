@@ -16,7 +16,7 @@ import type { AIProvider, AIMessage, AIResponse } from './base'
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-2.0-flash,gemini-1.5-flash,gemini-flash-latest,gemini-1.5-flash-8b')
+const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash,gemini-3.6-flash,gemini-3.8-flash,gemini-flash-latest,gemini-2.0-flash,gemini-1.5-flash')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean)
@@ -73,7 +73,7 @@ export class GeminiProvider implements AIProvider {
 
   constructor(apiKey: string, model?: string) {
     this.apiKey = apiKey
-    this.model = model ?? process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+    this.model = model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash'
   }
 
   async chat(messages: AIMessage[], systemPrompt?: string): Promise<AIResponse> {
