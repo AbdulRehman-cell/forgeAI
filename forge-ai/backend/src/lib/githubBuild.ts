@@ -114,14 +114,20 @@ export async function buildWithGitHubActions(params: {
     ...process.env,
     GIT_AUTHOR_NAME: 'ForgeAI', GIT_AUTHOR_EMAIL: 'bot@forgeai.app',
     GIT_COMMITTER_NAME: 'ForgeAI', GIT_COMMITTER_EMAIL: 'bot@forgeai.app',
+    GIT_TERMINAL_PROMPT: '0',  // never prompt for credentials
   }
+
+  // Inject token into remote URL so git push can authenticate without a credential helper
+  const authedRemote = `https://x-access-token:${githubToken}@github.com/${owner}/${repo}.git`
+  await execAsync(`git remote set-url origin ${authedRemote}`, { cwd: localPath, timeout: 10_000 })
+
   // Stage modified tracked files (picks up HashRouter patches) + the new workflow
   await execAsync('git add -u', { cwd: localPath, timeout: 30_000 })
   await execAsync('git add .github/workflows/forgeai-deploy.yml', { cwd: localPath, timeout: 30_000 })
   await execAsync(`git commit --allow-empty -m "ci: deploy via ForgeAI Actions (${triggerToken})"`, {
     cwd: localPath, timeout: 30_000, env: gitEnv,
   })
-  await execAsync('git push', { cwd: localPath, timeout: 60_000 })
+  await execAsync('git push origin HEAD', { cwd: localPath, timeout: 60_000, env: gitEnv })
   await onProgress('📤 Pushed deploy workflow to GitHub — waiting for Actions build…')
 
   // 3. Poll for the workflow run (triggered by our push) to complete (up to 10 min)
