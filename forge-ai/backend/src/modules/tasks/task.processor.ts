@@ -7230,12 +7230,6 @@ async function buildSite(job: Job) {
       await updateTask(task, {}, 'GitHub token missing — site generated locally but not pushed. Sign in with GitHub to enable pushing.', 'warn')
     }
 
-    // Resume paused backends before we finish (non-blocking)
-    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
-      try { _bsResumeBackends(bsPausedBackends) } catch {}
-      bsPausedBackends = []
-    }
-
     await Repository.findByIdAndUpdate(repo._id, { status: 'ready' })
 
     task.changes = allChanges
@@ -7259,6 +7253,16 @@ async function buildSite(job: Job) {
     ].join('\n')
     await task.save()
     emitTaskUpdate(taskId, task.toObject())
+
+    // Resume paused backends AFTER saving the completed task — so a memory spike
+    // from restarting child processes can't prevent the task result from landing
+    // in MongoDB. Delayed 5s to let the main process settle.
+    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
+      const toResume = bsPausedBackends
+      const resume = _bsResumeBackends
+      bsPausedBackends = []
+      setTimeout(() => { try { resume(toResume) } catch {} }, 5000)
+    }
   } catch (err: any) {
     console.error('[builder]', err.response?.data ?? err.message)
     if (bsPausedBackends.length > 0 && _bsResumeBackends) {
