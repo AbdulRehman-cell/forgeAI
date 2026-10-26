@@ -54,15 +54,30 @@ async function waitReady(ref: string, timeoutMs = 180_000): Promise<void> {
 
 export async function provisionSupabaseProject(slug: string): Promise<SupabaseCredentials> {
   const orgId = await getOrgId()
-  const name = `forge-${slug}`.slice(0, 40).replace(/[^a-z0-9-]/gi, '-')
+  const baseName = `forge-${slug}`.slice(0, 34).replace(/[^a-z0-9-]/gi, '-')
 
-  const project = await apiReq('POST', '/v1/projects', {
-    name,
-    organization_id: orgId,
-    plan: 'free',
-    region: 'us-east-1',
-    db_pass: genPassword(),
-  })
+  // Retry with a unique suffix on name-already-exists (400)
+  let project: any
+  const attempts = [baseName, `${baseName}-${Math.random().toString(36).slice(2, 6)}`]
+  for (const name of attempts) {
+    try {
+      project = await apiReq('POST', '/v1/projects', {
+        name,
+        organization_id: orgId,
+        plan: 'free',
+        region: 'us-east-1',
+        db_pass: genPassword(),
+      })
+      break
+    } catch (e: any) {
+      const msg: string = e.message ?? ''
+      if (msg.includes('already exists') && name !== attempts[attempts.length - 1]) {
+        console.warn(`[supabase] project name "${name}" taken — retrying with unique suffix`)
+        continue
+      }
+      throw e
+    }
+  }
 
   const ref: string = project.ref
   console.log(`[supabase] created project ${ref} — waiting for ACTIVE_HEALTHY…`)

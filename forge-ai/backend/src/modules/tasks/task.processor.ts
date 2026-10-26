@@ -6616,7 +6616,14 @@ async function buildSite(job: Job) {
   const repo = await Repository.findById(repositoryId)
   if (!repo) throw new Error('Repository not found')
 
+  let _bsResumeBackends: ((backends: Array<{ slug: string; serverDir: string }>) => void) | null = null
+  let bsPausedBackends: Array<{ slug: string; serverDir: string }> = []
+
   const fail = async (message: string) => {
+    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
+      try { _bsResumeBackends(bsPausedBackends) } catch {}
+      bsPausedBackends = []
+    }
     await Repository.findByIdAndUpdate(repo._id, { status: 'error', errorMessage: message })
     await Task.findByIdAndUpdate(task._id, { status: 'failed', error: message })
     task.status = 'failed'
@@ -6626,6 +6633,17 @@ async function buildSite(job: Job) {
 
   try {
     await updateTask(task, { status: 'running', progress: 5 }, `🏗️ Building "${siteName}" from your description…`)
+
+    // Pause any running managed backends to free ~300MB+ of RSS for the
+    // AI generation pass — restored when the build completes or fails.
+    {
+      const { pauseAllBackends, resumeBackends } = await import('../../lib/processManager')
+      _bsResumeBackends = resumeBackends
+      bsPausedBackends = pauseAllBackends()
+      if (bsPausedBackends.length > 0) {
+        await updateTask(task, {}, `⏸️ Paused ${bsPausedBackends.length} backend(s) to free memory for generation…`)
+      }
+    }
 
     // ── Workspace folder ──
     const sitePath = path.join(REPOS_DIR, userId, siteName)
@@ -7212,6 +7230,12 @@ async function buildSite(job: Job) {
       await updateTask(task, {}, 'GitHub token missing — site generated locally but not pushed. Sign in with GitHub to enable pushing.', 'warn')
     }
 
+    // Resume paused backends before we finish (non-blocking)
+    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
+      try { _bsResumeBackends(bsPausedBackends) } catch {}
+      bsPausedBackends = []
+    }
+
     await Repository.findByIdAndUpdate(repo._id, { status: 'ready' })
 
     task.changes = allChanges
@@ -7237,6 +7261,10 @@ async function buildSite(job: Job) {
     emitTaskUpdate(taskId, task.toObject())
   } catch (err: any) {
     console.error('[builder]', err.response?.data ?? err.message)
+    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
+      try { _bsResumeBackends(bsPausedBackends) } catch {}
+      bsPausedBackends = []
+    }
     await fail(`Build failed: ${providerErrorMessage(err)}`)
   }
 }
