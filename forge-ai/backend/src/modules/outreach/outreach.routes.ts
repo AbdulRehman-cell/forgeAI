@@ -1,9 +1,9 @@
 import { Router } from 'express'
 import axios from 'axios'
 import multer from 'multer'
-import * as XLSX from 'xlsx'
+import type * as XLSXTypes from 'xlsx'
 import { promises as dns } from 'dns'
-import { google } from 'googleapis'
+import { google } from '../../lib/google'
 import { requireAuth } from '../../middleware/auth.middleware'
 import { User } from '../users/user.model'
 import { Prospect, ProspectStatus, EmailTone, IProspect } from './prospect.model'
@@ -132,6 +132,8 @@ function extractDocumentText(buffer: Buffer, mimetype: string, originalname: str
   // Excel / spreadsheet
   if (['xlsx', 'xls', 'ods', 'xlsm'].includes(ext) || mimetype.includes('spreadsheet') || mimetype.includes('excel')) {
     try {
+      // Loaded on first use — xlsx costs ~12 MB of heap at startup otherwise
+      const XLSX: typeof XLSXTypes = require('xlsx')
       const wb = XLSX.read(buffer, { type: 'buffer' })
       const lines: string[] = []
       for (const sheetName of wb.SheetNames.slice(0, 3)) {

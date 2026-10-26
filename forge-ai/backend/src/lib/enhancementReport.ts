@@ -3,7 +3,7 @@
 // site scored, what was wrong with it, and exactly what ForgeAI improved.
 // Streams straight to the HTTP response — nothing is written to disk.
 
-import PDFDocument from 'pdfkit'
+import type PDFKit from 'pdfkit'
 import type { Writable } from 'stream'
 import type { SiteAudit } from './siteAudit'
 
@@ -22,6 +22,8 @@ export interface ReportInput {
 }
 
 export function writeEnhancementReport(out: Writable, input: ReportInput): void {
+  // Loaded on first use — pdfkit costs ~6 MB of heap at startup otherwise
+  const PDFDocument: typeof PDFKit = require('pdfkit')
   const doc = new PDFDocument({ size: 'A4', margin: 50, info: { Title: `${input.siteName} — Website Enhancement Report` } })
   doc.pipe(out)
 

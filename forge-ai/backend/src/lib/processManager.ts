@@ -13,6 +13,13 @@ interface ManagedProcess {
 }
 
 const processes = new Map<string, ManagedProcess>()
+
+// While a site build holds the RAM, background (re)starts are queued instead of
+// spawned. Without this the boot-time restore re-launched every backend a build
+// had just paused — five Node processes competing with the build for 512 MB.
+let startHolds = 0
+const deferredStarts = new Map<string, string>()
+
 const PORT_START = 5100
 const PORT_END = 5999
 
@@ -108,6 +115,11 @@ export async function startBackend(slug: string, serverDir: string): Promise<{ p
 }
 
 function _respawn(slug: string, serverDir: string, port: number, restarts: number) {
+  if (startHolds > 0) {
+    processes.delete(slug)
+    deferredStarts.set(slug, serverDir)
+    return
+  }
   const { cmd, args } = detectStartCommand(serverDir)
   const proc = spawn(cmd, args, {
     cwd: serverDir,
@@ -156,4 +168,37 @@ export function resumeBackends(backends: Array<{ slug: string; serverDir: string
   for (const { slug, serverDir } of backends) {
     startBackend(slug, serverDir).catch(e => console.warn(`[processManager] Failed to resume ${slug}: ${e.message}`))
   }
+}
+
+/** Pause every backend AND keep background restores from relaunching them
+ *  until releaseBackendHold(). Use around memory-heavy work (site builds). */
+export function holdAllBackends(): Array<{ slug: string; serverDir: string }> {
+  startHolds++
+  return pauseAllBackends()
+}
+
+/** Drop one hold; when the last is released, restart what was paused plus
+ *  anything a background restore tried to start meanwhile. */
+export function releaseBackendHold(paused: Array<{ slug: string; serverDir: string }>): void {
+  startHolds = Math.max(0, startHolds - 1)
+  for (const b of paused) deferredStarts.set(b.slug, b.serverDir)
+  if (startHolds > 0) return
+  const toStart = [...deferredStarts].map(([slug, serverDir]) => ({ slug, serverDir }))
+  deferredStarts.clear()
+  resumeBackends(toStart.filter((b) => !processes.has(b.slug)))
+}
+
+/** Resolves once no build holds the backends (polls; holds last minutes). */
+export async function waitForBackendHoldRelease(): Promise<void> {
+  while (startHolds > 0) await new Promise((r) => setTimeout(r, 5000))
+}
+
+/** startBackend for background restores: queued instead of spawned while held. */
+export async function startBackendWhenFree(slug: string, serverDir: string): Promise<void> {
+  if (startHolds > 0) {
+    deferredStarts.set(slug, serverDir)
+    console.log(`[backend:${slug}] start deferred — a site build is using the memory`)
+    return
+  }
+  await startBackend(slug, serverDir)
 }

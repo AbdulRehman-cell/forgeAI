@@ -32,7 +32,19 @@ function startKeepAlive() {
   console.log(`[keep-alive] started — pinging ${url} every 14 min`)
 }
 
+// LOG_MEMORY=1 prints heap/RSS every 15s — the production heap is capped
+// (--max-old-space-size), so this is how to see how close a build gets to it.
+function startMemoryLog() {
+  if (!process.env.LOG_MEMORY) return
+  setInterval(() => {
+    const m = process.memoryUsage()
+    const mb = (n: number) => Math.round(n / 1048576)
+    console.log(`[mem] heap ${mb(m.heapUsed)}/${mb(m.heapTotal)} MB · rss ${mb(m.rss)} MB · external ${mb(m.external)} MB`)
+  }, 15_000).unref()
+}
+
 async function bootstrap() {
+  startMemoryLog()
   await connectDB()
 
   // Start restoring self-hosted site backends now that DB is ready.
@@ -51,6 +63,13 @@ async function bootstrap() {
     console.log(`[server] Running on http://localhost:${PORT}`)
   })
 }
+
+// Jobs run in-process, so one stray rejected promise (e.g. an AI call that
+// errors after its caller already timed out) would otherwise crash the server
+// and silently kill every build in flight. Log it and keep serving.
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[process] Unhandled rejection (ignored):', reason?.stack ?? reason?.message ?? reason)
+})
 
 bootstrap().catch((err) => {
   console.error('[server] Fatal:', err)

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { google } from 'googleapis'
+import { google } from '../../lib/google'
 import { requireAuth } from '../../middleware/auth.middleware'
 import { User } from '../users/user.model'
 

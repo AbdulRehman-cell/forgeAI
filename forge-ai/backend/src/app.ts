@@ -27,7 +27,7 @@ import teamsRoutes from './modules/teams/teams.routes'
 import whiteLabelRoutes from './modules/settings/whitelabel.routes'
 import hostingRoutes from './modules/hosting/hosting.routes'
 import { SITES_DIR, checkR2Config } from './lib/selfHostedDeploy'
-import { startBackend, getBackendPort } from './lib/processManager'
+import { startBackend, startBackendWhenFree, waitForBackendHoldRelease, getBackendPort } from './lib/processManager'
 import http from 'http'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -221,8 +221,8 @@ function resolveSharedNm(): { SHARED_NM: string; SHARED_NM_READY: string } {
   const candidates = [
     // Primary: site-template/ is installed at Render build time — always available after deploy
     path.join(process.cwd(), 'forge-ai', 'site-template', 'node_modules'),
-    // Local dev: cwd=forge-ai/backend → ../../site-template/node_modules
-    path.join(process.cwd(), '..', '..', 'site-template', 'node_modules'),
+    // Local dev: cwd=forge-ai/backend → ../site-template/node_modules
+    path.join(process.cwd(), '..', 'site-template', 'node_modules'),
     // Secondary: workspace root (may lack @supabase/supabase-js on some installs)
     path.join(process.cwd(), 'forge-ai', 'node_modules'),
     path.join(process.cwd(), '..', '..', 'node_modules'),
@@ -313,6 +313,9 @@ async function restoreBackendsOnce() {
     const deploys = await Deployment.find({ backendDir: { $exists: true, $ne: null } }).lean()
     for (const d of deploys) {
       if (!d.backendDir) continue
+      // Re-extracting a workspace and its npm install are memory-heavy — never
+      // run them while a site build holds the RAM.
+      await waitForBackendHoldRelease()
       let ready = fs.existsSync(d.backendDir)
       // Ephemeral FS was wiped — try to restore from workspaceZip in MongoDB
       if (!ready && d.repositoryId) {
@@ -321,7 +324,7 @@ async function restoreBackendsOnce() {
       if (!ready) { console.warn(`[startup] backendDir missing for "${d.slug}", skipping`); continue }
       writeEnvFile(d.backendDir, d.envVars)
       console.log(`[startup] Starting backend for slug "${d.slug}"`)
-      await startBackend(d.slug, d.backendDir).catch(e =>
+      await startBackendWhenFree(d.slug, d.backendDir).catch(e =>
         console.error(`[startup] Failed to start backend "${d.slug}": ${e.message}`)
       )
     }

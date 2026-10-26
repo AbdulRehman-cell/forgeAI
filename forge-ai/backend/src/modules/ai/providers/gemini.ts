@@ -16,7 +16,7 @@ import type { AIProvider, AIMessage, AIResponse } from './base'
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash,gemini-3.6-flash,gemini-3.8-flash,gemini-flash-latest,gemini-2.0-flash,gemini-1.5-flash')
+const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash,gemini-3.6-flash,gemini-3.7-flash,gemini-3.8-flash,gemini-flash-latest')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean)
@@ -34,6 +34,55 @@ const CONTINUE_PROMPT =
 
 // Models the API rejected as unknown/unsupported — skip for process lifetime
 const deadModels = new Set<string>()
+
+// Quota circuit breaker. The free tier allows ~20 requests/day PER MODEL, and
+// once a model's daily quota is gone every call to it is a guaranteed 429 for
+// hours. Without remembering that, each file of a build re-walked the whole
+// model chain (and the builder slept between retries) before reaching its
+// fallback — minutes of dead time per file. Key = `${keyIndex}:${model}`,
+// value = epoch ms when the quota should be back.
+const cooldownUntil = new Map<string, number>()
+
+/** Extra keys (GEMINI_API_KEY_2, _3) — a key from another Google project has
+ *  its own free-tier quota, so rotating keys multiplies daily capacity. */
+function extraKeys(primary: string): string[] {
+  return [process.env.GEMINI_API_KEY_2, process.env.GEMINI_API_KEY_3]
+    .filter((k): k is string => !!k && !k.includes('...') && k !== primary)
+}
+
+/** RetryInfo.retryDelay ("23144s") or the "Please retry in 6h25m44s" text, in ms. */
+function retryAfterMs(err: any): number | null {
+  const body = err?.response?.data?.error
+  const info = (body?.details ?? []).find((d: any) => typeof d?.retryDelay === 'string')
+  if (info) {
+    const s = parseFloat(info.retryDelay)
+    if (Number.isFinite(s)) return s * 1000
+  }
+  const m = /retry in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i.exec(String(body?.message ?? ''))
+  if (m && (m[1] || m[2] || m[3])) {
+    return ((Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60 + Number(m[3] ?? 0)) * 1000
+  }
+  return null
+}
+
+/** True for daily (not per-minute) quota exhaustion — it won't clear for hours. */
+function isDailyQuota(err: any): boolean {
+  const body = err?.response?.data?.error
+  const ids = (body?.details ?? []).flatMap((d: any) => (d?.violations ?? []).map((v: any) => String(v?.quotaId ?? '')))
+  return ids.some((id: string) => /PerDay/i.test(id)) || /per day/i.test(String(body?.message ?? ''))
+}
+
+/** Whether at least one Gemini key/model can currently take a request. Lets
+ *  callers skip straight to their fallback instead of burning retries. */
+export function geminiAvailable(): boolean {
+  const k = process.env.GEMINI_API_KEY
+  if (!k || k.includes('...')) return false
+  const keys = [k, ...extraKeys(k)]
+  const model = process.env.GEMINI_MODEL ?? 'gemini-3.5-flash'
+  const models = [...new Set([model, ...FALLBACK_MODELS])].filter((m) => !deadModels.has(m))
+  const now = Date.now()
+  return keys.some((_, ki) => models.some((m) => (cooldownUntil.get(`${ki}:${m}`) ?? 0) <= now))
+}
 
 // Same transient-network detection as the Claude provider: TLS handshake
 // dies before any HTTP status. Retry-worthy; anything with an HTTP response
@@ -80,17 +129,23 @@ export class GeminiProvider implements AIProvider {
     const contents = messages.map(toContent)
     const models = [...new Set([this.model, ...FALLBACK_MODELS])].filter((m) => !deadModels.has(m))
     if (!models.length) throw new Error('All configured Gemini models are unavailable')
+    const keys = [this.apiKey, ...extraKeys(this.apiKey)]
 
     let lastErr: any = null
+    let skipped = 0
+    for (let ki = 0; ki < keys.length; ki++) {
     for (const model of models) {
+      if (deadModels.has(model)) continue
+      const slot = `${ki}:${model}`
+      if ((cooldownUntil.get(slot) ?? 0) > Date.now()) { skipped++; continue }
       // Inner loop attempts (per model):
       //   attempt 0: send with thinkingConfig
       //   attempt 1: retry without thinkingConfig (some models 400 on budget=0)
-      //   attempts 2-5: 503 backoff slots (5s, 10s, 20s, 40s)
-      for (let attempt = 0; attempt < 6; attempt++) {
+      //   attempts 2-3: 503 backoff slots (5s, 10s)
+      for (let attempt = 0; attempt < 4; attempt++) {
         const sendThinking = attempt === 0
         try {
-          return await this.generateWithContinuation(model, contents, systemPrompt, sendThinking)
+          return await this.generateWithContinuation(model, contents, systemPrompt, sendThinking, keys[ki])
         } catch (err: any) {
           const status = err.response?.status
           lastErr = err
@@ -102,17 +157,21 @@ export class GeminiProvider implements AIProvider {
             deadModels.add(model)
             break // rotate to the next model
           }
-          // Rate limited → next model has its own quota
+          // Rate limited → remember for how long, then next model (own quota)
           if (status === 429) {
-            console.warn(`[gemini] ${model} rate limited — trying next model`)
+            const daily = isDailyQuota(err)
+            const wait = retryAfterMs(err) ?? (daily ? 3_600_000 : 30_000)
+            cooldownUntil.set(slot, Date.now() + wait)
+            console.warn(`[gemini] ${model} (key ${ki + 1}) ${daily ? 'daily quota exhausted' : 'rate limited'} — cooling down ${Math.round(wait / 60_000)}m, trying next model`)
             break // rotate to the next model
           }
           // 503 overloaded — retry with exponential backoff before rotating.
-          // Paid tier: 5 attempts (0s,5s,10s,20s,40s = ~75s max per model).
+          // Two retries (5s, 10s): a longer wait just stalls the build while
+          // the next model in the chain is usually fine.
           if (status === 503) {
-            const maxRetries = 4
+            const maxRetries = 3
             if (attempt < maxRetries) {
-              const delay = Math.min(5000 * Math.pow(2, attempt), 40_000)
+              const delay = attempt === 0 ? 5000 : 10_000
               console.warn(`[gemini] ${model} overloaded (503) — retry in ${delay}ms`)
               await sleep(delay)
               continue // retry same model
@@ -151,6 +210,16 @@ export class GeminiProvider implements AIProvider {
         }
       }
     }
+    }
+    if (!lastErr && skipped) {
+      // Every key/model is cooling down — fail fast with a 429-shaped error so
+      // HybridProvider and the builder fall back immediately (no network call).
+      const soonest = Math.min(...[...cooldownUntil.values()].filter((t) => t > Date.now()))
+      const mins = Number.isFinite(soonest) ? Math.ceil((soonest - Date.now()) / 60_000) : 60
+      const err: any = new Error(`Gemini free-tier quota exhausted on every model — resets in ~${mins} min`)
+      err.response = { status: 429, data: { error: { message: err.message } } }
+      throw err
+    }
     throw lastErr ?? new Error('All Gemini models failed')
   }
 
@@ -160,6 +229,7 @@ export class GeminiProvider implements AIProvider {
     contents: any[],
     systemPrompt?: string,
     sendThinking = true,
+    apiKey = this.apiKey,
   ): Promise<AIResponse> {
     let full = ''
     let tokens = 0
@@ -173,7 +243,7 @@ export class GeminiProvider implements AIProvider {
           ]
         : contents
 
-      const res = await this.generate(model, convo, systemPrompt, sendThinking)
+      const res = await this.generate(model, convo, systemPrompt, sendThinking, apiKey)
       full += res.text
       tokens += res.totalTokens ?? 0
 
@@ -183,7 +253,7 @@ export class GeminiProvider implements AIProvider {
     return { content: full, tokensUsed: tokens || undefined }
   }
 
-  private async generate(model: string, contents: any[], systemPrompt?: string, sendThinking = true): Promise<GenResult> {
+  private async generate(model: string, contents: any[], systemPrompt?: string, sendThinking = true, apiKey = this.apiKey): Promise<GenResult> {
     const generationConfig: any = { maxOutputTokens: MAX_OUTPUT_TOKENS }
     // Omitted on the retry path: some models reject thinkingBudget=0 outright
     if (sendThinking) generationConfig.thinkingConfig = { thinkingBudget: THINKING_BUDGET }
@@ -196,8 +266,10 @@ export class GeminiProvider implements AIProvider {
         generationConfig,
       },
       {
-        headers: { 'x-goog-api-key': this.apiKey, 'Content-Type': 'application/json' },
-        timeout: 300_000,
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        // Callers (safeChat) give up after ~2-3 min; a request left running past
+        // that only holds a socket and its response buffer in a small heap.
+        timeout: Number(process.env.GEMINI_TIMEOUT_MS ?? 170_000),
       },
     )
 

@@ -8,7 +8,12 @@ const execAsync = promisify(exec)
 import simpleGit from 'simple-git'
 import { Task, IFileChange } from './task.model'
 import { Repository } from '../repository/repository.model'
-import { createProvider, resolveProvider, type ProviderName } from '../ai/ai.factory'
+import { createProvider, resolveProvider, geminiKey, type ProviderName } from '../ai/ai.factory'
+import { geminiAvailable } from '../ai/providers/gemini'
+import {
+  normalizeTables, provisionSupabaseProject, runSupabaseMigrations, isSupabaseConfigured,
+  type SupabaseTable, type SupabaseAccess, type SeedRows, type SupabaseCredentials,
+} from '../../lib/supabaseProvisioner'
 import { emitTaskUpdate } from '../websocket'
 import { User } from '../users/user.model'
 import type { Job } from '../../lib/workers'
@@ -101,17 +106,19 @@ async function safeChat(
   timeoutMs = 120_000,
 ): Promise<AIResponse | null> {
   const controller = new AbortController()
+  let timer: NodeJS.Timeout | undefined
   try {
-    const timeout = new Promise<never>((_, rej) =>
-      setTimeout(() => {
+    const timeout = new Promise<never>((_, rej) => {
+      timer = setTimeout(() => {
         controller.abort()
         rej(new Error(`AI call timed out after ${timeoutMs / 1000}s`))
-      }, timeoutMs),
-    )
-    return await Promise.race([
-      chatWithContinuation(provider, [{ role: 'user', content: instruction }], systemPrompt, controller.signal),
-      timeout,
-    ])
+      }, timeoutMs)
+    })
+    const call = chatWithContinuation(provider, [{ role: 'user', content: instruction }], systemPrompt, controller.signal)
+    // When the timeout wins, the abandoned call may still reject later — that
+    // must not surface as an unhandled rejection (which kills the process).
+    call.catch(() => {})
+    return await Promise.race([call, timeout])
   } catch (err: any) {
     controller.abort()
     const msg = providerErrorMessage(err)
@@ -120,6 +127,8 @@ async function safeChat(
     // Attach error string so gen() can surface it in the task log
     ;(safeChat as any)._lastError = `${msg} | ${raw}`
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -437,6 +446,11 @@ ${before}
 }
 
 // ─── Helpers ───────────────────────────────────────────────
+// Saves of one task document are chained: Mongoose rejects a save() while
+// another save() of the same document is in flight (ParallelSaveError), and
+// heartbeat logs can fire while the main flow is mid-update.
+const taskSaveChain = new WeakMap<object, Promise<unknown>>()
+
 async function updateTask(
   task: any,
   updates: Record<string, any>,
@@ -445,7 +459,9 @@ async function updateTask(
 ) {
   Object.assign(task, updates)
   if (message) task.logs.push({ level, message, timestamp: new Date() })
-  await task.save()
+  const save = (taskSaveChain.get(task) ?? Promise.resolve()).catch(() => {}).then(() => task.save())
+  taskSaveChain.set(task, save)
+  await save
   emitTaskUpdate(task._id.toString(), task.toObject())
 }
 
@@ -946,6 +962,27 @@ async function pushRepoToGitHub(
 }
 
 // Extract absolute file paths mentioned in build error output (Vite/Rollup/tsc/webpack)
+/** Write AI build fixes, but only to source files under src/ — never to
+ *  package.json, vite.config, index.html or anything outside the project. A fix
+ *  pass that rewrites the toolchain turns one build error into a dead project.
+ *  Returns how many files were written. */
+function applyBuildFixes(fixes: ParsedChange[], cwd: string): number {
+  let applied = 0
+  for (const fix of fixes) {
+    const rel = path.normalize(fix.path.replace(/\\/g, '/')).replace(/\\/g, '/').replace(/^\.\//, '')
+    const abs = path.resolve(cwd, rel)
+    const inside = abs.startsWith(path.resolve(cwd) + path.sep)
+    if (!inside || !/^src\//.test(rel) || !/\.(jsx?|tsx?|mjs|css)$/.test(rel) || !fix.content.trim()) {
+      console.warn(`[deploy] refused AI build fix to "${fix.path}" (only src/ source files may be changed)`)
+      continue
+    }
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, fix.content, 'utf-8')
+    applied++
+  }
+  return applied
+}
+
 function extractErrorFilePaths(errorText: string, buildCwd: string): string[] {
   const patterns = [
     /([^\s"'()]+\.[jt]sx?)\s*\(\d+:\d+\)/g,
@@ -1003,10 +1040,13 @@ async function blitzDeploy(job: Job) {
     await updateTask(task, { status: 'running', progress: 10 }, '🚀 Starting ForgeAI deploy…')
     let pausedBackends: Array<{ slug: string; serverDir: string }> = []
     let _resumeBackends: ((backends: Array<{ slug: string; serverDir: string }>) => void) | null = null
+    // Frontend-only builds (Supabase/static React) pause other sites' backends
+    // just for the Vite build and hand them back afterwards (idempotent).
+    let releaseBuildHold: (() => void) | null = null
     try {
       const { selfHostedDeploy, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild, makeSlug } = await import('../../lib/selfHostedDeploy')
       const { Deployment } = await import('../hosting/deployment.model')
-      const { startBackend, pauseAllBackends, resumeBackends } = await import('../../lib/processManager')
+      const { startBackend, pauseAllBackends, resumeBackends, holdAllBackends, releaseBackendHold } = await import('../../lib/processManager')
       _resumeBackends = resumeBackends
 
       // Reuse existing slug if the repo was already deployed self-hosted; otherwise generate
@@ -1117,6 +1157,14 @@ async function blitzDeploy(job: Job) {
           if (pausedBackends.length > 0) {
             await updateTask(task, {}, `⏸️ Paused ${pausedBackends.length} other backend(s) to free memory for install…`)
           }
+        } else {
+          // Vite needs ~200 MB for a React + Supabase + charts bundle — more than
+          // a 512 MB box has spare while other sites' backends run.
+          const held = holdAllBackends()
+          releaseBuildHold = () => { releaseBuildHold = null; releaseBackendHold(held) }
+          if (held.length > 0) {
+            await updateTask(task, {}, `⏸️ Paused ${held.length} other backend(s) for the build — they restart right after`)
+          }
         }
 
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
@@ -1159,6 +1207,19 @@ async function blitzDeploy(job: Job) {
           await updateTask(task, { progress: 19 }, `🔧 Patched ${patchedFiles} file(s) to use hash-based routing…`)
         }
 
+        // Vite only bundles imported CSS: an entry that lost its stylesheet
+        // import (an old generator bug) would deploy completely unstyled.
+        for (const entryName of ['main.jsx', 'main.tsx', 'main.js', 'index.jsx']) {
+          const entryPath = path.join(srcDir, entryName)
+          if (!fs.existsSync(entryPath) || !fs.existsSync(path.join(srcDir, 'index.css'))) continue
+          const entrySrc = fs.readFileSync(entryPath, 'utf-8')
+          if (!/import\s+['"][^'"]*\.css['"]/.test(entrySrc)) {
+            fs.writeFileSync(entryPath, `import './index.css'\n${entrySrc}`, 'utf-8')
+            await updateTask(task, {}, `🎨 Re-linked src/index.css into ${entryName} — the site would have deployed unstyled`)
+          }
+          break
+        }
+
         // Inject .env — copies .env.example if no .env exists, then sets VITE_API_URL
         injectEnvForBuild(buildCwd)
         if (viteApiUrl) {
@@ -1182,10 +1243,8 @@ async function blitzDeploy(job: Job) {
           if (builderEnv?.VITE_SUPABASE_URL) {
             const envPath = path.join(buildCwd, '.env')
             let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
-            for (const [k, v] of [
-              ['VITE_SUPABASE_URL', builderEnv.VITE_SUPABASE_URL],
-              ['VITE_SUPABASE_ANON_KEY', builderEnv.VITE_SUPABASE_ANON_KEY ?? ''],
-            ] as [string, string][]) {
+            // Every VITE_* value (URL, anon key, and the schema for shared-project sites)
+            for (const [k, v] of Object.entries(builderEnv).filter(([key]) => key.startsWith('VITE_SUPABASE_')) as [string, string][]) {
               if (!v) continue
               const re = new RegExp(`^${k}=.*`, 'm')
               envContent = re.test(envContent) ? envContent.replace(re, `${k}=${v}`) : envContent + `\n${k}=${v}\n`
@@ -1256,7 +1315,8 @@ async function blitzDeploy(job: Job) {
           if (sharedReady) {
             await updateTask(task, { progress: 22 }, '⚡ Linking shared node_modules (no npm install — saves ~300 MB peak RSS)…')
             if (fs.existsSync(frontendNmDir)) fs.rmSync(frontendNmDir, { recursive: true, force: true })
-            fs.symlinkSync(SHARED_NM, frontendNmDir)
+            // Windows needs admin rights for a dir symlink; a junction needs none
+            fs.symlinkSync(SHARED_NM, frontendNmDir, process.platform === 'win32' ? 'junction' : 'dir')
           } else {
             await updateTask(task, { progress: 22 }, `📦 Installing frontend dependencies in ${path.basename(buildCwd)}…`)
             // Fallback: full npm install when shared modules aren't ready.
@@ -1284,8 +1344,9 @@ async function blitzDeploy(job: Job) {
           if (repositoryId) {
             const repoForEnv = await Repository.findById(repositoryId).select('+builderEnv')
             const benv = repoForEnv?.builderEnv as Record<string, string> | undefined
-            if (benv?.VITE_SUPABASE_URL) builderEnvForBuild.VITE_SUPABASE_URL = benv.VITE_SUPABASE_URL
-            if (benv?.VITE_SUPABASE_ANON_KEY) builderEnvForBuild.VITE_SUPABASE_ANON_KEY = benv.VITE_SUPABASE_ANON_KEY ?? ''
+            for (const [k, v] of Object.entries(benv ?? {})) {
+              if (k.startsWith('VITE_SUPABASE_') && v) builderEnvForBuild[k] = String(v)
+            }
           }
           if (viteApiUrl) builderEnvForBuild.VITE_API_URL = viteApiUrl
 
@@ -1323,14 +1384,9 @@ INSTRUCTIONS:
 - Return COMPLETE corrected file content for every file you change or create.
 - Format: <file path="src/components/ui.jsx">...complete content...</file>` }])
 
-                const fixes = parseAIChanges(fixResult.content)
-                for (const fix of fixes) {
-                  const absPath = path.join(fixCwd, fix.path)
-                  fs.mkdirSync(path.dirname(absPath), { recursive: true })
-                  fs.writeFileSync(absPath, fix.content, 'utf-8')
-                }
-                await updateTask(task, {}, `🔧 AI applied ${fixes.length} fix(es) — retrying build on GitHub Actions…`)
-                return fixes.length > 0
+                const applied = applyBuildFixes(parseAIChanges(fixResult.content), fixCwd)
+                await updateTask(task, {}, `🔧 AI applied ${applied} fix(es) — retrying build on GitHub Actions…`)
+                return applied > 0
               } catch {
                 return false
               }
@@ -1343,16 +1399,22 @@ INSTRUCTIONS:
           const MAX_FIX_ATTEMPTS = 3
           let lastBuildError = ''
           let buildSucceeded = false
+          // A React + Supabase + charts bundle needs ~200 MB (measured: 120 MB
+          // OOMs, 200 MB builds in ~18s). Grows further only on an actual OOM.
+          let viteHeapMb = Number(process.env.SITE_BUILD_HEAP_MB ?? 224)
 
-          const buildCmd = fs.existsSync(path.join(buildCwd, 'node_modules', '.bin', 'vite'))
-            ? './node_modules/.bin/vite build --minify=false'
+          // Run vite's JS entry with node directly — "./node_modules/.bin/vite"
+          // is a shell script that cmd.exe cannot execute (local dev on Windows).
+          const viteEntry = path.join(buildCwd, 'node_modules', 'vite', 'bin', 'vite.js')
+          const buildCmd = fs.existsSync(viteEntry)
+            ? `"${process.execPath}" "${viteEntry}" build --minify=false`
             : 'npm run build'
 
           for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
             try {
               await execAsync(buildCmd, {
                 cwd: buildCwd, timeout: 180_000,
-                env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=80' },
+                env: { ...process.env, NODE_OPTIONS: `--max-old-space-size=${viteHeapMb}` },
               })
               buildSucceeded = true
               break
@@ -1361,10 +1423,24 @@ INSTRUCTIONS:
 
               if (attempt === MAX_FIX_ATTEMPTS) break
 
+              // Out of memory is not a code problem: retry with more heap, touch nothing
+              if (/heap out of memory|Reached heap limit|Allocation failed/i.test(lastBuildError)) {
+                viteHeapMb = Math.min(viteHeapMb * 2, 320)
+                await updateTask(task, { progress: 40 + attempt * 8 }, `⚠️ Vite ran out of memory — retrying with a ${viteHeapMb} MB heap…`)
+                continue
+              }
+              const errorFilePaths = extractErrorFilePaths(lastBuildError, buildCwd)
+              // Only a real code error (one that names a source file) goes to the AI —
+              // given a tooling error it "fixes" by rewriting the project (it once
+              // turned a Vite app's package.json into a Next.js one).
+              if (!errorFilePaths.length) {
+                await updateTask(task, { progress: 40 + attempt * 8 },
+                  `⚠️ Build failed (attempt ${attempt}/${MAX_FIX_ATTEMPTS}) with an error that names no source file — retrying as-is…\n\`\`\`\n${lastBuildError.slice(0, 600)}\n\`\`\``)
+                continue
+              }
+
               await updateTask(task, { progress: 40 + attempt * 8 },
                 `⚠️ Build failed (attempt ${attempt}/${MAX_FIX_ATTEMPTS}) — asking AI to fix…\n\`\`\`\n${lastBuildError.slice(0, 600)}\n\`\`\``)
-
-              const errorFilePaths = extractErrorFilePaths(lastBuildError, buildCwd)
               const fileContext = errorFilePaths.map(p => {
                 try {
                   const content = fs.readFileSync(p, 'utf-8').slice(0, 4000)
@@ -1391,14 +1467,9 @@ INSTRUCTIONS:
 
               try {
                 const fixResult = await fixProvider.chat([{ role: 'user', content: fixPrompt }])
-                const fixes = parseAIChanges(fixResult.content)
-                for (const fix of fixes) {
-                  const absPath = path.join(buildCwd, fix.path)
-                  fs.mkdirSync(path.dirname(absPath), { recursive: true })
-                  fs.writeFileSync(absPath, fix.content, 'utf-8')
-                }
+                const applied = applyBuildFixes(parseAIChanges(fixResult.content), buildCwd)
                 await updateTask(task, { progress: 40 + attempt * 8 + 4 },
-                  `🔧 AI applied ${fixes.length} fix(es) — retrying build…`)
+                  `🔧 AI applied ${applied} fix(es) — retrying build…`)
               } catch {
                 // AI call failed — just retry the build as-is
               }
@@ -1418,6 +1489,7 @@ INSTRUCTIONS:
           await updateTask(task, { progress: 59 }, `✅ Backend started — API proxied at ${viteApiUrl}`)
         }
 
+        releaseBuildHold?.()
         await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
       }
 
@@ -1526,6 +1598,7 @@ INSTRUCTIONS:
       if (pausedBackends.length > 0 && _resumeBackends) {
         try { _resumeBackends(pausedBackends) } catch {}
       }
+      try { releaseBuildHold?.() } catch {}
       task.status = 'failed'
       task.summary = `## ❌ Self-hosted deploy failed\n\n${err.message}`
       await task.save()
@@ -2833,8 +2906,8 @@ img, video, iframe, table, pre, canvas, svg { max-width: 100%; }
 /* ── Anti-dashed-border hard lock ── */
 /* The #1 "vibe-coded" tell: AI-injected dashed/dotted/solid borders on nav links.
    Strip ALL borders and outlines from non-CTA nav links (including logo/brand). */
-nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand):not(.logo):not(.brand),
-header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
+nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-cta):not(.cta-btn):not(.nav-brand):not(.logo):not(.brand),
+header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-cta):not(.cta-btn):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
 .nav-links a:not([class*="btn"]),
 .nav-menu a:not([class*="btn"]) {
   border: none !important;
@@ -3260,6 +3333,37 @@ function fixBlurNavBackground(files: ParsedChange[], cssPath: string) {
     const sep = trimmed.endsWith(';') || trimmed === '' ? '' : ';'
     return `${selector}{${trimmed}${sep} background: color-mix(in srgb, var(--bg, #0b0b10) 82%, transparent); }`
   })
+}
+
+/** A multi-field form given display:flex with no direction renders every field
+ *  side by side in one squeezed row that overflows its card — a frequent AI CSS
+ *  slip. Forms with a textarea or 3+ fields get flex-direction: column; short
+ *  inline forms (newsletter: input + button) are left alone. Returns rules fixed. */
+function stackMultiFieldForms(files: ParsedChange[], cssPath: string): number {
+  const css = files.find((f) => f.path === cssPath)
+  if (!css) return 0
+  // Tailwind-isms like "flex-direction: flex-column" are invalid, so the browser
+  // drops them and the element silently falls back to a row.
+  css.content = css.content.replace(/flex-direction\s*:\s*flex-(column|row)(-reverse)?\b/gi, 'flex-direction: $1$2')
+  const formClasses = new Set<string>()
+  for (const f of files.filter((x) => /\.(jsx|tsx|html)$/.test(x.path))) {
+    for (const m of f.content.matchAll(/<form\b[^>]*\bclass(?:Name)?="([^"]+)"[^>]*>([\s\S]*?)<\/form>/g)) {
+      const fields = (m[2].match(/<(input|select|textarea|Input|Select|Textarea)\b/g) ?? []).length
+      if (/<(textarea|Textarea)\b/.test(m[2]) || fields >= 3) for (const c of m[1].split(/\s+/)) if (c) formClasses.add(c)
+    }
+  }
+  if (!formClasses.size) return 0
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const targets = [...formClasses].map((c) => new RegExp(`\\.${esc(c)}$`))
+  let fixed = 0
+  css.content = css.content.replace(/([^{}]+)\{([^{}]*)\}/g, (full, selector: string, body: string) => {
+    const hit = selector.split(',').some((s) => targets.some((re) => re.test(s.trim())))
+    if (!hit || !/display\s*:\s*(inline-)?flex\b/i.test(body) || /flex-(direction|flow)\s*:/i.test(body)) return full
+    fixed++
+    const trimmed = body.replace(/\s*$/, '')
+    return `${selector}{${trimmed}${trimmed.endsWith(';') || !trimmed ? '' : ';'} flex-direction: column; }`
+  })
+  return fixed
 }
 
 /** Classes referenced in markup (class= or className=) with no rule in the stylesheet. */
@@ -4295,14 +4399,17 @@ interface MernPlan {
  *  ships NO Tailwind, so utility classes render unstyled — the #1 cause of ugly
  *  MERN pages. Semantic-class components score ~0 here. */
 function looksTailwind(jsx: string): boolean {
-  const tokens = [...jsx.matchAll(/className="([^"]+)"/g)]
+  // DISTINCT class names: a semantic page repeats the design system's own
+  // "container" in every section, which used to count as six "utility" hits
+  // and forced a pointless regeneration of nearly every page.
+  const tokens = [...new Set([...jsx.matchAll(/className="([^"]+)"/g)]
     .flatMap((m) => m[1].split(/\s+/))
-    .filter(Boolean)
+    .filter(Boolean))]
   if (tokens.length < 6) return false
   const util =
-    /^(?:(?:sm|md|lg|xl|2xl|hover|focus|active|group-hover|dark)?:)?(?:(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|w|h|min-w|max-w|min-h|max-h|gap|space-x|space-y|text|font|leading|tracking|bg|from|via|to|border|rounded|shadow|ring|opacity|z|top|left|right|bottom|inset|col|row|grid-cols|grid-rows|basis|flex|divide)-[a-z0-9.\/\[\]#-]+|flex|grid|hidden|block|inline|inline-block|inline-flex|container|relative|absolute|fixed|sticky|truncate|uppercase|lowercase|capitalize|italic|underline|antialiased|items-center|items-start|items-end|justify-center|justify-between|justify-around|justify-end|self-center|overflow-hidden|overflow-auto|cursor-pointer|mx-auto)$/
+    /^(?:(?:sm|md|lg|xl|2xl|hover|focus|active|group-hover|dark)?:)?(?:(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|w|h|min-w|max-w|min-h|max-h|gap|space-x|space-y|text|font|leading|tracking|bg|from|via|to|border|rounded|shadow|ring|opacity|z|top|left|right|bottom|inset|col|row|grid-cols|grid-rows|basis|flex|divide)-[a-z0-9.\/\[\]#-]+|flex|grid|hidden|block|inline|inline-block|inline-flex|relative|absolute|fixed|sticky|truncate|uppercase|lowercase|capitalize|italic|underline|antialiased|items-center|items-start|items-end|justify-center|justify-between|justify-around|justify-end|self-center|overflow-hidden|overflow-auto|cursor-pointer|mx-auto)$/
   const hits = tokens.filter((t) => util.test(t)).length
-  return hits >= 6 || hits / tokens.length > 0.3
+  return hits >= 8 || hits / tokens.length > 0.3
 }
 
 /** Fix JSX attribute quoting bugs the AI commonly produces:
@@ -4311,6 +4418,15 @@ function looksTailwind(jsx: string): boolean {
  *  2. Unescaped < or > inside JSX attribute string values (rare but fatal)
  *  These cause a hard esbuild parse error and a failed Render deploy. */
 function sanitizeJsx(src: string): string {
+  // ’-style escapes are only decoded inside JS strings — in JSX text they
+  // render literally ("you’re"). Writing the character itself means the
+  // same thing in a string, so decode them everywhere except where the result
+  // would break syntax (quotes, backslashes, control characters).
+  src = src.replace(/(?<!\\)\\u(?:\{([0-9a-fA-F]{1,6})\}|([0-9a-fA-F]{4}))/g, (match, braced, plain) => {
+    const code = parseInt(braced ?? plain, 16)
+    if (code < 0x20 || code === 0x7f || [0x22, 0x27, 0x5c, 0x60, 0x7b, 0x7d, 0x3c, 0x3e, 0x2028, 0x2029].includes(code) || (code >= 0xd800 && code <= 0xdfff)) return match
+    return String.fromCodePoint(code)
+  })
   // Replace value="...\""  →  value='..."'
   // Matches any JSX attribute whose double-quoted value contains \" anywhere
   return src.replace(/(\w[\w-]*)="([^"]*\\"[^"]*)"/g, (_match, attr, val) => {
@@ -5296,12 +5412,13 @@ function fixCssImportOrder(files: ParsedChange[]): void {
  *  package like "react-serif" or "framer-motion" kills the whole site.
  *  Relative imports (./foo) and the known installed packages are kept; everything
  *  else is commented out so the file still parses. */
-function stripHallucinatedPackageImports(files: ParsedChange[]): void {
+function stripHallucinatedPackageImports(files: ParsedChange[], srcRoot = 'client/src', extraAllowed: string[] = []): void {
   const ALLOWED = new Set([
     'react', 'react-dom', 'react-router-dom', 'axios', 'recharts',
-    'vite', '@vitejs/plugin-react',
+    'vite', '@vitejs/plugin-react', ...extraAllowed,
   ])
-  for (const f of files.filter((x) => /^client\/src\/.+\.(jsx?|tsx?)$/.test(x.path.replace(/\\/g, '/')))) {
+  const inSrc = new RegExp(`^${srcRoot.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\/.+\\.(jsx?|tsx?)$`)
+  for (const f of files.filter((x) => inSrc.test(x.path.replace(/\\/g, '/')))) {
     const lines = f.content.split('\n')
     let changed = false
     for (let i = 0; i < lines.length; i++) {
@@ -5513,113 +5630,370 @@ async function healMissingApiEndpoints(files: ParsedChange[], log: (m: string, p
 // SUPABASE SITE GENERATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface SupabaseTable {
-  name: string
-  columns: Array<{ name: string; type: string; nullable?: boolean }>
-  access: 'public_read' | 'auth_required' | 'public_write'
-}
+interface SupabasePage { file: string; title: string; path: string; description: string }
 interface SupabasePlan {
+  name: string
   tables: SupabaseTable[]
-  pages: Array<{ file: string; title: string; path: string; description: string }>
+  pages: SupabasePage[]
   hasAuth: boolean
-  sqlSchema: string
+  brand: { emoji: string; tagline: string; ctaLabel: string; ctaPath: string }
+}
+
+// Pads a plan up to the >= 4-page floor the build route promises.
+const SUPABASE_FALLBACK_PAGES: SupabasePage[] = [
+  { file: 'About.jsx', title: 'About', path: '/about', description: 'The story and mission behind the product, what makes it different, and the people who built it' },
+  { file: 'Features.jsx', title: 'Features', path: '/features', description: 'Every key feature explained with icons, short copy and visuals' },
+  { file: 'Contact.jsx', title: 'Contact', path: '/contact', description: 'Contact details, office hours and a short FAQ' },
+  { file: 'Faq.jsx', title: 'FAQ', path: '/faq', description: 'Frequently asked questions in an accordion' },
+]
+
+/** "simple-notes-supabase-djl7" → "Simple Notes" (drops the random suffix and stack words). */
+function displayNameFromSlug(slug: string): string {
+  const words = slug.split(/[-_\s]+/).filter(Boolean)
+  if (words.length > 1 && /^[a-z0-9]{4}$/.test(words[words.length - 1])) words.pop()
+  const kept = words.filter((w) => !/^(supabase|mern|app|website|site)$/i.test(w))
+  return (kept.length ? kept : words).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') || 'My App'
+}
+
+/** First {...} block of a reply, tolerating fences or a sentence around it. */
+function extractJsonObject(text: string): string {
+  const s = text.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '')
+  const a = s.indexOf('{')
+  const b = s.lastIndexOf('}')
+  return a >= 0 && b > a ? s.slice(a, b + 1) : s
+}
+
+function sanitizeSupabasePlan(raw: any, siteName: string): SupabasePlan | null {
+  const hasAuth = raw?.hasAuth === true
+  const tables = normalizeTables(raw?.tables ?? [], hasAuth).slice(0, 4)
+  if (!tables.length) return null
+
+  const pages: SupabasePage[] = []
+  const files = new Set<string>()
+  const routes = new Set<string>()
+  const add = (p: SupabasePage) => {
+    if (files.has(p.file.toLowerCase()) || routes.has(p.path)) return
+    files.add(p.file.toLowerCase())
+    routes.add(p.path)
+    pages.push(p)
+  }
+  for (const p of Array.isArray(raw?.pages) ? raw.pages : []) {
+    let base = String(p?.file || p?.title || '').replace(/\.(jsx?|tsx?)$/i, '').replace(/[^A-Za-z0-9]/g, '')
+    if (!base || /^\d/.test(base)) continue
+    base = base[0].toUpperCase() + base.slice(1)
+    if (/^(App|Main|Index|Router|React|Link|Route|Routes)$/.test(base)) base += 'Page'
+    const route = '/' + String(p?.path ?? '').toLowerCase().replace(/[^a-z0-9\-/]/g, '').replace(/^\/+|\/+$/g, '')
+    add({
+      file: `${base}.jsx`,
+      title: String(p?.title || base).replace(/\s+/g, ' ').trim().slice(0, 24),
+      path: route,
+      description: String(p?.description ?? '').slice(0, 400),
+    })
+  }
+  if (!routes.has('/')) {
+    pages.unshift({ file: files.has('home.jsx') ? 'Landing.jsx' : 'Home.jsx', title: 'Home', path: '/', description: 'Landing page — hero, features, how it works, social proof and a call to action' })
+    routes.add('/')
+  }
+  pages.sort((a, b) => (a.path === '/' ? -1 : b.path === '/' ? 1 : 0))
+  const isLogin = (p: SupabasePage) => /^\/(login|signin|sign-in|auth|account)$/.test(p.path) || /^(Login|SignIn|Signin|Auth)/.test(p.file)
+  let main = pages.filter((p) => !isLogin(p)).slice(0, 5)
+  for (const d of SUPABASE_FALLBACK_PAGES) {
+    if (main.length >= 4) break
+    if (files.has(d.file.toLowerCase()) || routes.has(d.path)) continue
+    files.add(d.file.toLowerCase()); routes.add(d.path)
+    main.push(d)
+  }
+  const login = pages.find(isLogin)
+  if (hasAuth) {
+    main.push(login
+      ? { ...login, path: '/login' }
+      : { file: files.has('login.jsx') ? 'SignIn.jsx' : 'Login.jsx', title: 'Sign in', path: '/login', description: 'Sign in and create-account forms (email + password) using Supabase Auth' })
+  }
+
+  const b = raw?.brand ?? {}
+  const navPaths = main.filter((p) => p.path !== '/login').map((p) => p.path)
+  const ctaPath = navPaths.includes(String(b.ctaPath)) ? String(b.ctaPath) : (navPaths[1] ?? '/')
+  return {
+    name: String(raw?.name ?? '').trim().slice(0, 40) || displayNameFromSlug(siteName),
+    tables,
+    pages: main,
+    hasAuth,
+    brand: {
+      emoji: [...String(b.emoji ?? '').replace(/[\s<>{}"'`\\]/g, '')].slice(0, 2).join('') || '✨',
+      tagline: String(b.tagline ?? '').trim().slice(0, 140),
+      ctaLabel: String(b.ctaLabel ?? '').trim().slice(0, 24) || 'Get started',
+      ctaPath,
+    },
+  }
 }
 
 async function planSupabaseSite(
-  provider: AIProvider,
+  providers: AIProvider[],
   prompt: string,
   siteName: string,
-  enhancer: AIProvider | null,
 ): Promise<SupabasePlan> {
-  const system = 'You are a database architect. Output ONLY valid JSON with no markdown fences.'
-  const instruction = `Plan a Supabase/PostgreSQL backend for: "${prompt}"
+  const system = 'You are a senior product engineer and database architect. Output ONLY valid JSON — no markdown fences, no commentary.'
+  const instruction = `Plan a React + Supabase (PostgreSQL) web app for this request:
+"${prompt.slice(0, 1500)}"
 
-Return JSON:
+Return JSON exactly in this shape:
 {
-  "tables": [{ "name": "string", "columns": [{"name":"string","type":"text|integer|boolean|uuid|timestamptz|numeric|jsonb","nullable":false}], "access": "public_read|auth_required|public_write" }],
-  "pages": [{ "file": "PageName.jsx", "title": "string", "path": "/path", "description": "what this page shows" }],
+  "name": "Human-friendly product name (2-3 words)",
+  "tables": [{ "name": "snake_case_plural", "columns": [{ "name": "snake_case", "type": "text|integer|bigint|boolean|timestamptz|date|numeric|jsonb|text[]", "nullable": true }], "access": "public_read|public_write|auth_required" }],
+  "pages": [{ "file": "PascalCase.jsx", "title": "Short nav label", "path": "/route", "description": "What the page shows and which tables it reads or writes" }],
   "hasAuth": false,
-  "sqlSchema": "-- runnable PostgreSQL: CREATE TABLE + ALTER TABLE ENABLE ROW LEVEL SECURITY + CREATE POLICY"
+  "brand": { "emoji": "one emoji", "tagline": "one-line value proposition", "ctaLabel": "2-3 word header button", "ctaPath": "/route of the main app page" }
 }
 
 Rules:
-- Always include id (uuid DEFAULT gen_random_uuid() PRIMARY KEY) and created_at (timestamptz DEFAULT now()) on every table
-- Enable RLS: ALTER TABLE t ENABLE ROW LEVEL SECURITY; then CREATE POLICY for each access pattern
-- EXACTLY 3 pages, max 3 tables (keep it lean for fast builds)
-- hasAuth only true if login is genuinely needed`
+- Do NOT list id, created_at or user_id columns — they are added automatically.
+- 1 to 4 tables, each with the columns the UI really needs. Mark a column "nullable": false only if the UI always fills it.
+- access: "public_read" = anyone reads, only signed-in users write (catalogs, posts, menus); "public_write" = anyone can read AND create/update/delete with no login (guestbooks, simple tools, contact messages, a notes app without accounts); "auth_required" = each signed-in user only sees and edits their own rows.
+- hasAuth: true ONLY when the request clearly needs accounts/login. With hasAuth false, never use "auth_required".
+- 4 or 5 pages. The first is the landing page at "/". At least one page must be the working app (list + create + delete etc. against the tables). Do not add a login page — it is added automatically when hasAuth is true.`
 
-  for (const p of [provider, ...(enhancer ? [enhancer] : [])]) {
+  for (const p of providers) {
+    const res = await safeChat(p, instruction, system, 90_000)
+    if (!res?.content) continue
     try {
-      const res = await safeChat(p, instruction, system)
-      if (!res) continue
-      const raw = res.content.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim()
-      const plan: SupabasePlan = JSON.parse(raw)
-      if (plan.tables?.length && plan.pages?.length && plan.sqlSchema) {
-        plan.pages = plan.pages.slice(0, 3)
-        plan.tables = plan.tables.slice(0, 3)
-        return plan
-      }
-    } catch {}
+      const plan = sanitizeSupabasePlan(JSON.parse(extractJsonObject(res.content)), siteName)
+      if (plan) return plan
+    } catch (e: any) {
+      console.warn(`[supabase/plan] unparseable plan from ${p.name}: ${e.message}`)
+    }
   }
 
-  return {
-    tables: [{ name: 'items', columns: [
-      { name: 'id', type: 'uuid' }, { name: 'title', type: 'text' },
-      { name: 'description', type: 'text', nullable: true }, { name: 'created_at', type: 'timestamptz' },
-    ], access: 'public_read' }],
+  // Every planner failed — a generic but fully working items app
+  return sanitizeSupabasePlan({
+    tables: [{ name: 'items', access: 'public_write', columns: [
+      { name: 'title', type: 'text', nullable: false }, { name: 'description', type: 'text' },
+    ] }],
     pages: [
-      { file: 'Home.jsx', title: 'Home', path: '/', description: 'Landing page with hero and features' },
-      { file: 'Items.jsx', title: `${siteName} Items`, path: '/items', description: 'Browse and manage items' },
-      { file: 'About.jsx', title: 'About', path: '/about', description: 'About page' },
+      { file: 'Home.jsx', title: 'Home', path: '/', description: 'Landing page with hero, features, how it works and a call to action' },
+      { file: 'Items.jsx', title: 'Items', path: '/items', description: 'Browse, add and delete items stored in the items table' },
     ],
-    hasAuth: false,
-    sqlSchema: `CREATE TABLE IF NOT EXISTS items (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  title text NOT NULL,
-  description text,
-  created_at timestamptz DEFAULT now()
-);
-ALTER TABLE items ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "public_read" ON items FOR SELECT USING (true);
-CREATE POLICY "public_insert" ON items FOR INSERT WITH CHECK (true);`,
-  }
+  }, siteName)!
 }
 
-function supabaseScaffoldFiles(siteName: string): ParsedChange[] {
-  const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+const SUPABASE_ACCESS_TEXT: Record<SupabaseAccess, string> = {
+  public_write: 'any visitor can read, create, update and delete rows (no sign-in needed)',
+  public_read: 'any visitor can READ; only signed-in users can create/update/delete',
+  auth_required: 'signed-in users only — each user sees and edits ONLY their own rows (row-level security on user_id)',
+}
 
-  const supabaseLib = [
-    "import { createClient } from '@supabase/supabase-js'",
-    '',
-    'const supabaseUrl = import.meta.env.VITE_SUPABASE_URL',
-    'const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY',
-    '',
-    "if (!supabaseUrl || !supabaseAnonKey) console.warn('[Supabase] env vars not set — data calls will fail')",
-    '',
-    'export const supabase = createClient(supabaseUrl, supabaseAnonKey)',
-    '',
-  ].join('\n')
+function supabaseDataContract(plan: SupabasePlan): string {
+  const lines = plan.tables.map((t) => {
+    const cols = [
+      'id (uuid, auto)', 'created_at (timestamptz, auto)',
+      ...(t.access === 'auth_required' ? ['user_id (uuid, set automatically to the signed-in user — never send it)'] : []),
+      ...t.columns.map((c) => `${c.name} (${c.type}${c.nullable === false ? ', REQUIRED' : ''})`),
+    ]
+    return `• ${t.name} — ${SUPABASE_ACCESS_TEXT[t.access]}\n    columns: ${cols.join(', ')}`
+  }).join('\n')
+  const t0 = plan.tables[0].name
+  const auth = plan.hasAuth
+    ? `\n\nAUTH (Supabase Auth, email + password, email confirmation is OFF so sign-up signs the user in immediately):
+import { useSession } from '../lib/useSession'   →   const { user, loading } = useSession()
+supabase.auth.signUp({ email, password }) · supabase.auth.signInWithPassword({ email, password }) · supabase.auth.signOut()
+When a page needs a user and user is null, show a friendly prompt with <Link to="/login">Sign in</Link> instead of the data.`
+    : ''
+  return `SUPABASE DATA CONTRACT — the database ALREADY EXISTS with exactly these tables. Use ONLY these table and column names, spelled exactly:
+${lines}
 
-  const packageJson = JSON.stringify({
-    name: slug, private: true, version: '0.0.1', type: 'module',
-    scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
-    dependencies: {
-      '@supabase/supabase-js': '^2.44.0',
-      react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1',
-    },
-    devDependencies: { '@vitejs/plugin-react': '^4.3.1', vite: '^5.4.0' },
-  }, null, 2)
+ACCESS PATTERN (copy it):
+import { supabase } from '../lib/supabase'
+const { data, error } = await supabase.from('${t0}').select('*').order('created_at', { ascending: false })
+const { data: row, error } = await supabase.from('${t0}').insert([{ /* columns */ }]).select().single()
+const { error } = await supabase.from('${t0}').update({ /* columns */ }).eq('id', id)
+const { error } = await supabase.from('${t0}').delete().eq('id', id)
+After a successful insert/update/delete, update local state so the UI changes instantly. Always check \`error\` and show error.message to the user.${auth}`
+}
 
-  const viteConfig = [
-    "import { defineConfig } from 'vite'",
-    "import react from '@vitejs/plugin-react'",
-    '',
-    'export default defineConfig({',
-    '  plugins: [react()],',
-    "  resolve: { dedupe: ['react', 'react-dom'] },",
-    '})',
-    '',
-  ].join('\n')
+const SUPABASE_SYSTEM = `You are a senior React engineer writing one file of a production React 18 + Supabase app (Vite, react-router-dom v6, plain JavaScript JSX).
+
+HARD RULES — breaking any of them breaks the build or the app:
+1. Output exactly ONE file wrapped in <file path="...">…</file>. No markdown fences, no commentary.
+2. Data ONLY through the Supabase client: import { supabase } from '../lib/supabase'. Never axios, never fetch('/api/…'), never an Express/Node backend, never a service-role key.
+3. Use ONLY the tables and columns in the SUPABASE DATA CONTRACT, spelled exactly.
+4. Every query: loading + error state via useState, try/catch, check the returned \`error\`, render a loading skeleton, a friendly empty state and a readable error message.
+5. Styling: descriptive semantic className strings only (e.g. "note-card", "notes-grid"). NO Tailwind utility classes, NO <style> tags, NO CSS imports — one global stylesheet styles everything.
+6. React: hooks only at the top level of components; effects that subscribe or add listeners return a cleanup; every list item has key={row.id}.
+7. Internal navigation uses <Link>/<NavLink>/useNavigate from react-router-dom — never <a href> for internal routes.
+8. Only these packages exist: react, react-dom, react-router-dom, recharts, and Supabase via '../lib/supabase'. Import nothing else.
+9. The component is the file's default export.`
+
+/** Run an AI call while posting a "still working" line every 30s, so a slow
+ *  model never looks like a frozen build. */
+async function withHeartbeat<T>(work: Promise<T>, beat: (secs: number) => unknown, everyMs = 30_000): Promise<T> {
+  const started = Date.now()
+  const timer = setInterval(() => {
+    Promise.resolve(beat(Math.round((Date.now() - started) / 1000))).catch(() => {})
+  }, everyMs)
+  try { return await work } finally { clearInterval(timer) }
+}
+
+function supabaseScaffoldFiles(plan: SupabasePlan, siteName: string): ParsedChange[] {
+  const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'supabase-app'
+  const comp = (p: SupabasePage) => p.file.replace(/\.jsx$/, '')
+  const nav = plan.pages.filter((p) => p.path !== '/login')
+  const jsStr = (s: string) => JSON.stringify(s)
+
+  const supabaseLib = `import { createClient } from '@supabase/supabase-js'
+
+const url = import.meta.env.VITE_SUPABASE_URL
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Sites hosted inside a shared Supabase project keep their tables in their own schema.
+const schema = import.meta.env.VITE_SUPABASE_SCHEMA || 'public'
+
+export const isSupabaseConfigured = Boolean(url && key)
+if (!isSupabaseConfigured) {
+  console.warn('[Supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not set — data calls will fail until they are')
+}
+
+// createClient throws on an empty URL, which would blank the whole app — a
+// placeholder keeps every page rendering (queries then return an error the UI shows).
+export const supabase = createClient(url || 'https://placeholder.supabase.co', key || 'placeholder-anon-key', {
+  db: { schema },
+})
+`
+
+  const useSession = `import { useEffect, useState } from 'react'
+import { supabase } from './supabase'
+
+/** Current Supabase Auth session, kept in sync with sign-in / sign-out. */
+export function useSession() {
+  const [session, setSession] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return
+      setSession(data.session)
+      setLoading(false)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => setSession(next))
+    return () => {
+      active = false
+      sub.subscription.unsubscribe()
+    }
+  }, [])
+
+  return { session, user: session?.user ?? null, loading }
+}
+`
+
+  const app = `import { useEffect, useState } from 'react'
+import { Routes, Route, NavLink, Link, useLocation } from 'react-router-dom'
+${plan.pages.map((p) => `import ${comp(p)} from './pages/${p.file}'`).join('\n')}
+${plan.hasAuth ? "import { supabase } from './lib/supabase'\nimport { useSession } from './lib/useSession'\n" : ''}
+const BRAND = ${jsStr(plan.name)}
+const NAV = [
+${nav.map((p) => `  { to: ${jsStr(p.path)}, label: ${jsStr(p.title)} },`).join('\n')}
+]
+
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  return null
+}
+
+function NotFound() {
+  return (
+    <section className="section not-found">
+      <div className="container section-head">
+        <span className="eyebrow">404</span>
+        <h1>Page not found</h1>
+        <p>The page you are looking for does not exist.</p>
+        <Link to="/" className="btn btn-primary">Back home</Link>
+      </div>
+    </section>
+  )
+}
+
+export default function App() {
+  const [scrolled, setScrolled] = useState(false)
+${plan.hasAuth ? '  const { user } = useSession()\n' : ''}
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 60)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  return (
+    <div className="app-shell">
+      <ScrollToTop />
+      <header className={\`site-header\${scrolled ? ' scrolled' : ''}\`}>
+        <Link to="/" className="nav-brand">
+          <span className="brand-mark" aria-hidden="true">${plan.brand.emoji}</span>
+          <span className="brand-name">{BRAND}</span>
+        </Link>
+        <nav className="nav-links" aria-label="Main navigation">
+          {NAV.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => (isActive ? 'active' : undefined)}>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+${plan.hasAuth
+    ? `        {user
+          ? <button type="button" className="nav-cta" onClick={() => supabase.auth.signOut()}>Sign out</button>
+          : <Link to="/login" className="nav-cta">Sign in</Link>}`
+    : `        <Link to=${jsStr(plan.brand.ctaPath)} className="nav-cta">${plan.brand.ctaLabel.replace(/[<>{}]/g, '')}</Link>`}
+      </header>
+
+      <main className="site-main">
+        <Routes>
+${plan.pages.map((p) => `          <Route path=${jsStr(p.path)} element={<${comp(p)} />} />`).join('\n')}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </main>
+
+      <footer className="site-footer">
+        <div className="container footer-grid">
+          <div className="footer-brand">
+            <Link to="/" className="footer-logo">${plan.brand.emoji} {BRAND}</Link>
+            <p className="footer-desc">${(plan.brand.tagline || `${plan.name} — built for you.`).replace(/[<>{}]/g, '')}</p>
+          </div>
+          <div className="footer-col">
+            <h4 className="footer-col-title">Explore</h4>
+            <ul className="footer-col-links">
+              {NAV.map((item) => <li key={item.to}><Link to={item.to}>{item.label}</Link></li>)}
+            </ul>
+          </div>
+        </div>
+        <div className="container footer-bottom">
+          <span>© {new Date().getFullYear()} {BRAND}. All rights reserved.</span>
+        </div>
+      </footer>
+    </div>
+  )
+}
+`
+
+  const mainJsx = `import './index.css'
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import App from './App.jsx'
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>,
+)
+
+// Scroll-reveal: add .visible to .reveal elements as they enter the viewport
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target) } })
+}, { threshold: 0.12 })
+const wire = () => document.querySelectorAll('.reveal:not(.visible)').forEach((el) => observer.observe(el))
+wire()
+new MutationObserver(wire).observe(document.getElementById('root'), { childList: true, subtree: true })
+`
 
   const indexHtml = [
     '<!doctype html>',
@@ -5627,11 +6001,11 @@ function supabaseScaffoldFiles(siteName: string): ParsedChange[] {
     '  <head>',
     '    <meta charset="UTF-8" />',
     '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
-    `    <title>${siteName}</title>`,
-    '    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>" />',
+    `    <title>${plan.name.replace(/[<>&]/g, '')}</title>`,
+    `    <meta name="description" content="${(plan.brand.tagline || plan.name).replace(/["<>&]/g, '')}" />`,
+    `    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>${plan.brand.emoji}</text></svg>" />`,
     '    <link rel="preconnect" href="https://fonts.googleapis.com" />',
     '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
-    '    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />',
     `    <style>${HAMBURGER_CSS}</style>`,
     '  </head>',
     '  <body>',
@@ -5644,45 +6018,123 @@ function supabaseScaffoldFiles(siteName: string): ParsedChange[] {
     '',
   ].join('\n')
 
-  const mainJsx = [
-    "import React from 'react'",
-    "import ReactDOM from 'react-dom/client'",
-    "import { BrowserRouter } from 'react-router-dom'",
-    "import App from './App.jsx'",
-    "import './index.css'",
-    '',
-    "ReactDOM.createRoot(document.getElementById('root')).render(",
-    '  <React.StrictMode>',
-    '    <BrowserRouter>',
-    '      <App />',
-    '    </BrowserRouter>',
-    '  </React.StrictMode>,',
-    ')',
-    '',
-  ].join('\n')
+  const packageJson = JSON.stringify({
+    name: slug, private: true, version: '0.1.0', type: 'module',
+    scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
+    dependencies: {
+      '@supabase/supabase-js': '^2.44.0',
+      react: '^18.3.1', 'react-dom': '^18.3.1', 'react-router-dom': '^6.23.1', recharts: '^2.12.7',
+    },
+    devDependencies: { '@vitejs/plugin-react': '^4.3.1', vite: '^5.4.0' },
+  }, null, 2) + '\n'
+
+  const viteConfig = `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: { dedupe: ['react', 'react-dom'] },
+})
+`
+
+  const readme = `# ${plan.name}
+
+React + Vite front end with a Supabase (PostgreSQL) backend — generated by ForgeAI.
+
+## Run locally
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+The Supabase URL and anon key live in \`.env.local\` (see \`.env.example\`). The anon
+key is safe in the browser: every table has row-level security enabled.
+
+## Database
+
+${plan.tables.map((t) => `- **${t.name}** — ${SUPABASE_ACCESS_TEXT[t.access]}: ${t.columns.map((c) => c.name).join(', ')}`).join('\n')}
+`
 
   return [
-    { path: 'src/lib/supabase.js', content: supabaseLib },
     { path: 'package.json', content: packageJson },
     { path: 'vite.config.js', content: viteConfig },
     { path: 'index.html', content: indexHtml },
+    { path: '.gitignore', content: 'node_modules\ndist\n.env\n.env.local\n' },
+    { path: '.env.example', content: 'VITE_SUPABASE_URL=https://your-project.supabase.co\nVITE_SUPABASE_ANON_KEY=your-anon-key\n# Only for sites hosted in a shared project:\nVITE_SUPABASE_SCHEMA=public\n' },
+    { path: 'README.md', content: readme },
     { path: 'src/main.jsx', content: mainJsx },
+    { path: 'src/App.jsx', content: app },
+    { path: 'src/lib/supabase.js', content: supabaseLib },
+    ...(plan.hasAuth ? [{ path: 'src/lib/useSession.js', content: useSession }] : []),
   ]
 }
 
-const SUPABASE_SYSTEM = `You are an expert React developer building a Supabase-powered web application.
+/** Placeholder page that always builds — used only when every AI attempt failed. */
+function supabaseFallbackPage(page: SupabasePage, plan: SupabasePlan): string {
+  const name = page.file.replace(/\.jsx$/, '')
+  return `import { Link } from 'react-router-dom'
 
-CRITICAL RULES — violating any of these fails the build:
-1. ALL data access: import { supabase } from '../lib/supabase' (adjust relative path as needed)
-   - Read:   const { data, error } = await supabase.from('table').select('*')
-   - Create: await supabase.from('table').insert([{...}])
-   - Update: await supabase.from('table').update({...}).eq('id', id)
-   - Delete: await supabase.from('table').delete().eq('id', id)
-2. NEVER use axios, fetch('/api/...'), or any Express/Node.js patterns
-3. Semantic CSS classNames only — NO Tailwind utility classes
-4. Every async op: useState for loading/error, try/catch block
-5. react-router-dom NavLink/Link for navigation, useNavigate for programmatic nav
-6. Output ONLY: <file path="src/...">...content...</file>`
+export default function ${name}() {
+  return (
+    <section className="section">
+      <div className="container section-head">
+        <span className="eyebrow">${plan.brand.emoji} ${plan.name.replace(/[<>{}]/g, '')}</span>
+        <h1>${page.title.replace(/[<>{}]/g, '')}</h1>
+        <p>${(page.description || plan.brand.tagline).replace(/[<>{}]/g, '')}</p>
+        <Link to="/" className="btn btn-primary">Back home</Link>
+      </div>
+    </section>
+  )
+}
+`
+}
+
+/** Table names a page uses that are not in the schema, plus backend patterns
+ *  that cannot work on a Supabase site — the QA pass fixes exactly these. */
+function supabaseCodeIssues(content: string, plan: SupabasePlan): string[] {
+  const known = new Set(plan.tables.map((t) => t.name))
+  const issues: string[] = []
+  for (const m of content.matchAll(/\.from\(\s*['"`]([^'"`]+)['"`]\s*\)/g)) {
+    if (!known.has(m[1])) issues.push(`queries unknown table "${m[1]}" (tables: ${[...known].join(', ')})`)
+  }
+  // Filter/sort columns must exist — PostgREST rejects the whole query otherwise
+  const columns = new Set(['id', 'created_at', 'user_id', ...plan.tables.flatMap((t) => t.columns.map((c) => c.name))])
+  for (const m of content.matchAll(/\.(?:order|eq|neq|gt|gte|lt|lte|like|ilike|is|in|contains)\(\s*['"`]([a-z_][a-z0-9_]*)['"`]/g)) {
+    if (!columns.has(m[1])) issues.push(`filters/sorts on unknown column "${m[1]}"`)
+  }
+  if (/\baxios\b/.test(content)) issues.push('uses axios — there is no REST backend, use the supabase client')
+  if (/fetch\(\s*['"`]\/api\//.test(content)) issues.push("calls fetch('/api/…') — there is no API server, use the supabase client")
+  if (/\bclass="/.test(content)) issues.push('uses class= instead of className=')
+  return [...new Set(issues)]
+}
+
+async function generateSupabaseSeed(providers: AIProvider[], plan: SupabasePlan, prompt: string): Promise<SeedRows> {
+  const tables = plan.tables.filter((t) => t.access !== 'auth_required')
+  if (!tables.length) return {}
+  const instruction = `Write realistic starter content for a brand-new "${plan.name}" app (${prompt.slice(0, 300)}).
+Return ONLY JSON: { "table_name": [ { "column": value, ... } ] } with 4-6 rows per table, for these tables:
+${tables.map((t) => `${t.name}: ${t.columns.map((c) => `${c.name} (${c.type})`).join(', ')}`).join('\n')}
+Rules: never include id, created_at or user_id; values must match the column types (ISO strings for dates, JSON arrays for text[]); specific, on-brand text — never lorem ipsum. For tables that collect visitor submissions (messages, contact, bookings, orders, sign-ups) return an empty array.`
+  for (const p of providers) {
+    const res = await safeChat(p, instruction, 'You write realistic seed data. Output ONLY valid JSON.', 90_000)
+    if (!res?.content) continue
+    try {
+      const raw = JSON.parse(extractJsonObject(res.content))
+      const seed: SeedRows = {}
+      for (const t of tables) {
+        const cols = new Set(t.columns.map((c) => c.name))
+        const rows = Array.isArray(raw?.[t.name]) ? raw[t.name] : []
+        seed[t.name] = rows
+          .filter((r: any) => r && typeof r === 'object')
+          .map((r: any) => Object.fromEntries(Object.entries(r).filter(([k]) => cols.has(k))))
+          .filter((r: any) => Object.keys(r).length)
+      }
+      return seed
+    } catch { /* try the next provider */ }
+  }
+  return {}
+}
 
 export async function generateSupabaseSite(
   provider: AIProvider,
@@ -5690,110 +6142,249 @@ export async function generateSupabaseSite(
   siteName: string,
   designBrief: string,
   log: (message: string, progress?: number) => Promise<unknown>,
-): Promise<{ files: ParsedChange[]; sqlSchema: string; summary: string }> {
+): Promise<{ files: ParsedChange[]; plan: SupabasePlan; seed: SeedRows; summary: string }> {
   const files: ParsedChange[] = []
 
-  // Provider order: Gemini generates pages (fast, free), Claude polishes styling.
-  // Falls back gracefully when either key is absent.
-  let genProvider: AIProvider = provider
-  let genEnhancer: AIProvider | null = createEnhancer()
-  try {
-    const gk = process.env.GEMINI_API_KEY
-    if (gk && !gk.includes('...')) genProvider = createProvider('gemini')
-  } catch { /* keep passed provider */ }
+  // Gemini (free) writes the pages; Claude is the fallback writer and the QA
+  // pass. When Gemini's free quota is spent, Claude takes over immediately
+  // instead of every file first burning retries against a guaranteed 429.
+  let gemini: AIProvider | null = null
+  try { if (geminiKey()) gemini = createProvider('gemini') } catch { /* no key */ }
+  let claude: AIProvider | null = null
   try {
     const ak = process.env.ANTHROPIC_API_KEY
-    if (ak && !ak.includes('...')) genEnhancer = createProvider('claude')
-  } catch { /* no claude enhancer */ }
+    if (ak && !ak.includes('...')) claude = createProvider('claude')
+  } catch { /* no claude */ }
+  // Set when Gemini times out: an overloaded model stays slow for minutes, so
+  // the rest of this build goes to Claude first instead of waiting it out per file.
+  let geminiDemoted = false
+  const writers = (): AIProvider[] => {
+    const order = gemini && geminiAvailable() && !geminiDemoted ? [gemini, claude] : [claude, gemini]
+    const list = order.filter((p): p is AIProvider => !!p)
+    return list.length ? list : [provider]
+  }
 
   const pack = selectPack(designBrief)
-  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n`
+  const packCss = getPackCss(pack)
+  const uiNote = getReactPackPromptNote().replace(/client\/src\//g, 'src/')
+  const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n${uiNote}\n\n`
 
-  await log('🧠 Planning Supabase schema + pages…', 10)
-  const plan = await planSupabaseSite(genProvider, prompt, siteName, genEnhancer)
-  await log(`📐 Tables: ${plan.tables.map(t => t.name).join(', ')} | Pages: ${plan.pages.map(p => p.file).join(', ')}`)
-
-  const schemaRef = plan.tables.map(t =>
-    `Table "${t.name}": ${t.columns.map(c => `${c.name} (${c.type})`).join(', ')}`
-  ).join('\n')
-
-  const contract = `SUPABASE SCHEMA (use EXACTLY these table/column names):\n${schemaRef}\n\nData pattern: import { supabase } from '../lib/supabase' then supabase.from('tableName').select/insert/update/delete`
-
-  const gen = async (instruction: string, expectPath: string): Promise<boolean> => {
+  /** One file from the AI: provider fallback, Tailwind nudge, heartbeat. */
+  const ask = async (instruction: string, expectPath: string, label: string): Promise<string | null> => {
     const isJsx = expectPath.endsWith('.jsx')
-    let nudge = ''
-    for (const p of [genProvider, ...(genEnhancer ? [genEnhancer] : [])]) {
-      const maxAttempts = p === genProvider ? 3 : 2
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        // Explicit wrapper reminder so the model uses <file> tags, not markdown fences
-        const wrapped = `${instruction}${nudge}\n\nIMPORTANT: Wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag — no markdown fences around it.`
-        const res = await safeChat(p, wrapped, SUPABASE_SYSTEM, 120_000)
+    for (const p of writers()) {
+      let nudge = ''
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const wrapped = `${instruction}${nudge}\n\nIMPORTANT: wrap your ENTIRE response in exactly one <file path="${expectPath}"> tag — no markdown fences around it.`
+        const res = await withHeartbeat(
+          safeChat(p, wrapped, SUPABASE_SYSTEM, 150_000),
+          (s) => log(`⏳ Still writing ${label} with ${p.name.split('+')[0]} (${s}s)…`),
+        )
         if (!res) {
-          const lastErr = (safeChat as any)._lastError ?? 'no error info'
-          console.warn(`[gen] null response for ${expectPath} provider=${p?.constructor?.name ?? typeof p} attempt=${attempt} error=${lastErr}`)
-          if (attempt === 0) await log(`⚠️ AI error on ${expectPath.split('/').pop()} (attempt ${attempt+1}): ${lastErr.slice(0, 120)}`)
-          await sleep(attempt === 0 ? 5000 : 10000)
+          const lastErr = String((safeChat as any)._lastError ?? 'no response')
+          console.warn(`[supabase/gen] ${expectPath} via ${p.name} attempt ${attempt + 1} failed: ${lastErr.slice(0, 200)}`)
+          // A spent quota or an overloaded model won't recover on an immediate
+          // retry — go straight to the next provider
+          if (/quota|rate limit|429|credit/i.test(lastErr)) break
+          if (/timed out/i.test(lastErr)) {
+            if (p === gemini && claude) geminiDemoted = true
+            break
+          }
+          await sleep(3000)
           continue
         }
         const parsed = parseAIChanges(res.content)
-        const file = parsed.find(f => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase()) ?? parsed[0]
-        if (file?.content?.trim()) {
-          if (isJsx && attempt === 0 && looksTailwind(file.content)) {
-            nudge = '\n\nNO TAILWIND — use semantic className strings only. Rewrite with descriptive class names the stylesheet can target.'
-            await log(`🎨 ${expectPath.split('/').pop()} used Tailwind — regenerating with semantic classes`)
-            await sleep(3000)
-            continue
-          }
-          const content = isJsx ? sanitizeJsx(file.content) : file.content
-          files.push({ path: expectPath, content })
-          return true
+        const file = parsed.find((f) => f.path.replace(/\\/g, '/').toLowerCase() === expectPath.toLowerCase()) ?? parsed[0]
+        const body = file?.content?.trim()
+          ? file.content
+          : (!/<file\b/.test(res.content) && res.content.trim().length > 200 ? stripCodeFence(res.content.trim()) : '')
+        if (!body.trim()) { await sleep(1500); continue }
+        if (isJsx && attempt === 0 && looksTailwind(body)) {
+          nudge = '\n\nYOUR LAST ATTEMPT USED TAILWIND UTILITY CLASSES — this project has NO Tailwind, so they render unstyled. Rewrite the SAME content using ONLY descriptive semantic classNames (e.g. "hero", "note-card", "notes-grid", "section-title").'
+          await log(`🎨 ${label} used Tailwind — regenerating with semantic classes`)
+          continue
         }
-        console.warn(`[gen] no valid file tag in response for ${expectPath} attempt=${attempt} content_len=${res.content?.length ?? 0} preview=${res.content?.slice(0,200)}`)
-        await sleep(3000)
+        if (p === claude && gemini) await log(`🤖 Claude wrote ${label} (Gemini unavailable)`)
+        return isJsx ? sanitizeJsx(body) : body
       }
     }
-    await log(`⚠️ Could not generate ${expectPath}`)
-    return false
+    return null
   }
 
-  // Static scaffold (configs, lib/supabase.js, main.jsx, index.html)
-  files.push(...supabaseScaffoldFiles(siteName))
-  await log('📦 Scaffold written', 15)
+  // ── Plan ──
+  await log('🧠 Planning the Supabase schema and pages…', 12)
+  const plan = await withHeartbeat(planSupabaseSite(writers(), prompt, siteName), (s) => log(`⏳ Still planning (${s}s)…`))
+  await log(`📐 Tables: ${plan.tables.map((t) => `${t.name} (${t.access.replace('_', ' ')})`).join(', ')} | Pages: ${plan.pages.map((p) => p.file).join(', ')}${plan.hasAuth ? ' | with sign-in' : ''}`, 15)
+
+  const contract = supabaseDataContract(plan)
+
+  // Deterministic scaffold: configs, Supabase client, App shell with routing
+  files.push(...supabaseScaffoldFiles(plan, siteName))
+  for (const f of getReactPackFiles()) files.push({ path: f.path.replace(/^client\/src\//, 'src/'), content: f.content })
+  const appJsx = files.find((f) => f.path === 'src/App.jsx')!.content
+  await log('📦 Scaffold, Supabase client and app shell written', 18)
 
   // ── Pages ──
-  let pct = 18
-  for (const page of plan.pages) {
-    await log(`🎨 Generating ${page.file}…`, (pct += Math.floor(42 / plan.pages.length)))
-    await sleep(3000)
-    await gen(
-      `${briefBlock}${contract}\n\nGenerate src/pages/${page.file} — ${page.description}.\nTables available: ${plan.tables.map(t => t.name).join(', ')}.\nRich UI: loading skeleton, empty-state, error message, responsive layout.`,
+  const span = 40 / plan.pages.length
+  for (const [i, page] of plan.pages.entries()) {
+    const label = page.file
+    await log(`🎨 Generating ${label} (${i + 1}/${plan.pages.length})…`, Math.round(20 + i * span))
+    const isLanding = page.path === '/'
+    const isLogin = page.path === '/login'
+    const richness = isLanding
+      ? 'This is the LANDING page — long and impressive like a real product homepage. Include IN ORDER: (1) a full hero (eyebrow + big headline with ONE <span className="gradient-text"> accent word + subhead + two CTAs as <Link className="btn btn-primary"> / <Link className="btn btn-secondary">), then AT LEAST FIVE more <section className="section"> blocks that fit the product — e.g. a feature grid (grid-3 of feature-card), how it works (steps), a LIVE preview of real data from the database (latest few rows, with loading/empty states), testimonials, an FAQ and a final cta-section. Every section wraps its content in <div className="container"> with a section-head (eyebrow + h2 + intro). Add className="reveal" to sections for scroll animations.'
+      : isLogin
+        ? 'This is the SIGN-IN page: a centered auth card with tabs or a toggle between "Sign in" and "Create account", email + password fields, a submit button with a loading state, error/success alerts, and navigate("/") after success. If the user is already signed in, show who is signed in and a Sign out button.'
+        : 'Start with a compact page hero (eyebrow + h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content. If this page manages data, build the full working experience: create form (with validation, disabled submit + "Saving…" while pending, success feedback, reset on success), a list/grid of rows (newest first) with delete (confirm first) and edit where it makes sense, plus loading skeleton, empty state and error alert.'
+    const content = await ask(
+      `${briefBlock}${contract}\n\nAPP SHELL (already written — pages render INSIDE <main>; do NOT render a header, nav or footer):\n\`\`\`jsx\n${appJsx.slice(0, 2500)}\n\`\`\`\n\nGenerate src/pages/${page.file} — "${page.title}" at ${page.path}: ${page.description}\nOriginal request: ${prompt.slice(0, 400)}\n\n${richness}\n\nWrite REAL, specific, on-brand copy — never lorem ipsum, "..." or TODO. Use https://picsum.photos/seed/{word}/{w}/{h} for any photo not in the PHOTO LIBRARY. Export default function ${page.file.replace(/\.jsx$/, '')}.`,
       `src/pages/${page.file}`,
+      label,
     )
-    await sleep(5000)
+    if (content) {
+      files.push({ path: `src/pages/${page.file}`, content })
+    } else {
+      files.push({ path: `src/pages/${page.file}`, content: supabaseFallbackPage(page, plan) })
+      await log(`⚠️ Could not generate ${label} — inserted a simple placeholder page so the site still builds`)
+    }
   }
 
-  // ── App.jsx ──
-  await log('⚙️ Generating App.jsx + routing…', 72)
-  const routeLines = plan.pages.map(p => `<Route path="${p.path}" element={<${p.file.replace('.jsx', '')} />} />`).join('\n        ')
-  const importLines = plan.pages.map(p => `import ${p.file.replace('.jsx', '')} from './pages/${p.file}'`).join('\n')
-  await gen(
-    `${briefBlock}${contract}\n\nGenerate src/App.jsx.\n${importLines}\nUse react-router-dom Routes:\n${routeLines}\nInclude: sticky header (className="site-header") with nav-brand + nav-links + nav-cta, footer, scroll-to-top on route change.`,
-    'src/App.jsx',
-  )
+  // ── Import sanity: Vite fails the WHOLE build on one unresolvable import ──
+  stripHallucinatedPackageImports(files, 'src', ['@supabase/supabase-js'])
+  const exists = (p: string) => files.some((f) => f.path === p)
+  const resolveSpec = (from: string, spec: string): string | null => {
+    const base = path.posix.normalize(path.posix.join(path.posix.dirname(from), spec))
+    return [base, `${base}.jsx`, `${base}.js`, `${base}.ts`, `${base}.tsx`, `${base}/index.jsx`, `${base}/index.js`, `${base}/index.ts`].find(exists) ?? null
+  }
+  for (const f of files.filter((x) => /^src\/.+\.jsx$/.test(x.path))) {
+    const lines = f.content.split('\n')
+    let changed = false
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^\s*import\b[^'"]*['"](\.{1,2}\/[^'"]+)['"]/.exec(lines[i])
+      if (!m || resolveSpec(f.path, m[1])) continue
+      // src/index.css is generated below — this pass runs before it exists
+      if (path.posix.normalize(path.posix.join(path.posix.dirname(f.path), m[1])) === 'src/index.css') continue
+      if (/\.(css|scss|sass|less)$/.test(m[1])) { lines[i] = ''; changed = true; continue }
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(f.path), m[1]))
+      const targetPath = /\.(jsx|js)$/.test(target) ? target : `${target}.jsx`
+      if (exists(targetPath)) continue
+      await log(`🧩 ${f.path} imports missing ${m[1]} — generating it…`)
+      const generated = await ask(
+        `${briefBlock}${contract}\n\nThe file below imports "${m[1]}", which does not exist yet:\n\`\`\`jsx\n${f.content.slice(0, 4000)}\n\`\`\`\n\nGenerate the COMPLETE ${targetPath} module it expects — match exactly how it is imported and used (default vs named exports, props).`,
+        targetPath,
+        path.posix.basename(targetPath),
+      )
+      const name = path.posix.basename(targetPath).replace(/\.(jsx|js)$/, '').replace(/[^A-Za-z0-9]/g, '') || 'Placeholder'
+      files.push({
+        path: targetPath,
+        content: generated ?? `export default function ${name}() {\n  return null\n}\n`,
+      })
+    }
+    if (changed) f.content = lines.join('\n')
+  }
 
-  // ── index.css ──
-  await log('🎨 Generating stylesheet…', 82)
-  await gen(
-    `${briefBlock}${contract}\n\nGenerate src/index.css — the complete stylesheet for "${siteName}".\nMust cover: CSS variables, reset, body/typography, .site-header, .nav-brand, .nav-links, .nav-cta, hero section, cards, forms, buttons, .loading-skeleton, .empty-state, footer, responsive @media breakpoints.\nNo Tailwind. Professional, polished, consistent with the design brief.`,
-    'src/index.css',
-  )
+  // ── Stylesheet LAST — every class used by the shell and pages gets a rule ──
+  // Foundation (design pack + component library + element baseline) → AI theme
+  // → per-file rules for exactly the classes that file uses → safety net.
+  const cssPath = 'src/index.css'
+  const cssEntry: ParsedChange = { path: cssPath, content: packCss + '\n' + getReactPackCss() + '\n' + BASE_CSS }
+  files.push(cssEntry)
+  const cssImports: string[] = []
+  const takeImports = (css: string): string => css.split('\n').filter((l) => {
+    if (!/^\s*@import\b/.test(l)) return true
+    if (!cssImports.includes(l.trim())) cssImports.push(l.trim())
+    return false
+  }).join('\n')
+  const askCss = async (instruction: string, label: string): Promise<string> => {
+    const out = await ask(`${briefBlock}${instruction}`, 'additions.css', label)
+    return out ? takeImports(stripCodeFence(out.trim())) : ''
+  }
 
-  await log('✅ Supabase site generation complete', 90)
+  await log('🎨 Generating the theme…', 62)
+  const themeCss = await askCss(
+    `App shell:\n\`\`\`jsx\n${appJsx.slice(0, 4000)}\n\`\`\`\n\nA complete design-system stylesheet is ALREADY loaded — it styles the header/nav, hero, sections, cards, buttons, grids, forms and footer from CSS variables. Your job is the :root theme that drives it, applying the DESIGN BRIEF exactly:\n1. A :root block defining ALL of: --bg, --surface, --surface-2, --text, --muted, --on-primary, --primary, --primary-hover, --secondary, --accent, --border, --radius, --radius-sm, --h1, --h2, --h3, --font-heading, --font-body (fonts from the brief; add the Google Fonts @import for them on the first line). Strong contrast between --text and --bg/--surface is non-negotiable.\n2. Polished rules for the shell classes: .app-shell, .site-main, .brand-mark, .brand-name, .footer-grid, .footer-brand, .footer-col, .footer-logo, .not-found.\nOutput as <file path="additions.css">.`,
+    'theme',
+  )
+  if (themeCss) cssEntry.content += `\n/* ── Theme & shell ── */\n${themeCss}\n`
+
+  const classesIn = (content: string): string[] => {
+    const out = new Set<string>()
+    for (const m of content.matchAll(/className="([^"]+)"/g)) for (const c of m[1].split(/\s+/)) if (c) out.add(c)
+    for (const m of content.matchAll(/className=\{`([^`]+)`\}/g)) for (const c of m[1].replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) if (/^[a-zA-Z][\w-]*$/.test(c)) out.add(c)
+    return [...out]
+  }
+  const isStyled = (cls: string) => new RegExp(`\\.${cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(cssEntry.content)
+  for (const page of files.filter((f) => /^src\/pages\/.+\.jsx$/.test(f.path))) {
+    const need = classesIn(page.content).filter((c) => !isStyled(c))
+    if (!need.length) continue
+    const name = page.path.split('/').pop()!
+    await log(`🎨 Styling ${name} (${need.length} classes)…`, 66)
+    const chunk = await askCss(
+      `The stylesheet's CSS variables:\n\`\`\`css\n${cssEntry.content.match(/:root\s*{[^}]*}/g)?.pop() ?? ''}\n\`\`\`\n\nComponent ${page.path}:\n\`\`\`jsx\n${page.content.slice(0, 8000)}\n\`\`\`\n\nWrite polished CSS rules for EXACTLY these classes (everything else is already styled):\n${need.slice(0, 150).map((c) => `.${c}`).join('\n')}\n\nReuse the CSS variables above. Include hover/focus states and responsive breakpoints. Output ONLY the new rules as <file path="additions.css">.`,
+      `styles for ${name}`,
+    )
+    if (chunk) cssEntry.content += `\n/* ── ${name} ── */\n${chunk}\n`
+  }
+
+  sanitizeCss(files, cssPath)
+  if (!process.env.SKIP_STYLE_EXTENSION) {
+    await appendMissingStyles(writers()[0], files, cssPath, ['.jsx'], SUPABASE_SYSTEM,
+      (n) => log(`🎨 ${n} class(es) still unstyled — extending index.css…`, 70))
+    sanitizeCss(files, cssPath)
+  }
+  fixBlurNavBackground(files, cssPath)
+  stackMultiFieldForms(files, cssPath)
+  cssEntry.content += `\n${FINAL_FIXES_CSS}`
+  {
+    const lines = cssEntry.content.split('\n')
+    const imports = [...new Set([...lines.filter((l) => /^\s*@import\b/.test(l)).map((l) => l.trim()), ...cssImports])]
+    if (imports.length) cssEntry.content = `${imports.join('\n')}\n\n${lines.filter((l) => !/^\s*@import\b/.test(l)).join('\n')}`
+  }
+  // Vite only bundles CSS that is imported — without this line the whole site
+  // ships unstyled, so guarantee it whatever earlier passes did to main.jsx.
+  const mainEntry = files.find((f) => f.path === 'src/main.jsx')
+  if (mainEntry && !/import\s+['"]\.\/index\.css['"]/.test(mainEntry.content)) {
+    mainEntry.content = `import './index.css'\n${mainEntry.content}`
+  }
+
+  // ── Seed rows so the site launches with content, not empty lists ──
+  await log('🌱 Writing starter content for the database…', 72)
+  const seed = await generateSupabaseSeed(writers(), plan, prompt)
+
+  await log('✅ Supabase site generation complete', 74)
   return {
     files,
-    sqlSchema: plan.sqlSchema,
-    summary: `Built "${siteName}" (Supabase) — ${plan.tables.length} table(s), ${plan.pages.length} page(s)`,
+    plan,
+    seed,
+    summary: `Built "${plan.name}" (React + Supabase) — ${plan.tables.length} table(s), ${plan.pages.length} page(s)${plan.hasAuth ? ', email sign-in' : ''}`,
   }
+}
+
+/** Claude QA for Supabase sites: only files with concrete, detected problems
+ *  (unknown tables, REST/axios calls, class=) are sent, plus append-only CSS polish. */
+async function runSupabaseQA(
+  enhancer: AIProvider,
+  files: ParsedChange[],
+  plan: SupabasePlan,
+  log: (message: string) => Promise<unknown>,
+): Promise<void> {
+  const contract = supabaseDataContract(plan)
+  const broken = files
+    .filter((f) => /^src\/(pages|components)\/.+\.jsx$/.test(f.path))
+    .map((f) => ({ f, issues: supabaseCodeIssues(f.content, plan) }))
+    .filter((x) => x.issues.length)
+  for (const { f, issues } of broken) {
+    await log(`🔍 Claude QA — fixing ${f.path}: ${issues.join('; ').slice(0, 160)}`)
+    const changed = await claudeFix(
+      enhancer, f,
+      `Fix ONLY these problems, keeping all UI, copy and styling intact:\n- ${issues.join('\n- ')}\nReturn the complete corrected file as <file path="${f.path}">.`,
+      contract,
+    )
+    const left = supabaseCodeIssues(f.content, plan)
+    await log(changed && !left.length ? `✅ QA fixed ${f.path}` : `⚠️ QA could not fully fix ${f.path}${left.length ? `: ${left.join('; ').slice(0, 120)}` : ''}`)
+  }
+  if (!broken.length) await log('✅ Claude QA — every page uses the real tables and the Supabase client correctly')
+  await claudePolishCss(enhancer, files, 'src/index.css', '', log)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6198,6 +6789,7 @@ export async function generateMernSite(
     (n) => log(`🎨 ${n} class(es) missing styles — extending index.css…`, 80))
   sanitizeCss(files, 'client/src/index.css')
   fixBlurNavBackground(files, 'client/src/index.css')
+  stackMultiFieldForms(files, 'client/src/index.css')
   // Final deterministic fixes appended LAST so they win over any generated CSS
   // (e.g. a broken .gradient-text rendering as a solid rectangle).
   cssEntry.content += `\n${FINAL_FIXES_CSS}`
@@ -6549,32 +7141,31 @@ async function runStaticQA(
 
 // ═══ BUILD-TIME SELF-CHECK ════════════════════════════════════
 // Deterministic guard: parse every generated JS/JSX file and auto-fix syntax
-// errors BEFORE the site ships, so a broken build never reaches a user. Uses the
-// already-installed TypeScript compiler as a fast JSX-aware parser (no new deps);
-// if it isn't available for any reason, validation is skipped gracefully.
-let _tsMod: any
-function getTs(): any {
-  if (_tsMod !== undefined) return _tsMod
-  try { _tsMod = require('typescript') } catch { _tsMod = null }
-  return _tsMod
+// errors BEFORE the site ships, so a broken build never reaches a user. Uses
+// esbuild — the same parser Vite builds the site with, so "parses here" means
+// "builds there". It runs as a separate native process: the TypeScript
+// compiler this replaced had to be require()d into the 120 MB production heap
+// and OOM-crashed the server mid-build. Skipped gracefully if unavailable.
+interface JsSyntaxIssue { text: string; line: number }
+
+async function jsSyntaxErrors(code: string, filePath: string): Promise<JsSyntaxIssue[]> {
+  let esbuild: typeof import('esbuild')
+  try { esbuild = require('esbuild') } catch { return [] }
+  try {
+    await esbuild.transform(code, { loader: filePath.endsWith('.jsx') ? 'jsx' : 'js', jsx: 'preserve', logLevel: 'silent' })
+    return []
+  } catch (e: any) {
+    const errs: any[] = Array.isArray(e?.errors) ? e.errors : []
+    return errs.map((x) => ({
+      text: `${x.location ? `line ${x.location.line}:${x.location.column} ` : ''}${x.text}${x.location?.lineText ? ` — \`${String(x.location.lineText).trim().slice(0, 120)}\`` : ''}`,
+      line: x.location?.line ?? 0,
+    }))
+  }
 }
 
-/** Syntax (not type) errors in a JS/JSX source; [] if clean or parser absent. */
-function jsSyntaxErrors(code: string): string[] {
-  const ts = getTs()
-  if (!ts) return []
-  try {
-    const out = ts.transpileModule(code, {
-      reportDiagnostics: true,
-      compilerOptions: {
-        jsx: ts.JsxEmit.Preserve, allowJs: true, isolatedModules: true,
-        target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext,
-      },
-    })
-    return (out.diagnostics ?? [])
-      .filter((d: any) => d.category === ts.DiagnosticCategory.Error)
-      .map((d: any) => ts.flattenDiagnosticMessageText(d.messageText, ' '))
-  } catch { return [] }
+/** Stop esbuild's background service so its process doesn't linger between builds. */
+async function stopSyntaxChecker(): Promise<void> {
+  try { await require('esbuild').stop() } catch { /* not loaded */ }
 }
 
 /** Parse every generated JS/JSX file and auto-fix any with syntax errors —
@@ -6585,26 +7176,33 @@ async function validateAndHeal(
   files: ParsedChange[],
   log: (message: string) => Promise<unknown>,
 ): Promise<void> {
-  for (const f of files.filter((x) => /\.(jsx|js)$/.test(x.path.replace(/\\/g, '/')))) {
-    let errs = jsSyntaxErrors(f.content)
-    if (!errs.length) continue
-    await log(`🧪 Syntax error in ${f.path} — auto-fixing…`)
-    for (let attempt = 0; attempt < 2 && errs.length; attempt++) {
-      const res = await safeChat(
-        provider,
-        `This file has a JavaScript/JSX SYNTAX error and will not build. Errors:\n${errs.slice(0, 6).join('\n')}\n\nHere is ${f.path}:\n\`\`\`\n${f.content}\n\`\`\`\n\nReturn the COMPLETE corrected file — same functionality, valid syntax that builds — as <file path="${f.path}">…</file>.`,
-        'You are a senior engineer fixing a build-breaking syntax error. Return only the complete corrected file, nothing else.',
-      )
-      const fixed = res
-        ? (parseAIChanges(res.content).find(
-            (x) => x.path.replace(/\\/g, '/').toLowerCase() === f.path.replace(/\\/g, '/').toLowerCase(),
-          ) ?? parseAIChanges(res.content)[0])
-        : undefined
-      if (!fixed?.content || fixed.content.trim().length < 40) break
-      const newErrs = jsSyntaxErrors(fixed.content)
-      if (newErrs.length < errs.length) { f.content = fixed.content; errs = newErrs } else break
+  try {
+    for (const f of files.filter((x) => /\.(jsx|js)$/.test(x.path.replace(/\\/g, '/')) && !/(^|\/)vite\.config\.js$/.test(x.path))) {
+      let errs = await jsSyntaxErrors(f.content, f.path)
+      if (!errs.length) continue
+      await log(`🧪 Syntax error in ${f.path} (${errs[0].text.slice(0, 140)}) — auto-fixing…`)
+      for (let attempt = 0; attempt < 2 && errs.length; attempt++) {
+        const res = await safeChat(
+          provider,
+          `This file has a JavaScript/JSX SYNTAX error and will not build. Errors:\n${errs.slice(0, 6).map((e) => e.text).join('\n')}\n\nHere is ${f.path}:\n\`\`\`\n${f.content}\n\`\`\`\n\nReturn the COMPLETE corrected file — same functionality, valid syntax that builds — as <file path="${f.path}">…</file>.`,
+          'You are a senior engineer fixing a build-breaking syntax error. Return only the complete corrected file, nothing else.',
+        )
+        const fixed = res
+          ? (parseAIChanges(res.content).find(
+              (x) => x.path.replace(/\\/g, '/').toLowerCase() === f.path.replace(/\\/g, '/').toLowerCase(),
+            ) ?? parseAIChanges(res.content)[0])
+          : undefined
+        if (!fixed?.content || fixed.content.trim().length < 40) break
+        const newErrs = await jsSyntaxErrors(fixed.content, f.path)
+        // esbuild usually stops at the first error, so "progress" means the
+        // file is clean or its first error moved further down.
+        const better = newErrs.length === 0 || (newErrs.length <= errs.length && newErrs[0].line > errs[0].line)
+        if (better) { f.content = fixed.content; errs = newErrs } else break
+      }
+      await log(errs.length ? `⚠️ ${f.path} may still have a syntax issue` : `✅ Auto-fixed ${f.path}`)
     }
-    await log(errs.length ? `⚠️ ${f.path} may still have a syntax issue` : `✅ Auto-fixed ${f.path}`)
+  } finally {
+    await stopSyntaxChecker()
   }
 }
 
@@ -6616,14 +7214,11 @@ async function buildSite(job: Job) {
   const repo = await Repository.findById(repositoryId)
   if (!repo) throw new Error('Repository not found')
 
-  let _bsResumeBackends: ((backends: Array<{ slug: string; serverDir: string }>) => void) | null = null
-  let bsPausedBackends: Array<{ slug: string; serverDir: string }> = []
+  // Releases the backend hold taken below (idempotent — set to null once used).
+  let releaseBackends: (() => void) | null = null
 
   const fail = async (message: string) => {
-    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
-      try { _bsResumeBackends(bsPausedBackends) } catch {}
-      bsPausedBackends = []
-    }
+    try { releaseBackends?.() } catch {}
     await Repository.findByIdAndUpdate(repo._id, { status: 'error', errorMessage: message })
     await Task.findByIdAndUpdate(task._id, { status: 'failed', error: message })
     task.status = 'failed'
@@ -6635,13 +7230,14 @@ async function buildSite(job: Job) {
     await updateTask(task, { status: 'running', progress: 5 }, `🏗️ Building "${siteName}" from your description…`)
 
     // Pause any running managed backends to free ~300MB+ of RSS for the
-    // AI generation pass — restored when the build completes or fails.
+    // AI generation pass — and hold them, so the boot-time restore can't
+    // relaunch them mid-build. Restored when the build completes or fails.
     {
-      const { pauseAllBackends, resumeBackends } = await import('../../lib/processManager')
-      _bsResumeBackends = resumeBackends
-      bsPausedBackends = pauseAllBackends()
-      if (bsPausedBackends.length > 0) {
-        await updateTask(task, {}, `⏸️ Paused ${bsPausedBackends.length} backend(s) to free memory for generation…`)
+      const { holdAllBackends, releaseBackendHold } = await import('../../lib/processManager')
+      const paused = holdAllBackends()
+      releaseBackends = () => { releaseBackends = null; releaseBackendHold(paused) }
+      if (paused.length > 0) {
+        await updateTask(task, {}, `⏸️ Paused ${paused.length} backend(s) to free memory for generation…`)
       }
     }
 
@@ -6794,7 +7390,11 @@ async function buildSite(job: Job) {
     }
 
     let mernAdminPwd = ''
-    let supabaseCredentials: { ref: string; url: string; anonKey: string } | null = null
+    let supabaseCredentials: SupabaseCredentials | null = null
+    let supabasePlan: SupabasePlan | null = null
+    // Started right after generation and awaited after the QA passes — the
+    // 1-3 minutes Supabase needs to boot a database overlap with that work.
+    let supabaseProvisioning: Promise<void> | null = null
     if (stack === 'mern') {
       await updateTask(task, { progress: 10 }, '🧱 Building a full-stack MERN app…')
       const result = await generateMernSite(provider, prompt, siteName, designBrief, (message, progress) =>
@@ -6817,45 +7417,55 @@ async function buildSite(job: Job) {
         await task.save()
       }
     } else if (stack === 'supabase') {
-      const supaToken = process.env.SUPABASE_ACCESS_TOKEN
-      console.log('[SUPA_DEBUG] token present:', !!supaToken, '| len:', supaToken?.length ?? 0, '| keys:', Object.keys(process.env).filter(k => k.startsWith('SUPA')))
-      const { isSupabaseConfigured } = await import('../../lib/supabaseProvisioner')
       if (!isSupabaseConfigured()) {
         return await fail('Supabase mode requires SUPABASE_ACCESS_TOKEN in .env — add your Supabase personal access token (supabase.com → Account → Access Tokens).')
       }
       await updateTask(task, { progress: 10 }, '⚡ Building Supabase full-stack app…')
       const result = await generateSupabaseSite(provider, prompt, siteName, designBrief,
         (message, progress) => updateTask(task, progress ? { progress } : {}, message))
-      if (!result.files.some((f) => f.path === 'src/App.jsx')) {
-        return await fail('The AI could not generate the React app shell — please try again.')
-      }
       generated.push(...result.files)
       summaryLine = result.summary
-
-      // Provision Supabase backend and run SQL migrations
-      await updateTask(task, { progress: 65 }, '🔌 Provisioning Supabase backend (takes ~60s)…')
-      try {
-        const { provisionSupabaseProject, runSupabaseMigrations } = await import('../../lib/supabaseProvisioner')
-        const slugBase = siteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20)
-        const creds = await provisionSupabaseProject(slugBase)
-        await runSupabaseMigrations(creds.ref, result.sqlSchema)
-        supabaseCredentials = creds
-
-        // Persist credentials so deploy step can inject them into the Vite build env
-        repo.set('builderEnv', { VITE_SUPABASE_URL: creds.url, VITE_SUPABASE_ANON_KEY: creds.anonKey })
-
-        // Write .env.local for local dev (gitignored)
-        fs.writeFileSync(
-          path.join(sitePath, '.env.local'),
-          `VITE_SUPABASE_URL=${creds.url}\nVITE_SUPABASE_ANON_KEY=${creds.anonKey}\n`,
-        )
-        task.metadata = { ...task.metadata as object, supabaseRef: creds.ref, supabaseUrl: creds.url }
-        task.markModified('metadata')
-        await task.save()
-        await updateTask(task, { progress: 68 }, `✅ Supabase project live — ${creds.url}`)
-      } catch (e: any) {
-        await updateTask(task, {}, `⚠️ Supabase provisioning failed: ${e.message} — set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY manually before deploying`, 'warn')
+      supabasePlan = result.plan
+      task.metadata = {
+        ...task.metadata,
+        buildReport: {
+          ...((task.metadata as any)?.buildReport ?? {}),
+          plan: { name: result.plan.name, tables: result.plan.tables, pages: result.plan.pages, hasAuth: result.plan.hasAuth },
+        },
       }
+      task.markModified('metadata')
+
+      // Database: a dedicated project (or a schema in the shared one), the
+      // tables + RLS policies + starter rows, then a live REST check.
+      const plan = result.plan
+      supabaseProvisioning = (async () => {
+        await updateTask(task, { progress: 76 }, '🔌 Provisioning the Supabase database (1–3 min for a new project)…')
+        try {
+          const creds = await provisionSupabaseProject(siteName, (m) => updateTask(task, {}, m))
+          await updateTask(task, { progress: 80 }, `🗄️ Database up at ${creds.url}${creds.shared ? ` (schema ${creds.schema})` : ''} — creating tables, security policies and starter content…`)
+          const migration = await runSupabaseMigrations(creds, plan.tables, { seed: result.seed, hasAuth: plan.hasAuth, log: (m) => updateTask(task, {}, m) })
+          supabaseCredentials = creds
+          // Deploys bake every VITE_* value into the Vite build
+          repo.set('builderEnv', {
+            VITE_SUPABASE_URL: creds.url,
+            VITE_SUPABASE_ANON_KEY: creds.anonKey,
+            ...(creds.schema !== 'public' ? { VITE_SUPABASE_SCHEMA: creds.schema } : {}),
+          })
+          fs.writeFileSync(
+            path.join(sitePath, '.env.local'),
+            `VITE_SUPABASE_URL=${creds.url}\nVITE_SUPABASE_ANON_KEY=${creds.anonKey}\n${creds.schema !== 'public' ? `VITE_SUPABASE_SCHEMA=${creds.schema}\n` : ''}`,
+          )
+          task.metadata = { ...task.metadata as object, supabaseRef: creds.ref, supabaseUrl: creds.url, supabaseSchema: creds.schema }
+          task.markModified('metadata')
+          if (migration.ok) {
+            await updateTask(task, { progress: 84 }, `✅ Supabase backend live and verified — every table answers through the REST API (${plan.tables.map((t) => t.name).join(', ')})`)
+          } else {
+            await updateTask(task, { progress: 84 }, `⚠️ Supabase is up but the schema check reported problems: ${migration.errors.join(' | ').slice(0, 500)}`, 'warn')
+          }
+        } catch (e: any) {
+          await updateTask(task, {}, `⚠️ Supabase provisioning failed: ${e.message} — set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY manually before deploying`, 'warn')
+        }
+      })()
     } else {
       // A rebuild must out-do the site it replaces, so the generator is told
       // exactly how rich the original is (pages, imagery, its own sections).
@@ -6884,16 +7494,20 @@ async function buildSite(job: Job) {
     await validateAndHeal(provider, generated, (m) => updateTask(task, {}, m))
 
     // ── Claude QA / enhancement pass (targeted, best-effort) ──
+    // Supabase builds already lean on Claude as the fallback writer, so its QA
+    // runs whenever the key exists, even without ENHANCER_AI_PROVIDER.
     const enhancer = createEnhancer()
+      ?? (stack === 'supabase' && resolveProvider('claude') === 'claude' ? createProvider('claude') : null)
     if (enhancer) {
       await updateTask(task, {}, '✨ Claude QA pass — reviewing every page, routes & data layer…')
       if (stack === 'mern') await runMernQA(enhancer, generated, (m) => updateTask(task, {}, m))
-      else if (stack === 'supabase') await runMernQA(enhancer, generated, (m) => updateTask(task, {}, m))
+      else if (stack === 'supabase' && supabasePlan) await runSupabaseQA(enhancer, generated, supabasePlan, (m) => updateTask(task, {}, m))
       else await runStaticQA(enhancer, generated, (m) => updateTask(task, {}, m))
       await updateTask(task, {}, '✅ Claude QA pass complete')
     } else {
       await updateTask(task, {}, 'ℹ️ Claude QA pass skipped (enhancer key not configured) — shipping the free-stack build')
     }
+    if (supabaseProvisioning) await supabaseProvisioning
 
     // ── Post-QA hardening ── runs after ALL AI passes so nothing can reintroduce
     // the two most common deploy-breaking bugs: @import mid-file and a broken ui.jsx
@@ -6924,8 +7538,10 @@ async function buildSite(job: Job) {
       fs.mkdirSync(path.dirname(abs), { recursive: true })
       fs.writeFileSync(abs, file.content, 'utf-8')
       allChanges.push({ path: file.path, before: '', after: file.content, ...diffStats('', file.content) })
-      await updateTask(task, {}, `✨ Created ${file.path} (${file.content.length} chars)`)
+      // Logged in one save below — a Mongo round-trip per file added ~15s to big builds
+      task.logs.push({ level: 'info', message: `✨ Created ${file.path} (${file.content.length} chars)`, timestamp: new Date() })
     }
+    await updateTask(task, {}, `💾 Wrote ${allChanges.length} file(s) to the workspace`)
 
     // ── SEO injection (static sites only) ──
     if (stack !== 'mern' && stack !== 'supabase') {
@@ -7042,7 +7658,7 @@ async function buildSite(job: Job) {
     }
 
     // ── Local git history ──
-    await updateTask(task, { progress: 55 }, '📦 Initializing git repository…')
+    await updateTask(task, { progress: Math.max(task.progress ?? 0, 86) }, '📦 Initializing git repository…')
     // GIT_CEILING_DIRECTORIES prevents git from walking up to the parent ForgeAI
     // checkout and accidentally picking up its objects as delta bases when packing.
     const git = simpleGit(sitePath).env({ ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(sitePath) })
@@ -7078,7 +7694,7 @@ async function buildSite(job: Job) {
     const serverGithubToken = process.env.GITHUB_TOKEN
     const githubToken = userGithubToken || serverGithubToken
     if (githubToken) {
-      await updateTask(task, { progress: 70 }, '🐙 Creating GitHub repository…')
+      await updateTask(task, { progress: Math.max(task.progress ?? 0, 90) }, '🐙 Creating GitHub repository…')
       let activeToken = githubToken
       const headers = { Authorization: `token ${activeToken}`, Accept: 'application/vnd.github+json' }
       let ghRepo: any
@@ -7133,7 +7749,7 @@ async function buildSite(job: Job) {
       } else if (!ghRepo.full_name?.includes('/')) {
         await updateTask(task, {}, `GitHub returned an unexpected repo structure (full_name="${ghRepo.full_name}") — site saved locally only.`, 'warn')
       } else {
-        await updateTask(task, { progress: 82 }, `⬆️ Pushing code to ${ghRepo.full_name}…`)
+        await updateTask(task, { progress: Math.max(task.progress ?? 0, 94) }, `⬆️ Pushing code to ${ghRepo.full_name}…`)
         try {
           // Use GitHub Trees API instead of git push to avoid thin-pack delta
           // issues caused by the generated site repo living inside the ForgeAI
@@ -7141,7 +7757,7 @@ async function buildSite(job: Job) {
           const [owner, repoName] = ghRepo.full_name.split('/')
 
           // Collect all files on disk (skip secrets and build artifacts)
-          const PUSH_SKIP = new Set(['.git', 'node_modules', 'dist', '.env', 'build', '__pycache__', '.venv', '.DS_Store'])
+          const PUSH_SKIP = new Set(['.git', 'node_modules', 'dist', '.env', '.env.local', 'build', '__pycache__', '.venv', '.DS_Store'])
           const filesToPush: { path: string; content: string }[] = []
           ;(function collectFiles(dir: string) {
             let entries: fs.Dirent[]
@@ -7232,6 +7848,8 @@ async function buildSite(job: Job) {
 
     await Repository.findByIdAndUpdate(repo._id, { status: 'ready' })
 
+    // Assigned inside the provisioning closure, which TS flow analysis can't see
+    const supaCreds = supabaseCredentials as SupabaseCredentials | null
     task.changes = allChanges
     task.status = 'completed'
     task.progress = 100
@@ -7245,8 +7863,10 @@ async function buildSite(job: Job) {
         ? ['', mongoUri
             ? '**Run locally:** `npm install && npm run build && npm start` (see README.md). Your MongoDB connection string is already wired into `.env` and will be applied on deploy.'
             : '**Run locally:** `npm install && npm run build && npm start` (see README.md). The site works as-is; to enable the API, set `MONGODB_URI` in `.env` — a free MongoDB Atlas cluster works.']
-        : stack === 'supabase' && supabaseCredentials
-        ? ['', `**Supabase project:** [${supabaseCredentials.ref}.supabase.co](${supabaseCredentials.url}) (free tier, auto-provisioned). Credentials are in \`.env.local\` for local dev (\`npm install && npm run dev\`) and will be injected automatically on deploy.`]
+        : stack === 'supabase' && supaCreds
+        ? ['', `**Supabase backend:** [${supaCreds.ref}.supabase.co](${supaCreds.url})${supaCreds.shared ? ` — schema \`${supaCreds.schema}\` in your shared project (the free plan's project limit was reached)` : ' (free tier, auto-provisioned)'}. Tables, row-level security and starter content are in place. Credentials are in \`.env.local\` for local dev (\`npm install && npm run dev\`) and are injected automatically on deploy.`]
+        : stack === 'supabase'
+        ? ['', '**Supabase backend:** not provisioned — see the warning in the log. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` before deploying.']
         : []),
       '',
       `Next: open the workspace to refine it with the Agent, or hit **Deploy** to put it live.`,
@@ -7257,18 +7877,11 @@ async function buildSite(job: Job) {
     // Resume paused backends AFTER saving the completed task — so a memory spike
     // from restarting child processes can't prevent the task result from landing
     // in MongoDB. Delayed 5s to let the main process settle.
-    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
-      const toResume = bsPausedBackends
-      const resume = _bsResumeBackends
-      bsPausedBackends = []
-      setTimeout(() => { try { resume(toResume) } catch {} }, 5000)
-    }
+    const release = releaseBackends
+    releaseBackends = null
+    if (release) setTimeout(() => { try { release() } catch {} }, 5000)
   } catch (err: any) {
     console.error('[builder]', err.response?.data ?? err.message)
-    if (bsPausedBackends.length > 0 && _bsResumeBackends) {
-      try { _bsResumeBackends(bsPausedBackends) } catch {}
-      bsPausedBackends = []
-    }
     await fail(`Build failed: ${providerErrorMessage(err)}`)
   }
 }

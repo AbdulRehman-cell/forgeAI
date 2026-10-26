@@ -12,3 +12,4 @@ venv/
 *.vsix
 .vscode-test/
 repos/
+backend/sites/

@@ -3,7 +3,7 @@ import { requireAuth } from '../../middleware/auth.middleware'
 import { Lead } from './lead.model'
 import { Repository } from '../repository/repository.model'
 import nodemailer from 'nodemailer'
-import { google } from 'googleapis'
+import { google } from '../../lib/google'
 
 const router = Router()
 

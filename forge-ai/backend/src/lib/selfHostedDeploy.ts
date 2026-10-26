@@ -270,8 +270,8 @@ function patchHtmlPaths(distDir: string, apiProxyUrl?: string): void {
   // Always inject a nav-border reset so compiled CSS from any AI-generator version
   // cannot leave visible borders/outlines on nav links (the #1 "vibe-coded" tell).
   const navFixStyle = `<style>
-nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand):not(.logo):not(.brand),
-header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
+nav a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-cta):not(.cta-btn):not(.nav-brand):not(.logo):not(.brand),
+header a:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-cta):not(.cta-btn):not(.nav-logo):not(.logo):not(.brand):not(.nav-brand),
 .nav-links a:not([class*="btn"]),.nav-menu a:not([class*="btn"]){border:none!important;outline:none!important;box-shadow:none!important}
 .nav-brand,.nav-logo,nav .logo,nav .brand,header .logo,header .brand{border:none!important;outline:none!important;box-shadow:none!important}
 nav a:focus-visible:not(.btn-primary):not(.btn-secondary):not([class*="btn"]):not(.nav-brand),

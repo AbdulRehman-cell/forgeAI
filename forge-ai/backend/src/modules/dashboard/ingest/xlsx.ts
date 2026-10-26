@@ -1,5 +1,9 @@
-import * as XLSX from 'xlsx'
+import type * as XLSXTypes from 'xlsx'
 import type { RawTable } from './index'
+
+// Loaded on first use: xlsx costs ~12 MB of heap and the server's heap is
+// capped at 120 MB — keeping it out of startup leaves room for site builds.
+const loadXlsx = (): typeof XLSXTypes => require('xlsx')
 
 /**
  * Parse the FIRST sheet of an .xlsx / .xls file. Multi-sheet workbooks are
@@ -11,6 +15,7 @@ import type { RawTable } from './index'
  * sees them in Excel — matching CSV's stringly-typed input to the profiler.
  */
 export function parseXlsx(buffer: Buffer, filename: string): RawTable {
+  const XLSX = loadXlsx()
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false, cellNF: false })
   const sheetNames = workbook.SheetNames
   if (!sheetNames.length) throw new Error('Workbook has no sheets')
