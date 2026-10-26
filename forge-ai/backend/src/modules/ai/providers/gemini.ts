@@ -39,15 +39,35 @@ const deadModels = new Set<string>()
 // once a model's daily quota is gone every call to it is a guaranteed 429 for
 // hours. Without remembering that, each file of a build re-walked the whole
 // model chain (and the builder slept between retries) before reaching its
-// fallback — minutes of dead time per file. Key = `${keyIndex}:${model}`,
-// value = epoch ms when the quota should be back.
+// fallback — minutes of dead time per file. Key = `${apiKey}:${model}`
+// (in memory only), value = epoch ms when the quota should be back.
 const cooldownUntil = new Map<string, number>()
 
+// Keys Google reported as free tier (a 429 whose quota ids end in "-FreeTier").
+// Each key belongs to its own Google project, and only projects with billing
+// get paid quotas — a free key listed first would otherwise be tried first on
+// every call while the paid key sat unused.
+const freeTierKeys = new Set<string>()
+
 /** Extra keys (GEMINI_API_KEY_2, _3) — a key from another Google project has
- *  its own free-tier quota, so rotating keys multiplies daily capacity. */
+ *  its own quota, so rotating keys multiplies daily capacity. */
 function extraKeys(primary: string): string[] {
   return [process.env.GEMINI_API_KEY_2, process.env.GEMINI_API_KEY_3]
     .filter((k): k is string => !!k && !k.includes('...') && k !== primary)
+}
+
+/** Configured order, except keys known to be free tier go last. */
+function orderedKeys(primary: string): string[] {
+  const all = [primary, ...extraKeys(primary)]
+  return [...all.filter((k) => !freeTierKeys.has(k)), ...all.filter((k) => freeTierKeys.has(k))]
+}
+
+/** Short, safe label for logs — never the key itself. */
+const keyLabel = (k: string) => `…${k.slice(-4)}`
+
+function isFreeTierQuota(err: any): boolean {
+  const details = err?.response?.data?.error?.details ?? []
+  return details.some((d: any) => (d?.violations ?? []).some((v: any) => /FreeTier/i.test(String(v?.quotaId ?? ''))))
 }
 
 /** RetryInfo.retryDelay ("23144s") or the "Please retry in 6h25m44s" text, in ms. */
@@ -77,11 +97,11 @@ function isDailyQuota(err: any): boolean {
 export function geminiAvailable(): boolean {
   const k = process.env.GEMINI_API_KEY
   if (!k || k.includes('...')) return false
-  const keys = [k, ...extraKeys(k)]
+  const keys = orderedKeys(k)
   const model = process.env.GEMINI_MODEL ?? 'gemini-3.5-flash'
   const models = [...new Set([model, ...FALLBACK_MODELS])].filter((m) => !deadModels.has(m))
   const now = Date.now()
-  return keys.some((_, ki) => models.some((m) => (cooldownUntil.get(`${ki}:${m}`) ?? 0) <= now))
+  return keys.some((key) => models.some((m) => (cooldownUntil.get(`${key}:${m}`) ?? 0) <= now))
 }
 
 // Same transient-network detection as the Claude provider: TLS handshake
@@ -129,14 +149,16 @@ export class GeminiProvider implements AIProvider {
     const contents = messages.map(toContent)
     const models = [...new Set([this.model, ...FALLBACK_MODELS])].filter((m) => !deadModels.has(m))
     if (!models.length) throw new Error('All configured Gemini models are unavailable')
-    const keys = [this.apiKey, ...extraKeys(this.apiKey)]
-
+    // Models outer, keys inner: when one key's quota for a model is gone, the
+    // next key gets the SAME (preferred) model before anything falls down the
+    // chain to older or busier models.
     let lastErr: any = null
     let skipped = 0
-    for (let ki = 0; ki < keys.length; ki++) {
     for (const model of models) {
-      if (deadModels.has(model)) continue
-      const slot = `${ki}:${model}`
+    let skipModel = false
+    for (const key of orderedKeys(this.apiKey)) {
+      if (skipModel || deadModels.has(model)) break
+      const slot = `${key}:${model}`
       if ((cooldownUntil.get(slot) ?? 0) > Date.now()) { skipped++; continue }
       // Inner loop attempts (per model):
       //   attempt 0: send with thinkingConfig
@@ -145,7 +167,7 @@ export class GeminiProvider implements AIProvider {
       for (let attempt = 0; attempt < 4; attempt++) {
         const sendThinking = attempt === 0
         try {
-          return await this.generateWithContinuation(model, contents, systemPrompt, sendThinking, keys[ki])
+          return await this.generateWithContinuation(model, contents, systemPrompt, sendThinking, key)
         } catch (err: any) {
           const status = err.response?.status
           lastErr = err
@@ -157,17 +179,22 @@ export class GeminiProvider implements AIProvider {
             deadModels.add(model)
             break // rotate to the next model
           }
-          // Rate limited → remember for how long, then next model (own quota)
+          // Rate limited → remember for how long, then the next key (own quota)
           if (status === 429) {
             const daily = isDailyQuota(err)
+            const free = isFreeTierQuota(err)
+            if (free && !freeTierKeys.has(key)) {
+              freeTierKeys.add(key)
+              console.warn(`[gemini] key ${keyLabel(key)} is on the FREE tier (its Google project has no billing) — trying paid keys first from now on`)
+            }
             const wait = retryAfterMs(err) ?? (daily ? 3_600_000 : 30_000)
             cooldownUntil.set(slot, Date.now() + wait)
-            console.warn(`[gemini] ${model} (key ${ki + 1}) ${daily ? 'daily quota exhausted' : 'rate limited'} — cooling down ${Math.round(wait / 60_000)}m, trying next model`)
-            break // rotate to the next model
+            console.warn(`[gemini] ${model} (key ${keyLabel(key)}) ${daily ? 'daily quota exhausted' : 'rate limited'} — cooling down ${Math.round(wait / 60_000)}m, trying next key`)
+            break // next key, same model
           }
           // 503 overloaded — retry with exponential backoff before rotating.
           // Two retries (5s, 10s): a longer wait just stalls the build while
-          // the next model in the chain is usually fine.
+          // another key or model is usually fine.
           if (status === 503) {
             const maxRetries = 3
             if (attempt < maxRetries) {
@@ -176,8 +203,8 @@ export class GeminiProvider implements AIProvider {
               await sleep(delay)
               continue // retry same model
             }
-            console.warn(`[gemini] ${model} overloaded after retries — trying next model`)
-            break // rotate to the next model
+            console.warn(`[gemini] ${model} overloaded after retries — trying next key/model`)
+            break // next key, then next model
           }
           if (status === 402) {
             // Billing issue — all Gemini models share the same account; no point
@@ -191,10 +218,11 @@ export class GeminiProvider implements AIProvider {
             continue // same model, attempt 1 (thinkingConfig omitted)
           }
           if (status === 400) {
-            // Still an invalid request on this model — rotate rather than
-            // failing the whole build on one bad model
+            // Still an invalid request on this model — another key won't
+            // change that, so rotate to the next model
             console.warn(`[gemini] ${model} returned 400 INVALID_ARGUMENT — trying next model`)
-            break // rotate to the next model
+            skipModel = true
+            break
           }
           // Transient TLS/socket failures — retry the SAME model with backoff
           // before rotating away. Common cause: proxy/firewall hiccups that
@@ -216,7 +244,7 @@ export class GeminiProvider implements AIProvider {
       // HybridProvider and the builder fall back immediately (no network call).
       const soonest = Math.min(...[...cooldownUntil.values()].filter((t) => t > Date.now()))
       const mins = Number.isFinite(soonest) ? Math.ceil((soonest - Date.now()) / 60_000) : 60
-      const err: any = new Error(`Gemini free-tier quota exhausted on every model — resets in ~${mins} min`)
+      const err: any = new Error(`Gemini quota exhausted on every key and model — resets in ~${mins} min`)
       err.response = { status: 429, data: { error: { message: err.message } } }
       throw err
     }
