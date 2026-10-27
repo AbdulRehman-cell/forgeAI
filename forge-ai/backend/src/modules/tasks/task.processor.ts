@@ -2848,11 +2848,11 @@ const HERO_CONTRAST_SAFETY_CSS = `/* ── Hero contrast safety net (determinis
   z-index: 1;
   pointer-events: none;
 }
-/* Hero image and content both need to sit above the overlay */
-.hero > *:not(.hero-bg-wrapper):not(.hero-bg):not(img),
-.hero-section > *:not(.hero-bg-wrapper):not(.hero-bg):not(img),
-.banner > *:not(.banner-bg):not(img),
-.masthead > *:not(img) { position: relative; z-index: 2; }
+/* Hero image and content both need to sit above the overlay. Zero specificity
+   (:where) so a page's own absolutely-positioned decorations keep their position. */
+:where(.hero, .hero-section) > :where(:not(.hero-bg-wrapper):not(.hero-bg):not(img)),
+:where(.banner) > :where(:not(.banner-bg):not(img)),
+:where(.masthead) > :where(:not(img)) { position: relative; z-index: 2; }
 
 /* Force high-contrast text on every text element inside any hero-like
    section, and any element with a "hero" or "banner" class ancestor.
@@ -3038,7 +3038,7 @@ nav, .nav-links { display: flex; align-items: center; gap: clamp(1rem, 2.5vw, 2r
 /* Hero — mesh-gradient backdrop + big headline */
 .hero, .hero-section { position: relative; padding-block: clamp(72px, 12vw, 148px); text-align: center; overflow: hidden; }
 .hero::before, .hero-section::before { content: ""; position: absolute; inset: -20% -10% auto; height: 480px; z-index: 0; background: radial-gradient(46% 60% at 30% 25%, color-mix(in srgb, var(--primary) 40%, transparent), transparent 70%), radial-gradient(50% 60% at 74% 30%, color-mix(in srgb, var(--secondary) 32%, transparent), transparent 70%); filter: blur(40px); opacity: .85; pointer-events: none; }
-.hero > *:not(.hero-bg), .hero-section > *:not(.hero-bg) { position: relative; z-index: 2; }
+:where(.hero, .hero-section) > :where(:not(.hero-bg)) { position: relative; z-index: 2; } /* zero specificity: absolute decorations must win */
 /* Full-bleed hero background image + legibility overlay (high-class hero) */
 .hero-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; border-radius: 0; }
 .hero:has(.hero-bg)::after, .hero-section:has(.hero-bg)::after { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(8,10,14,.5), rgba(8,10,14,.82)); }
@@ -5859,7 +5859,9 @@ HARD RULES — breaking any of them breaks the build or the app:
 6. React: hooks only at the top level of components; effects that subscribe or add listeners return a cleanup; every list item has key={row.id}.
 7. Internal navigation uses <Link>/<NavLink>/useNavigate from react-router-dom — never <a href> for internal routes.
 8. Only these packages exist: react, react-dom, react-router-dom, recharts, and Supabase via '../lib/supabase'. Import nothing else.
-9. The component is the file's default export.`
+9. The component is the file's default export.
+10. Never promise things the site doesn't do: it sends NO emails, SMS or WhatsApp messages and takes no online payments — confirmations say what happens next in person ("we'll call to confirm", "pay at the counter").
+11. Anything clickable is a <button type="button"> or <Link> — never a clickable <div> (keyboard users can't reach it).`
 
 /** Run an AI call while posting a "still working" line every 30s, so a slow
  *  model never looks like a frozen build. */
@@ -7159,7 +7161,7 @@ async function claudePolishCss(
     const addStripped = stripCodeFence(add.trim()).split('\n').filter((l) => !/^\s*@import\b/.test(l)).join('\n')
     css.content += `\n/* ── Claude QA polish ── */\n${addStripped}\n`
     sanitizeCss(files, cssPath)
-    await log('🎨 Claude QA — appended UI polish')
+    await log(/^claude/i.test(enhancer.name) ? '🎨 Claude QA — appended UI polish' : '🎨 QA — appended UI polish')
   }
 }
 
@@ -7840,6 +7842,8 @@ async function buildSite(job: Job) {
 
     // ── Create the GitHub repo and push ──
     let pushedFullName: string | null = null
+    // Why the site is not on GitHub, for the summary (a stored-but-rejected token is not "no token")
+    let githubSkipReason = 'no GitHub token on file — sign in with GitHub to enable pushing'
     const fullUser = await User.findById(userId).select('+githubAccessToken')
     // Prefer user's own OAuth token; fall back to server-wide PAT if the user
     // token is absent or expired (we retry with GITHUB_TOKEN on 401/403).
@@ -7895,6 +7899,7 @@ async function buildSite(job: Job) {
       }
 
       if (githubAuthFailed) {
+        githubSkipReason = 'GitHub rejected the saved token (expired or revoked) — reconnect GitHub in Settings → GitHub, then push from the workspace'
         await updateTask(task, {}, 'GitHub token has expired or lacks repo permissions — site generated locally. Reconnect GitHub in Settings → GitHub to push it.', 'warn')
       } else if (!ghRepo) {
         // All 10 attempts failed — warn and continue (don't kill the whole build)
@@ -8011,7 +8016,7 @@ async function buildSite(job: Job) {
       '',
       summaryLine ? `${summaryLine}` : `Generated ${allChanges.length} file(s) for "${siteName}".`,
       '',
-      pushedFullName ? `**GitHub repo:** [${pushedFullName}](https://github.com/${pushedFullName}) (public)` : '_Not pushed to GitHub (no token on file)._',
+      pushedFullName ? `**GitHub repo:** [${pushedFullName}](https://github.com/${pushedFullName}) (public)` : `_Not pushed to GitHub: ${githubSkipReason}._`,
       ...(stack === 'mern'
         ? ['', mongoUri
             ? '**Run locally:** `npm install && npm run build && npm start` (see README.md). Your MongoDB connection string is already wired into `.env` and will be applied on deploy.'

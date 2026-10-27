@@ -456,7 +456,7 @@ button { cursor: pointer; }
     radial-gradient(ellipse 40% 40% at 55% 75%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%);
   filter: blur(48px);
 }
-.hero > *, .hero-section > * { position: relative; z-index: 1; }
+:where(.hero, .hero-section) > * { position: relative; z-index: 1; } /* zero specificity: a page's own absolute decorations (glows, blobs) must win */
 .hero-eyebrow {
   display: inline-flex; align-items: center; gap: 7px;
   background: var(--bg); border: 1.5px solid var(--border-strong);
@@ -979,7 +979,7 @@ button { cursor: pointer; }
     radial-gradient(ellipse 40% 40% at 55% 80%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 65%);
   filter: blur(40px);
 }
-.hero > *, .hero-section > * { position: relative; z-index: 1; }
+:where(.hero, .hero-section) > * { position: relative; z-index: 1; } /* zero specificity: a page's own absolute decorations (glows, blobs) must win */
 .hero h1, .hero-section h1 { color: #fff; max-width: 900px; margin-inline: auto; }
 .hero p, .hero-sub, .hero-subtitle { color: rgba(255,255,255,.72) !important; max-width: 560px; margin: 20px auto 0; font-size: clamp(1.05rem,1.6vw,1.2rem); }
 .hero-eyebrow {
@@ -1391,7 +1391,7 @@ button { cursor: pointer; }
     radial-gradient(ellipse 40% 35% at 80% 55%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%);
   filter: blur(44px);
 }
-.hero > *, .hero-section > * { position: relative; z-index: 1; }
+:where(.hero, .hero-section) > * { position: relative; z-index: 1; } /* zero specificity: a page's own absolute decorations (glows, blobs) must win */
 .hero h1, .hero-section h1 { max-width: 900px; margin-inline: auto; color: var(--text); }
 .hero p, .hero-sub, .hero-subtitle { max-width: 560px; margin: 20px auto 0; font-size: clamp(1.05rem,1.6vw,1.2rem); }
 .hero-eyebrow {
