@@ -10,7 +10,7 @@ export interface SupabaseCredentials {
   shared: boolean
 }
 
-export type SupabaseAccess = 'public_read' | 'public_write' | 'auth_required'
+export type SupabaseAccess = 'public_read' | 'public_write' | 'public_submit' | 'auth_required'
 export interface SupabaseColumn { name: string; type: string; nullable?: boolean }
 export interface SupabaseTable { name: string; columns: SupabaseColumn[]; access: SupabaseAccess }
 export type SeedRows = Record<string, Array<Record<string, unknown>>>
@@ -211,13 +211,20 @@ export function normalizeTables(raw: any[], hasAuth: boolean): SupabaseTable[] {
       cols.push({ name: cn, type: sqlType(c?.type), nullable: c?.nullable !== false })
     }
     if (!cols.length) cols.push({ name: 'title', type: 'text', nullable: false })
-    let access: SupabaseAccess = ['public_read', 'public_write', 'auth_required'].includes(t?.access) ? t.access : 'public_write'
+    let access: SupabaseAccess = ['public_read', 'public_write', 'public_submit', 'auth_required'].includes(t?.access) ? t.access : 'public_write'
     // Without sign-in nobody could ever own a row — make it publicly writable instead.
     if (access === 'auth_required' && !hasAuth) access = 'public_write'
-    out.push({ name, columns: cols.slice(0, 14), access })
+    out.push({ name: name === STAFF_TABLE ? `${name}_data` : name, columns: cols.slice(0, 14), access })
   }
   return out
 }
+
+/** Staff-managed tables need the staff list + is_staff() check. */
+export function needsStaff(tables: SupabaseTable[]): boolean {
+  return tables.some((t) => t.access === 'public_read' || t.access === 'public_submit')
+}
+
+export const STAFF_TABLE = 'staff_members'
 
 /** Every statement needed for the site's tables, fully schema-qualified, as a
  *  list — never re-split SQL on ';' (that breaks on any ';' inside a string). */
@@ -227,6 +234,23 @@ export function buildSupabaseStatements(tables: SupabaseTable[], schema: string)
   if (schema !== 'public') {
     stmts.push(`CREATE SCHEMA IF NOT EXISTS ${s}`)
     stmts.push(`GRANT USAGE ON SCHEMA ${s} TO anon, authenticated, service_role`)
+  }
+  const isStaff = `${s}.is_staff()`
+  if (needsStaff(tables)) {
+    // Staff = emails on this list. "Any signed-in user" is not enough: sign-up
+    // is open, so a stranger could create an account and read every order.
+    const st = `${s}.${q(STAFF_TABLE)}`
+    stmts.push(`CREATE TABLE IF NOT EXISTS ${st} (\n  ${q('email')} text PRIMARY KEY,\n  ${q('created_at')} timestamptz NOT NULL DEFAULT now()\n)`)
+    stmts.push(`ALTER TABLE ${st} ENABLE ROW LEVEL SECURITY`)
+    stmts.push(`GRANT SELECT ON ${st} TO authenticated`)
+    stmts.push(`GRANT ALL ON ${st} TO service_role`)
+    // A signed-in user can see only their own entry — that is how the site asks "am I staff?"
+    stmts.push(`DROP POLICY IF EXISTS ${q(`${STAFF_TABLE}_self`)} ON ${st}`)
+    stmts.push(`CREATE POLICY ${q(`${STAFF_TABLE}_self`)} ON ${st} FOR SELECT TO authenticated USING (lower(${q('email')}) = lower(coalesce(auth.jwt() ->> 'email', '')))`)
+    // SECURITY DEFINER so policies can consult the list without granting read access to it
+    stmts.push(`CREATE OR REPLACE FUNCTION ${isStaff} RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fn$ SELECT EXISTS (SELECT 1 FROM ${st} WHERE lower(${q('email')}) = lower(coalesce(auth.jwt() ->> 'email', ''))) $fn$`)
+    stmts.push(`REVOKE ALL ON FUNCTION ${isStaff} FROM public`)
+    stmts.push(`GRANT EXECUTE ON FUNCTION ${isStaff} TO anon, authenticated`)
   }
   for (const t of tables) {
     const tn = `${s}.${q(t.name)}`
@@ -252,10 +276,17 @@ export function buildSupabaseStatements(tables: SupabaseTable[], schema: string)
     if (t.access === 'public_write') {
       policy('ALL', 'public_all', 'TO anon, authenticated USING (true) WITH CHECK (true)')
     } else if (t.access === 'public_read') {
+      // Catalogs / menus: everyone reads, only staff edit
       policy('SELECT', 'public_select', 'TO anon, authenticated USING (true)')
-      policy('INSERT', 'auth_insert', 'TO authenticated WITH CHECK (true)')
-      policy('UPDATE', 'auth_update', 'TO authenticated USING (true) WITH CHECK (true)')
-      policy('DELETE', 'auth_delete', 'TO authenticated USING (true)')
+      policy('INSERT', 'staff_insert', `TO authenticated WITH CHECK (${isStaff})`)
+      policy('UPDATE', 'staff_update', `TO authenticated USING (${isStaff}) WITH CHECK (${isStaff})`)
+      policy('DELETE', 'staff_delete', `TO authenticated USING (${isStaff})`)
+    } else if (t.access === 'public_submit') {
+      // Orders / bookings / enquiries: visitors submit, only staff can see or change them
+      policy('INSERT', 'public_insert', 'TO anon, authenticated WITH CHECK (true)')
+      policy('SELECT', 'staff_select', `TO authenticated USING (${isStaff})`)
+      policy('UPDATE', 'staff_update', `TO authenticated USING (${isStaff}) WITH CHECK (${isStaff})`)
+      policy('DELETE', 'staff_delete', `TO authenticated USING (${isStaff})`)
     } else {
       policy('ALL', 'owner_all', 'TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id)')
     }
@@ -279,11 +310,12 @@ function sqlLiteral(v: unknown, type: string): string {
   return str(String(v))
 }
 
-/** INSERTs for starter rows (only public tables — owner-scoped rows would be invisible). */
+/** INSERTs for starter rows — only content visitors browse. Owner-scoped rows
+ *  would be invisible, and fake orders/bookings would land in the staff inbox. */
 export function buildSeedStatements(tables: SupabaseTable[], seed: SeedRows, schema: string): string[] {
   const stmts: string[] = []
   for (const t of tables) {
-    if (t.access === 'auth_required') continue
+    if (t.access === 'auth_required' || t.access === 'public_submit') continue
     const rows = (seed[t.name] ?? []).filter((r) => r && typeof r === 'object').slice(0, 12)
     if (!rows.length) continue
     const cols = t.columns.filter((c) => rows.some((r) => r[c.name] !== undefined))
@@ -361,11 +393,17 @@ export interface MigrationResult { ok: boolean; errors: string[] }
 export async function runSupabaseMigrations(
   creds: SupabaseCredentials,
   tables: SupabaseTable[],
-  opts: { seed?: SeedRows; hasAuth?: boolean; log?: Log } = {},
+  opts: { seed?: SeedRows; hasAuth?: boolean; staffEmails?: string[]; log?: Log } = {},
 ): Promise<MigrationResult> {
-  const { seed = {}, hasAuth = false, log } = opts
+  const { seed = {}, hasAuth = false, staffEmails = [], log } = opts
+  const staff = needsStaff(tables)
   const ddl = buildSupabaseStatements(tables, creds.schema)
   const seedStmts = buildSeedStatements(tables, seed, creds.schema)
+  const emails = [...new Set(staffEmails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@']+@[^\s@']+$/.test(e)))]
+  if (staff && emails.length) {
+    // Part of the schema batch, not best-effort seed data: without it nobody can reach the staff pages
+    ddl.push(`INSERT INTO ${q(creds.schema)}.${q(STAFF_TABLE)} (${q('email')}) VALUES ${emails.map((e) => `('${e}')`).join(', ')} ON CONFLICT DO NOTHING`)
+  }
   const errors: string[] = []
 
   try {
@@ -388,7 +426,7 @@ export async function runSupabaseMigrations(
   if (creds.schema !== 'public') {
     try { await exposeSchema(creds.ref, creds.schema) } catch (e: any) { errors.push(`expose schema: ${e.message}`) }
   }
-  if (hasAuth) await enableInstantSignup(creds.ref)
+  if (hasAuth || staff) await enableInstantSignup(creds.ref)
   try { await runQuery(creds.ref, `NOTIFY pgrst, 'reload config'; NOTIFY pgrst, 'reload schema';`) } catch { /* best-effort */ }
 
   // PostgREST picks up new tables/schemas within a few seconds — poll for it.

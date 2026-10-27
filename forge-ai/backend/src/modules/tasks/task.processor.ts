@@ -10,8 +10,9 @@ import { Task, IFileChange } from './task.model'
 import { Repository } from '../repository/repository.model'
 import { createProvider, resolveProvider, geminiKey, type ProviderName } from '../ai/ai.factory'
 import { geminiAvailable } from '../ai/providers/gemini'
+import { claudeAvailable } from '../ai/providers/claude'
 import {
-  normalizeTables, provisionSupabaseProject, runSupabaseMigrations, isSupabaseConfigured,
+  normalizeTables, needsStaff, provisionSupabaseProject, runSupabaseMigrations, isSupabaseConfigured,
   type SupabaseTable, type SupabaseAccess, type SeedRows, type SupabaseCredentials,
 } from '../../lib/supabaseProvisioner'
 import { emitTaskUpdate } from '../websocket'
@@ -5635,9 +5636,18 @@ interface SupabasePlan {
   name: string
   tables: SupabaseTable[]
   pages: SupabasePage[]
+  /** Visitors have accounts (their own private rows) */
   hasAuth: boolean
+  /** Routes only staff may use (orders inbox, menu manager…) — gated by useStaff() */
+  staffPaths: string[]
   brand: { emoji: string; tagline: string; ctaLabel: string; ctaPath: string }
 }
+
+/** A /login page exists when visitors have accounts or staff need to sign in. */
+const supabaseNeedsLogin = (plan: SupabasePlan) => plan.hasAuth || plan.staffPaths.length > 0
+
+// Pages that manage other people's submissions or the catalog are staff tools
+const STAFF_PAGE_HINT = /staff|admin|dashboard|manage|back-?office|owner|kitchen|inbox|order(s)?-?(queue|board)/i
 
 // Pads a plan up to the >= 4-page floor the build route promises.
 const SUPABASE_FALLBACK_PAGES: SupabasePage[] = [
@@ -5663,7 +5673,7 @@ function extractJsonObject(text: string): string {
   return a >= 0 && b > a ? s.slice(a, b + 1) : s
 }
 
-function sanitizeSupabasePlan(raw: any, siteName: string): SupabasePlan | null {
+export function sanitizeSupabasePlan(raw: any, siteName: string): SupabasePlan | null {
   const hasAuth = raw?.hasAuth === true
   const tables = normalizeTables(raw?.tables ?? [], hasAuth).slice(0, 4)
   if (!tables.length) return null
@@ -5677,18 +5687,22 @@ function sanitizeSupabasePlan(raw: any, siteName: string): SupabasePlan | null {
     routes.add(p.path)
     pages.push(p)
   }
+  const staffManaged = needsStaff(tables)
+  const staffPaths = new Set<string>()
   for (const p of Array.isArray(raw?.pages) ? raw.pages : []) {
     let base = String(p?.file || p?.title || '').replace(/\.(jsx?|tsx?)$/i, '').replace(/[^A-Za-z0-9]/g, '')
     if (!base || /^\d/.test(base)) continue
     base = base[0].toUpperCase() + base.slice(1)
     if (/^(App|Main|Index|Router|React|Link|Route|Routes)$/.test(base)) base += 'Page'
     const route = '/' + String(p?.path ?? '').toLowerCase().replace(/[^a-z0-9\-/]/g, '').replace(/^\/+|\/+$/g, '')
+    const title = String(p?.title || base).replace(/\s+/g, ' ').trim().slice(0, 24)
     add({
       file: `${base}.jsx`,
-      title: String(p?.title || base).replace(/\s+/g, ' ').trim().slice(0, 24),
+      title,
       path: route,
       description: String(p?.description ?? '').slice(0, 400),
     })
+    if (route !== '/' && staffManaged && (p?.staffOnly === true || STAFF_PAGE_HINT.test(`${base} ${title} ${route}`))) staffPaths.add(route)
   }
   if (!routes.has('/')) {
     pages.unshift({ file: files.has('home.jsx') ? 'Landing.jsx' : 'Home.jsx', title: 'Home', path: '/', description: 'Landing page — hero, features, how it works, social proof and a call to action' })
@@ -5704,20 +5718,29 @@ function sanitizeSupabasePlan(raw: any, siteName: string): SupabasePlan | null {
     main.push(d)
   }
   const login = pages.find(isLogin)
-  if (hasAuth) {
+  const keptStaff = [...staffPaths].filter((sp) => main.some((p) => p.path === sp))
+  if (hasAuth || keptStaff.length) {
     main.push(login
       ? { ...login, path: '/login' }
-      : { file: files.has('login.jsx') ? 'SignIn.jsx' : 'Login.jsx', title: 'Sign in', path: '/login', description: 'Sign in and create-account forms (email + password) using Supabase Auth' })
+      : {
+          file: files.has('login.jsx') ? 'SignIn.jsx' : 'Login.jsx',
+          title: hasAuth ? 'Sign in' : 'Staff sign in',
+          path: '/login',
+          description: hasAuth
+            ? 'Sign in and create-account forms (email + password) using Supabase Auth'
+            : 'Staff sign-in (email + password). First-time staff create their account here with the email the owner put on the staff list.',
+        })
   }
 
   const b = raw?.brand ?? {}
-  const navPaths = main.filter((p) => p.path !== '/login').map((p) => p.path)
+  const navPaths = main.filter((p) => p.path !== '/login' && !keptStaff.includes(p.path)).map((p) => p.path)
   const ctaPath = navPaths.includes(String(b.ctaPath)) ? String(b.ctaPath) : (navPaths[1] ?? '/')
   return {
     name: String(raw?.name ?? '').trim().slice(0, 40) || displayNameFromSlug(siteName),
     tables,
     pages: main,
     hasAuth,
+    staffPaths: keptStaff,
     brand: {
       emoji: [...String(b.emoji ?? '').replace(/[\s<>{}"'`\\]/g, '')].slice(0, 2).join('') || '✨',
       tagline: String(b.tagline ?? '').trim().slice(0, 140),
@@ -5739,18 +5762,23 @@ async function planSupabaseSite(
 Return JSON exactly in this shape:
 {
   "name": "Human-friendly product name (2-3 words)",
-  "tables": [{ "name": "snake_case_plural", "columns": [{ "name": "snake_case", "type": "text|integer|bigint|boolean|timestamptz|date|numeric|jsonb|text[]", "nullable": true }], "access": "public_read|public_write|auth_required" }],
-  "pages": [{ "file": "PascalCase.jsx", "title": "Short nav label", "path": "/route", "description": "What the page shows and which tables it reads or writes" }],
+  "tables": [{ "name": "snake_case_plural", "columns": [{ "name": "snake_case", "type": "text|integer|bigint|boolean|timestamptz|date|numeric|jsonb|text[]", "nullable": true }], "access": "public_read|public_submit|public_write|auth_required" }],
+  "pages": [{ "file": "PascalCase.jsx", "title": "Short nav label", "path": "/route", "description": "What the page shows and which tables it reads or writes", "staffOnly": false }],
   "hasAuth": false,
-  "brand": { "emoji": "one emoji", "tagline": "one-line value proposition", "ctaLabel": "2-3 word header button", "ctaPath": "/route of the main app page" }
+  "brand": { "emoji": "one emoji", "tagline": "one-line value proposition", "ctaLabel": "2-3 word header button", "ctaPath": "/route of the main customer-facing page" }
 }
 
 Rules:
 - Do NOT list id, created_at or user_id columns — they are added automatically.
 - 1 to 4 tables, each with the columns the UI really needs. Mark a column "nullable": false only if the UI always fills it.
-- access: "public_read" = anyone reads, only signed-in users write (catalogs, posts, menus); "public_write" = anyone can read AND create/update/delete with no login (guestbooks, simple tools, contact messages, a notes app without accounts); "auth_required" = each signed-in user only sees and edits their own rows.
-- hasAuth: true ONLY when the request clearly needs accounts/login. With hasAuth false, never use "auth_required".
-- 4 or 5 pages. The first is the landing page at "/". At least one page must be the working app (list + create + delete etc. against the tables). Do not add a login page — it is added automatically when hasAuth is true.`
+- access — pick the SAFEST mode that still lets the site work. This is a real business site, so visitors must never see other visitors' personal data:
+  • "public_read" = anyone reads; only the business's STAFF can add/edit/delete (menus, products, services, blog posts, events).
+  • "public_submit" = visitors can only SUBMIT new rows and can't read any back; STAFF read and manage them (orders, bookings, reservations, enquiries, contact messages, applications, reviews awaiting approval).
+  • "auth_required" = each signed-in visitor sees and edits only their own rows (personal lists, journals, saved items) — requires hasAuth.
+  • "public_write" = everyone reads and edits everything with no login. Only for content intentionally shared with all visitors (a public guestbook, a shared demo board). Never for anything holding names, phone numbers, emails or orders.
+- Staff sign in automatically (the site owner is pre-registered as staff). Any page used by staff to manage submissions or the catalog (orders inbox, booking calendar, menu manager, admin) gets "staffOnly": true.
+- hasAuth: true ONLY when VISITORS need their own accounts. Staff sign-in does not count. With hasAuth false, never use "auth_required".
+- 4 or 5 pages. The first is the landing page at "/". At least one page must be the working app against the tables. Do not add a login page — it is added automatically when needed.`
 
   for (const p of providers) {
     const res = await safeChat(p, instruction, system, 90_000)
@@ -5777,7 +5805,8 @@ Rules:
 
 const SUPABASE_ACCESS_TEXT: Record<SupabaseAccess, string> = {
   public_write: 'any visitor can read, create, update and delete rows (no sign-in needed)',
-  public_read: 'any visitor can READ; only signed-in users can create/update/delete',
+  public_read: 'any visitor can READ; only STAFF can create/update/delete (on staff pages)',
+  public_submit: 'visitors can only SUBMIT (insert) rows — they can NOT read, update or delete any, not even their own; only STAFF read and manage them (on staff pages)',
   auth_required: 'signed-in users only — each user sees and edits ONLY their own rows (row-level security on user_id)',
 }
 
@@ -5790,12 +5819,22 @@ function supabaseDataContract(plan: SupabasePlan): string {
     ]
     return `• ${t.name} — ${SUPABASE_ACCESS_TEXT[t.access]}\n    columns: ${cols.join(', ')}`
   }).join('\n')
-  const t0 = plan.tables[0].name
+  // The generic example must be legal for the table it names
+  const t0 = (plan.tables.find((t) => t.access !== 'public_submit') ?? plan.tables[0]).name
   const auth = plan.hasAuth
     ? `\n\nAUTH (Supabase Auth, email + password, email confirmation is OFF so sign-up signs the user in immediately):
 import { useSession } from '../lib/useSession'   →   const { user, loading } = useSession()
 supabase.auth.signUp({ email, password }) · supabase.auth.signInWithPassword({ email, password }) · supabase.auth.signOut()
 When a page needs a user and user is null, show a friendly prompt with <Link to="/login">Sign in</Link> instead of the data.`
+    : ''
+  const submit = plan.tables.filter((t) => t.access === 'public_submit').map((t) => t.name)
+  const staff = needsStaff(plan.tables)
+    ? `\n\nSTAFF — staff are signed-in users whose email is on the site's staff list (the owner is already on it):
+import { useStaff } from '../lib/useStaff'   →   const { user, isStaff, loading } = useStaff()
+Staff-only pages (${plan.staffPaths.join(', ') || 'none planned'}) MUST gate everything: while loading show a spinner; if !user show a "Staff sign in" card with <Link to="/login">Sign in</Link>; if user && !isStaff show "This account isn't on the staff list"; only when isStaff load and show the data and the management controls.${submit.length ? `
+SUBMISSIONS (${submit.join(', ')}): visitors INSERT WITHOUT .select() — the database won't return the row to them:
+  const { error } = await supabase.from('${submit[0]}').insert([row])
+Then show the confirmation from the values they typed (with a short reference such as 'REF-' + Date.now().toString(36).toUpperCase()). Public pages never query these tables.` : ''}`
     : ''
   return `SUPABASE DATA CONTRACT — the database ALREADY EXISTS with exactly these tables. Use ONLY these table and column names, spelled exactly:
 ${lines}
@@ -5806,7 +5845,7 @@ const { data, error } = await supabase.from('${t0}').select('*').order('created_
 const { data: row, error } = await supabase.from('${t0}').insert([{ /* columns */ }]).select().single()
 const { error } = await supabase.from('${t0}').update({ /* columns */ }).eq('id', id)
 const { error } = await supabase.from('${t0}').delete().eq('id', id)
-After a successful insert/update/delete, update local state so the UI changes instantly. Always check \`error\` and show error.message to the user.${auth}`
+After a successful insert/update/delete, update local state so the UI changes instantly. Always check \`error\` and show error.message to the user.${auth}${staff}`
 }
 
 const SUPABASE_SYSTEM = `You are a senior React engineer writing one file of a production React 18 + Supabase app (Vite, react-router-dom v6, plain JavaScript JSX).
@@ -5832,10 +5871,12 @@ async function withHeartbeat<T>(work: Promise<T>, beat: (secs: number) => unknow
   try { return await work } finally { clearInterval(timer) }
 }
 
-function supabaseScaffoldFiles(plan: SupabasePlan, siteName: string): ParsedChange[] {
+export function supabaseScaffoldFiles(plan: SupabasePlan, siteName: string): ParsedChange[] {
   const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'supabase-app'
   const comp = (p: SupabasePage) => p.file.replace(/\.jsx$/, '')
-  const nav = plan.pages.filter((p) => p.path !== '/login')
+  // Staff tools stay out of the public header — they live in the footer's Staff column
+  const nav = plan.pages.filter((p) => p.path !== '/login' && !plan.staffPaths.includes(p.path))
+  const staffNav = plan.pages.filter((p) => plan.staffPaths.includes(p.path))
   const jsStr = (s: string) => JSON.stringify(s)
 
   const supabaseLib = `import { createClient } from '@supabase/supabase-js'
@@ -5880,6 +5921,38 @@ export function useSession() {
   }, [])
 
   return { session, user: session?.user ?? null, loading }
+}
+`
+
+  const useStaff = `import { useEffect, useState } from 'react'
+import { supabase } from './supabase'
+import { useSession } from './useSession'
+
+/** Whether the signed-in user is on this site's staff list. The database only
+ *  ever shows a user their own staff_members entry, so one row means "staff". */
+export function useStaff() {
+  const { user, loading: sessionLoading } = useSession()
+  const [isStaff, setIsStaff] = useState(false)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    if (sessionLoading) return
+    if (!user) {
+      setIsStaff(false)
+      setChecking(false)
+      return
+    }
+    setChecking(true)
+    supabase.from('staff_members').select('email').limit(1).then(({ data, error }) => {
+      if (!active) return
+      setIsStaff(!error && Array.isArray(data) && data.length > 0)
+      setChecking(false)
+    })
+    return () => { active = false }
+  }, [user, sessionLoading])
+
+  return { user, isStaff, loading: sessionLoading || checking }
 }
 `
 
@@ -5961,7 +6034,13 @@ ${plan.pages.map((p) => `          <Route path=${jsStr(p.path)} element={<${comp
             <ul className="footer-col-links">
               {NAV.map((item) => <li key={item.to}><Link to={item.to}>{item.label}</Link></li>)}
             </ul>
-          </div>
+          </div>${staffNav.length ? `
+          <div className="footer-col">
+            <h4 className="footer-col-title">Staff</h4>
+            <ul className="footer-col-links">
+${staffNav.map((p) => `              <li><Link to=${jsStr(p.path)}>${p.title.replace(/[<>{}]/g, '')}</Link></li>`).join('\n')}
+${plan.hasAuth ? '' : '              <li><Link to="/login">Staff sign in</Link></li>\n'}            </ul>
+          </div>` : ''}
         </div>
         <div className="container footer-bottom">
           <span>© {new Date().getFullYear()} {BRAND}. All rights reserved.</span>
@@ -6066,7 +6145,8 @@ ${plan.tables.map((t) => `- **${t.name}** — ${SUPABASE_ACCESS_TEXT[t.access]}:
     { path: 'src/main.jsx', content: mainJsx },
     { path: 'src/App.jsx', content: app },
     { path: 'src/lib/supabase.js', content: supabaseLib },
-    ...(plan.hasAuth ? [{ path: 'src/lib/useSession.js', content: useSession }] : []),
+    ...(supabaseNeedsLogin(plan) || needsStaff(plan.tables) ? [{ path: 'src/lib/useSession.js', content: useSession }] : []),
+    ...(needsStaff(plan.tables) ? [{ path: 'src/lib/useStaff.js', content: useStaff }] : []),
   ]
 }
 
@@ -6092,25 +6172,71 @@ export default function ${name}() {
 
 /** Table names a page uses that are not in the schema, plus backend patterns
  *  that cannot work on a Supabase site — the QA pass fixes exactly these. */
-function supabaseCodeIssues(content: string, plan: SupabasePlan): string[] {
-  const known = new Set(plan.tables.map((t) => t.name))
+function supabaseCodeIssues(content: string, plan: SupabasePlan, filePath = ''): string[] {
+  const known = new Set([...plan.tables.map((t) => t.name), ...(needsStaff(plan.tables) ? ['staff_members'] : [])])
   const issues: string[] = []
   for (const m of content.matchAll(/\.from\(\s*['"`]([^'"`]+)['"`]\s*\)/g)) {
     if (!known.has(m[1])) issues.push(`queries unknown table "${m[1]}" (tables: ${[...known].join(', ')})`)
+  }
+  const page = plan.pages.find((p) => filePath.replace(/\\/g, '/').endsWith(`pages/${p.file}`))
+  if (page && plan.staffPaths.includes(page.path) && !/\buseStaff\s*\(/.test(content)) {
+    issues.push("staff-only page is not gated — use const { user, isStaff, loading } = useStaff() from '../lib/useStaff' and show sign-in / not-on-staff-list states before any data")
   }
   // Filter/sort columns must exist — PostgREST rejects the whole query otherwise
   const columns = new Set(['id', 'created_at', 'user_id', ...plan.tables.flatMap((t) => t.columns.map((c) => c.name))])
   for (const m of content.matchAll(/\.(?:order|eq|neq|gt|gte|lt|lte|like|ilike|is|in|contains)\(\s*['"`]([a-z_][a-z0-9_]*)['"`]/g)) {
     if (!columns.has(m[1])) issues.push(`filters/sorts on unknown column "${m[1]}"`)
   }
+  // Visitors can't read submissions back: on public pages, any .select() on a
+  // public_submit table (including insert().select()) fails with an RLS error.
+  const isStaffFile = /\buseStaff\s*\(/.test(content)
+  if (!isStaffFile) {
+    for (const t of plan.tables.filter((x) => x.access === 'public_submit')) {
+      const chains = content.split(new RegExp(`\\.from\\(\\s*['"\`]${t.name}['"\`]\\s*\\)`)).slice(1)
+      for (const chain of chains) {
+        const stmt = chain.split(/;|\bawait\b|\.from\(/)[0]
+        if (/\.select\(/.test(stmt)) {
+          issues.push(`reads "${t.name}" on a public page — visitors can't read submissions: insert WITHOUT .select() and build the confirmation from the submitted values`)
+          break
+        }
+      }
+    }
+  }
+  if (/\bwindow\.confirm\(|(^|[^.\w])confirm\(/.test(content)) issues.push('uses window.confirm — use the Modal component (isOpen) for confirmations')
   if (/\baxios\b/.test(content)) issues.push('uses axios — there is no REST backend, use the supabase client')
   if (/fetch\(\s*['"`]\/api\//.test(content)) issues.push("calls fetch('/api/…') — there is no API server, use the supabase client")
   if (/\bclass="/.test(content)) issues.push('uses class= instead of className=')
   return [...new Set(issues)]
 }
 
+/** AI seed rows often carry invented photo URLs (e.g. an Unsplash id that
+ *  never existed) — swap each one that doesn't load for a verified photo. */
+async function repairSeedImages(seed: SeedRows, plan: SupabasePlan, designBrief: string): Promise<number> {
+  const library = [...designBrief.matchAll(/^\s*\d+\.\s+(https?:\/\/\S+)/gm)].map((m) => m[1])
+  const imageCol = /(image|photo|img|picture|thumbnail|thumb|avatar|cover|banner)/i
+  const checks: Array<Promise<void>> = []
+  let fixed = 0
+  let next = 0
+  for (const t of plan.tables) {
+    for (const [i, row] of (seed[t.name] ?? []).entries()) {
+      for (const [col, value] of Object.entries(row)) {
+        if (!imageCol.test(col) || typeof value !== 'string' || !/^https?:\/\//.test(value)) continue
+        checks.push(urlIsImage(value).then((ok) => {
+          if (ok) return
+          const slug = String(row.name ?? row.title ?? `${t.name}-${i}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
+          row[col] = library.length ? library[next++ % library.length] : `https://picsum.photos/seed/${slug || 'photo'}/800/600`
+          fixed++
+        }))
+      }
+    }
+  }
+  await Promise.all(checks)
+  return fixed
+}
+
 async function generateSupabaseSeed(providers: AIProvider[], plan: SupabasePlan, prompt: string): Promise<SeedRows> {
-  const tables = plan.tables.filter((t) => t.access !== 'auth_required')
+  // Visitor submissions (orders, bookings…) and private rows are never seeded
+  const tables = plan.tables.filter((t) => t.access !== 'auth_required' && t.access !== 'public_submit')
   if (!tables.length) return {}
   const instruction = `Write realistic starter content for a brand-new "${plan.name}" app (${prompt.slice(0, 300)}).
 Return ONLY JSON: { "table_name": [ { "column": value, ... } ] } with 4-6 rows per table, for these tables:
@@ -6159,7 +6285,8 @@ export async function generateSupabaseSite(
   // the rest of this build goes to Claude first instead of waiting it out per file.
   let geminiDemoted = false
   const writers = (): AIProvider[] => {
-    const order = gemini && geminiAvailable() && !geminiDemoted ? [gemini, claude] : [claude, gemini]
+    const usableClaude = claude && claudeAvailable() ? claude : null
+    const order = gemini && geminiAvailable() && !geminiDemoted ? [gemini, usableClaude] : [usableClaude, gemini]
     const list = order.filter((p): p is AIProvider => !!p)
     return list.length ? list : [provider]
   }
@@ -6231,11 +6358,17 @@ export async function generateSupabaseSite(
     await log(`🎨 Generating ${label} (${i + 1}/${plan.pages.length})…`, Math.round(20 + i * span))
     const isLanding = page.path === '/'
     const isLogin = page.path === '/login'
+    const isStaffPage = plan.staffPaths.includes(page.path)
+    const afterLogin = plan.hasAuth ? '/' : (plan.staffPaths[0] ?? '/')
     const richness = isLanding
-      ? 'This is the LANDING page — long and impressive like a real product homepage. Include IN ORDER: (1) a full hero (eyebrow + big headline with ONE <span className="gradient-text"> accent word + subhead + two CTAs as <Link className="btn btn-primary"> / <Link className="btn btn-secondary">), then AT LEAST FIVE more <section className="section"> blocks that fit the product — e.g. a feature grid (grid-3 of feature-card), how it works (steps), a LIVE preview of real data from the database (latest few rows, with loading/empty states), testimonials, an FAQ and a final cta-section. Every section wraps its content in <div className="container"> with a section-head (eyebrow + h2 + intro). Add className="reveal" to sections for scroll animations.'
+      ? 'This is the LANDING page — long and impressive like a real product homepage. Include IN ORDER: (1) a full hero (eyebrow + big headline with ONE <span className="gradient-text"> accent word + subhead + two CTAs as <Link className="btn btn-primary"> / <Link className="btn btn-secondary">), then AT LEAST FIVE more <section className="section"> blocks that fit the product — e.g. a feature grid (grid-3 of feature-card), how it works (steps), a LIVE preview of real data from a table visitors can read (latest few rows, with loading/empty states), testimonials, an FAQ and a final cta-section. Every section wraps its content in <div className="container"> with a section-head (eyebrow + h2 + intro). Add className="reveal" to sections for scroll animations.'
       : isLogin
-        ? 'This is the SIGN-IN page: a centered auth card with tabs or a toggle between "Sign in" and "Create account", email + password fields, a submit button with a loading state, error/success alerts, and navigate("/") after success. If the user is already signed in, show who is signed in and a Sign out button.'
-        : 'Start with a compact page hero (eyebrow + h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content. If this page manages data, build the full working experience: create form (with validation, disabled submit + "Saving…" while pending, success feedback, reset on success), a list/grid of rows (newest first) with delete (confirm first) and edit where it makes sense, plus loading skeleton, empty state and error alert.'
+        ? (plan.hasAuth
+            ? `This is the SIGN-IN page: a centered auth card with tabs or a toggle between "Sign in" and "Create account", email + password fields, a submit button with a loading state, error/success alerts, and navigate("${afterLogin}") after success. If the user is already signed in, show who is signed in and a Sign out button.`
+            : `This is the STAFF SIGN-IN page (visitors never need it): a centered card titled for ${plan.name} staff with "Sign in" and "First time? Create your staff account" modes (email + password, supabase.auth.signInWithPassword / signUp), loading state and error alerts. Explain in one line that only emails on the staff list get access. After success navigate("${afterLogin}"). If already signed in, show the email, a link to ${afterLogin} and a Sign out button.`)
+        : isStaffPage
+          ? 'This is a STAFF-ONLY page. Gate it with useStaff() exactly as the STAFF rules say (spinner → sign-in card → "not on the staff list" → content). Once isStaff, build a real back-office: stats row, filters/search, the full list of rows (newest first) with status changes, edit and delete (use the Modal component with isOpen for confirmations and details — never window.confirm), plus loading skeleton, empty state and error alert.'
+          : 'Start with a compact page hero (eyebrow + h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content. If this page lets visitors work with data, build the full working experience the access rules allow: forms with validation, disabled submit + "Saving…" while pending, success feedback and reset on success; lists only of tables visitors may read; loading skeleton, empty state and error alert.'
     const content = await ask(
       `${briefBlock}${contract}\n\nAPP SHELL (already written — pages render INSIDE <main>; do NOT render a header, nav or footer):\n\`\`\`jsx\n${appJsx.slice(0, 2500)}\n\`\`\`\n\nGenerate src/pages/${page.file} — "${page.title}" at ${page.path}: ${page.description}\nOriginal request: ${prompt.slice(0, 400)}\n\n${richness}\n\nWrite REAL, specific, on-brand copy — never lorem ipsum, "..." or TODO. Use https://picsum.photos/seed/{word}/{w}/{h} for any photo not in the PHOTO LIBRARY. Export default function ${page.file.replace(/\.jsx$/, '')}.`,
       `src/pages/${page.file}`,
@@ -6350,6 +6483,8 @@ export async function generateSupabaseSite(
   // ── Seed rows so the site launches with content, not empty lists ──
   await log('🌱 Writing starter content for the database…', 72)
   const seed = await generateSupabaseSeed(writers(), plan, prompt)
+  const repairedImages = await repairSeedImages(seed, plan, designBrief)
+  if (repairedImages) await log(`🖼️ Replaced ${repairedImages} starter photo link(s) that didn't load with verified photos`)
 
   await log('✅ Supabase site generation complete', 74)
   return {
@@ -6369,21 +6504,22 @@ async function runSupabaseQA(
   log: (message: string) => Promise<unknown>,
 ): Promise<void> {
   const contract = supabaseDataContract(plan)
+  const who = /^claude/i.test(enhancer.name) ? 'Claude QA' : 'QA'
   const broken = files
     .filter((f) => /^src\/(pages|components)\/.+\.jsx$/.test(f.path))
-    .map((f) => ({ f, issues: supabaseCodeIssues(f.content, plan) }))
+    .map((f) => ({ f, issues: supabaseCodeIssues(f.content, plan, f.path) }))
     .filter((x) => x.issues.length)
   for (const { f, issues } of broken) {
-    await log(`🔍 Claude QA — fixing ${f.path}: ${issues.join('; ').slice(0, 160)}`)
+    await log(`🔍 ${who} — fixing ${f.path}: ${issues.join('; ').slice(0, 160)}`)
     const changed = await claudeFix(
       enhancer, f,
       `Fix ONLY these problems, keeping all UI, copy and styling intact:\n- ${issues.join('\n- ')}\nReturn the complete corrected file as <file path="${f.path}">.`,
       contract,
     )
-    const left = supabaseCodeIssues(f.content, plan)
+    const left = supabaseCodeIssues(f.content, plan, f.path)
     await log(changed && !left.length ? `✅ QA fixed ${f.path}` : `⚠️ QA could not fully fix ${f.path}${left.length ? `: ${left.join('; ').slice(0, 120)}` : ''}`)
   }
-  if (!broken.length) await log('✅ Claude QA — every page uses the real tables and the Supabase client correctly')
+  if (!broken.length) await log(`✅ ${who} — every page uses the real tables, follows the access rules and gates staff pages`)
   await claudePolishCss(enhancer, files, 'src/index.css', '', log)
 }
 
@@ -7438,12 +7574,22 @@ async function buildSite(job: Job) {
       // Database: a dedicated project (or a schema in the shared one), the
       // tables + RLS policies + starter rows, then a live REST check.
       const plan = result.plan
+      // The person building the site is its first staff member
+      const ownerEmail = String((await User.findById(userId).select('email'))?.email ?? '')
       supabaseProvisioning = (async () => {
         await updateTask(task, { progress: 76 }, '🔌 Provisioning the Supabase database (1–3 min for a new project)…')
         try {
           const creds = await provisionSupabaseProject(siteName, (m) => updateTask(task, {}, m))
           await updateTask(task, { progress: 80 }, `🗄️ Database up at ${creds.url}${creds.shared ? ` (schema ${creds.schema})` : ''} — creating tables, security policies and starter content…`)
-          const migration = await runSupabaseMigrations(creds, plan.tables, { seed: result.seed, hasAuth: plan.hasAuth, log: (m) => updateTask(task, {}, m) })
+          const migration = await runSupabaseMigrations(creds, plan.tables, {
+            seed: result.seed, hasAuth: plan.hasAuth, staffEmails: ownerEmail ? [ownerEmail] : [], log: (m) => updateTask(task, {}, m),
+          })
+          if (needsStaff(plan.tables)) {
+            task.metadata = { ...task.metadata as object, supabaseStaffEmail: ownerEmail }
+            await updateTask(task, {}, ownerEmail
+              ? `🔐 Staff area locked to the staff list — ${ownerEmail} is on it. Customers can only submit; they never see other people's data.`
+              : '⚠️ No owner email on your ForgeAI account — add staff emails to the staff_members table in Supabase to unlock the staff pages', ownerEmail ? 'info' : 'warn')
+          }
           supabaseCredentials = creds
           // Deploys bake every VITE_* value into the Vite build
           repo.set('builderEnv', {
@@ -7496,9 +7642,16 @@ async function buildSite(job: Job) {
     // ── Claude QA / enhancement pass (targeted, best-effort) ──
     // Supabase builds already lean on Claude as the fallback writer, so its QA
     // runs whenever the key exists, even without ENHANCER_AI_PROVIDER.
-    const enhancer = createEnhancer()
+    const enhancer = !claudeAvailable() ? null : createEnhancer()
       ?? (stack === 'supabase' && resolveProvider('claude') === 'claude' ? createProvider('claude') : null)
-    if (enhancer) {
+    if (stack === 'supabase' && supabasePlan && !enhancer && geminiKey()) {
+      // The Supabase checks are concrete (wrong table, insecure read, ungated
+      // staff page) — Gemini can fix those when Claude is unavailable.
+      await updateTask(task, {}, '✨ QA pass on Gemini (Claude unavailable) — checking every page against the database rules…')
+      await runSupabaseQA(createProvider('gemini'), generated, supabasePlan, (m) => updateTask(task, {}, m))
+    } else if (!claudeAvailable()) {
+      await updateTask(task, {}, 'ℹ️ Claude QA pass skipped — the Anthropic account is out of credit or over its monthly spend limit')
+    } else if (enhancer) {
       await updateTask(task, {}, '✨ Claude QA pass — reviewing every page, routes & data layer…')
       if (stack === 'mern') await runMernQA(enhancer, generated, (m) => updateTask(task, {}, m))
       else if (stack === 'supabase' && supabasePlan) await runSupabaseQA(enhancer, generated, supabasePlan, (m) => updateTask(task, {}, m))
@@ -7864,7 +8017,10 @@ async function buildSite(job: Job) {
             ? '**Run locally:** `npm install && npm run build && npm start` (see README.md). Your MongoDB connection string is already wired into `.env` and will be applied on deploy.'
             : '**Run locally:** `npm install && npm run build && npm start` (see README.md). The site works as-is; to enable the API, set `MONGODB_URI` in `.env` — a free MongoDB Atlas cluster works.']
         : stack === 'supabase' && supaCreds
-        ? ['', `**Supabase backend:** [${supaCreds.ref}.supabase.co](${supaCreds.url})${supaCreds.shared ? ` — schema \`${supaCreds.schema}\` in your shared project (the free plan's project limit was reached)` : ' (free tier, auto-provisioned)'}. Tables, row-level security and starter content are in place. Credentials are in \`.env.local\` for local dev (\`npm install && npm run dev\`) and are injected automatically on deploy.`]
+        ? ['', `**Supabase backend:** [${supaCreds.ref}.supabase.co](${supaCreds.url})${supaCreds.shared ? ` — schema \`${supaCreds.schema}\` in your shared project (the free plan's project limit was reached)` : ' (free tier, auto-provisioned)'}. Tables, row-level security and starter content are in place. Credentials are in \`.env.local\` for local dev (\`npm install && npm run dev\`) and are injected automatically on deploy.`,
+            ...(supabasePlan && supabasePlan.staffPaths.length
+              ? ['', `**Staff area:** ${supabasePlan.staffPaths.map((p) => `\`#${p}\``).join(', ')} is locked to the staff list. Open \`#/login\` on the live site and create your account with **${String((task.metadata as any)?.supabaseStaffEmail || 'your ForgeAI email')}** (first time only) to get in. Add teammates by inserting their emails into the \`staff_members\` table in Supabase.`]
+              : [])]
         : stack === 'supabase'
         ? ['', '**Supabase backend:** not provisioned — see the warning in the log. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` before deploying.']
         : []),

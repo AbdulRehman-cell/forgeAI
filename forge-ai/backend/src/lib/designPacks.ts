@@ -413,8 +413,8 @@ button { cursor: pointer; }
   padding: var(--section-py) var(--gutter);
 }
 /* Alternating surface color — breaks visual monotony automatically */
-.section:nth-child(even), .section-surface { background: var(--surface); }
-.section:nth-child(odd), .section-white    { background: var(--bg); }
+.section:not(.hero):not(.hero-section):nth-child(even), .section-surface { background: var(--surface); }
+.section:not(.hero):not(.hero-section):nth-child(odd), .section-white    { background: var(--bg); }
 
 .section-sm  { padding: calc(var(--section-py) * .55) var(--gutter); }
 .section-xs  { padding: calc(var(--section-py) * .35) var(--gutter); }
@@ -948,8 +948,8 @@ button { cursor: pointer; }
 
 /* ── Layout ── */
 .section { padding: var(--section-py) var(--gutter); }
-.section:nth-child(even), .section-surface { background: var(--surface); }
-.section:nth-child(odd), .section-white { background: var(--bg); }
+.section:not(.hero):not(.hero-section):nth-child(even), .section-surface { background: var(--surface); }
+.section:not(.hero):not(.hero-section):nth-child(odd), .section-white { background: var(--bg); }
 .section-sm { padding: calc(var(--section-py) * .55) var(--gutter); }
 .container, .wrapper, .content-wrap { max-width: var(--content-width); margin-inline: auto; width: 100%; }
 .container-narrow { max-width: 720px; margin-inline: auto; }
@@ -963,7 +963,12 @@ button { cursor: pointer; }
 .hero, .hero-section {
   padding: clamp(100px, 17vw, 180px) var(--gutter) clamp(80px, 12vw, 144px);
   text-align: center; position: relative; overflow: hidden;
-  background: linear-gradient(170deg, #08081a 0%, #12082a 50%, #0a1428 100%);
+  /* Dark, but tinted by the site's own brand colours (a fixed navy clashed
+     with warm brands like bakeries and restaurants) */
+  background: linear-gradient(170deg,
+    color-mix(in srgb, var(--primary) 16%, #0a0a10) 0%,
+    color-mix(in srgb, var(--secondary, var(--primary)) 12%, #0d0b12) 55%,
+    #09090d 100%);
   color: #fff;
 }
 .hero::before, .hero-section::before {
@@ -1361,8 +1366,8 @@ button { cursor: pointer; }
 /* ── Layout ── */
 .section { padding: var(--section-py) var(--gutter); }
 /* Dark pack sections alternate between bg and surface */
-.section:nth-child(even), .section-surface { background: var(--surface); }
-.section:nth-child(odd)  { background: var(--bg); }
+.section:not(.hero):not(.hero-section):nth-child(even), .section-surface { background: var(--surface); }
+.section:not(.hero):not(.hero-section):nth-child(odd)  { background: var(--bg); }
 .section-sm { padding: calc(var(--section-py) * .55) var(--gutter); }
 .container, .wrapper, .content-wrap { max-width: var(--content-width); margin-inline: auto; width: 100%; }
 .container-narrow { max-width: 720px; margin-inline: auto; }

@@ -335,7 +335,7 @@ export default function Builder() {
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-600/10 border border-brand-500/30 text-brand-400 text-xs font-semibold mb-4">
             <Sparkles size={12} /> NEW · AI Builder
           </div>
-          <h1 className="text-4xl font-bold text-zinc-100 mb-3">
+          <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-100 mb-3">
             Build a website <span className="text-gradient">with AI</span>
           </h1>
           <p className="text-zinc-400 text-sm max-w-xl mx-auto">
@@ -364,7 +364,7 @@ export default function Builder() {
                       : 'border-surface-600 hover:border-brand-500/40',
                   )}
                 >
-                  <p className="text-xs font-semibold text-zinc-200">{opt.title}</p>
+                  <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{opt.title}</p>
                   <p className="text-[11px] text-zinc-500 mt-0.5">{opt.text}</p>
                 </button>
               ))}
@@ -391,7 +391,7 @@ export default function Builder() {
                       : 'border-surface-600 hover:border-brand-500/40',
                   )}
                 >
-                  <p className="text-xs font-semibold text-zinc-200">{opt.title}</p>
+                  <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{opt.title}</p>
                   <p className="text-[11px] text-zinc-500 mt-0.5">{opt.text}</p>
                 </button>
               ))}
@@ -438,7 +438,7 @@ export default function Builder() {
                       : 'border-surface-600 hover:border-brand-500/40',
                   )}
                 >
-                  <p className="text-xs font-semibold text-zinc-200">{opt.title}</p>
+                  <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{opt.title}</p>
                   <p className="text-[11px] text-zinc-500 mt-0.5">{opt.text}</p>
                 </button>
               ))}
@@ -455,7 +455,7 @@ export default function Builder() {
                 className={clsx(
                   'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
                   paletteId === ''
-                    ? 'border-brand-500/60 bg-brand-600/10 text-zinc-200'
+                    ? 'border-brand-500/60 bg-brand-600/10 text-zinc-800 dark:text-zinc-200'
                     : 'border-surface-600 text-zinc-500 hover:border-brand-500/40 hover:text-zinc-300',
                 )}
               >
@@ -480,7 +480,7 @@ export default function Builder() {
                   className={clsx(
                     'flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs font-medium transition-colors',
                     paletteId === p.id
-                      ? 'border-brand-500/60 bg-brand-600/10 text-zinc-200'
+                      ? 'border-brand-500/60 bg-brand-600/10 text-zinc-800 dark:text-zinc-200'
                       : 'border-surface-600 text-zinc-400 hover:border-brand-500/40 hover:text-zinc-300',
                   )}
                 >
@@ -529,7 +529,7 @@ export default function Builder() {
                     <p className="text-[10px] text-zinc-500">out of 10</p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-zinc-100">{audit.headline}</p>
+                    <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{audit.headline}</p>
                     <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">{audit.reasoning}</p>
                   </div>
                 </div>
@@ -630,7 +630,7 @@ export default function Builder() {
                   <button
                     key={ex}
                     onClick={() => setPrompt(ex)}
-                    className="text-left text-[11px] text-zinc-500 hover:text-zinc-200 border border-surface-600 hover:border-brand-500/50 rounded-lg px-3 py-1.5 transition-colors"
+                    className="text-left text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 border border-surface-600 hover:border-brand-500/50 rounded-lg px-3 py-1.5 transition-colors"
                   >
                     {ex.slice(0, 58)}…
                   </button>
@@ -641,7 +641,7 @@ export default function Builder() {
             {/* Analytics embed */}
             {flow === 'new' && stack !== 'mern' && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
-                <p className="text-xs font-semibold text-zinc-200 mb-3 flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-3 flex items-center gap-1.5">
                   <BarChart2 size={13} className="text-brand-400" /> Analytics
                   <span className="text-zinc-600 font-normal">(optional — injected into every page)</span>
                 </p>
@@ -677,7 +677,7 @@ export default function Builder() {
             {/* ── Add-ons ── */}
             <div className="border border-surface-600 rounded-xl p-4 mb-4">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                   <Sparkles size={13} className="text-violet-400" /> Add-ons
                   <span className="text-zinc-600 font-normal">(Pro / Team)</span>
                 </p>
@@ -713,7 +713,7 @@ export default function Builder() {
                         <Icon size={13} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-zinc-200 leading-tight">{label}</p>
+                        <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-tight">{label}</p>
                         <p className="text-[10px] text-zinc-500 mt-0.5 leading-tight">{desc}</p>
                       </div>
                       <div className={clsx(
@@ -807,7 +807,7 @@ export default function Builder() {
                 {(isBuilding || isDeploying) && <Loader2 size={15} className="animate-spin text-brand-400" />}
                 {task.status === 'completed' && <CheckCircle2 size={15} className="text-emerald-400" />}
                 {task.status === 'failed' && <XCircle size={15} className="text-red-400" />}
-                <p className="text-sm font-semibold text-zinc-200">
+                <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                   {isBuilding && 'Building your website…'}
                   {isDeploying && 'Deploying…'}
                   {buildDone && 'Website ready'}
@@ -851,7 +851,7 @@ export default function Builder() {
             {task.status === 'completed' && ((task.metadata as any)?.enhancements?.length > 0) && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-zinc-100">What was enhanced</p>
+                  <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">What was enhanced</p>
                   {(task.metadata as any)?.audit && (
                     <span className="text-[11px] text-zinc-500">
                       original scored{' '}
@@ -906,7 +906,7 @@ export default function Builder() {
             {deployUrl && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                  <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                     <Monitor size={13} className="text-brand-400" /> Preview
                   </p>
                   <div className="flex items-center gap-1">
@@ -971,14 +971,14 @@ export default function Builder() {
             {deployUrl && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                  <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                     <TrendingUp size={13} className="text-brand-400" /> Page Speed Score
                     {importUrl && <span className="text-zinc-600 font-normal">— before vs after</span>}
                   </p>
                   <button
                     onClick={() => speedScoreMutation.mutate()}
                     disabled={speedScoreMutation.isPending}
-                    className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    className="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 flex items-center gap-1.5 transition-colors disabled:opacity-50"
                   >
                     {speedScoreMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
                     {speedData ? 'Refresh' : 'Run'}
@@ -1010,7 +1010,7 @@ export default function Builder() {
             {/* ── Edit-After-Generate ── */}
             {deployUrl && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
-                <p className="text-xs font-semibold text-zinc-200 mb-3 flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-3 flex items-center gap-1.5">
                   <Wand2 size={13} className="text-brand-400" /> Edit this site
                   <span className="text-zinc-600 font-normal">— AI patches only what you ask</span>
                 </p>
@@ -1038,7 +1038,7 @@ export default function Builder() {
             {/* ── Client Approval ── */}
             {(buildDone || deployUrl) && repoId && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
-                <p className="text-xs font-semibold text-zinc-200 mb-2 flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-2 flex items-center gap-1.5">
                   <UserCheck size={13} className="text-brand-400" /> Client Approval
                 </p>
                 <p className="text-[11px] text-zinc-500 mb-3">Send the client a link to preview the site and click "Approve to go live".</p>
@@ -1055,7 +1055,7 @@ export default function Builder() {
                     <span className="text-[10px] font-mono text-zinc-400 truncate flex-1">{approvalData.approvalUrl}</span>
                     <button
                       onClick={() => { navigator.clipboard?.writeText(approvalData.approvalUrl); toast.success('Copied!') }}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-200 shrink-0"
+                      className="text-[10px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 shrink-0"
                     >Copy</button>
                   </div>
                 )}
@@ -1067,7 +1067,7 @@ export default function Builder() {
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                    <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                       <Construction size={13} className="text-brand-400" /> Maintenance Mode
                     </p>
                     <p className="text-[11px] text-zinc-500 mt-0.5">Show a "Coming Soon" page while you work on changes.</p>
@@ -1092,7 +1092,7 @@ export default function Builder() {
             {/* ── Environment Variables ── */}
             {(buildDone || deployDone) && repoId && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
-                <p className="text-xs font-semibold text-zinc-200 mb-1 flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-1 flex items-center gap-1.5">
                   <KeyRound size={13} className="text-brand-400" /> Environment Variables
                   <span className="text-zinc-600 font-normal">— applied to Render on every deploy</span>
                 </p>
@@ -1132,7 +1132,7 @@ export default function Builder() {
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                    <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                       <CalendarClock size={13} className="text-brand-400" /> Monthly Maintenance Plan
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300">PRO</span>
                     </p>
@@ -1158,7 +1158,7 @@ export default function Builder() {
             {/* Custom domain — the client's own brand.com */}
             {deployUrl && (
               <div className="border border-surface-600 rounded-xl p-4 mb-4">
-                <p className="text-xs font-semibold text-zinc-200 mb-1">Connect a custom domain</p>
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-1">Connect a custom domain</p>
                 <p className="text-[11px] text-zinc-500 mb-3">
                   Put this site on the client's own domain. HTTPS is issued automatically once DNS resolves.
                 </p>
@@ -1303,7 +1303,7 @@ export default function Builder() {
                       <button
                         onClick={() => deployMutation.mutate({ platform: 'auto' })}
                         disabled={deployMutation.isPending}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-surface-600 text-xs font-medium text-zinc-400 hover:border-brand-500/50 hover:text-zinc-200 transition-colors disabled:opacity-40"
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-surface-600 text-xs font-medium text-zinc-400 hover:border-brand-500/50 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors disabled:opacity-40"
                         title="Deploy to Render, Vercel, or Railway"
                       >
                         <Rocket size={12} /> External host
@@ -1334,7 +1334,7 @@ export default function Builder() {
             ].map(({ icon: Icon, title, text }) => (
               <div key={title} className="card p-4">
                 <Icon size={16} className="text-brand-400 mb-2" />
-                <p className="text-xs font-semibold text-zinc-200 mb-1">{title}</p>
+                <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-1">{title}</p>
                 <p className="text-[11px] text-zinc-500 leading-relaxed">{text}</p>
               </div>
             ))}

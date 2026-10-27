@@ -217,6 +217,8 @@ const COMPONENT_CSS = `
 .ui-modal-sm { max-width: 380px; }
 .ui-modal-md { max-width: 520px; }
 .ui-modal-lg { max-width: 720px; }
+.ui-modal-xl { max-width: 960px; }
+.ui-stat-icon { font-size: 1.4rem; margin-bottom: .35rem; line-height: 1; }
 .ui-modal-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; gap: 12px; }
 .ui-modal-title { font-weight: 800; font-size: 1.05rem; letter-spacing: -.03em; color: var(--text); }
 .ui-modal-close {
@@ -499,7 +501,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <div className={cn('ui-field', error && 'ui-has-err', className)}>
         {label && (
           <label className={cn('ui-label', required && 'ui-label-req')} htmlFor={inputId}>
-            {label}
+            {required ? label.replace(/\\s*\\*+\\s*$/, '') : label}
           </label>
         )}
         <div className="ui-input-wrap">
@@ -510,6 +512,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             className={cn('ui-input', iconLeft && 'ui-input-pl', iconRight && 'ui-input-pr')}
             aria-invalid={!!error}
             aria-describedby={error ? \`\${inputId}-err\` : hint ? \`\${inputId}-hint\` : undefined}
+            required={required}
             {...rest}
           />
           {iconRight && <span className="ui-icon-r">{iconRight}</span>}
@@ -539,8 +542,8 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     const tid = id || (label ? label.toLowerCase().replace(/\\s+/g, '-') : undefined)
     return (
       <div className={cn('ui-field', error && 'ui-has-err', className)}>
-        {label && <label className={cn('ui-label', required && 'ui-label-req')} htmlFor={tid}>{label}</label>}
-        <textarea ref={ref} id={tid} rows={rows} className="ui-textarea" aria-invalid={!!error} {...rest} />
+        {label && <label className={cn('ui-label', required && 'ui-label-req')} htmlFor={tid}>{required ? label.replace(/\\s*\\*+\\s*$/, '') : label}</label>}
+        <textarea ref={ref} id={tid} rows={rows} className="ui-textarea" aria-invalid={!!error} required={required} {...rest} />
         {error && <span className="ui-err-msg" role="alert">⚠ {error}</span>}
         {!error && hint && <span className="ui-hint">{hint}</span>}
       </div>
@@ -556,7 +559,8 @@ export interface SelectOption { value: string; label: string; disabled?: boolean
 
 export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size'> {
   label?: string
-  options: SelectOption[]
+  /** Either options, or plain <option> children */
+  options?: Array<SelectOption | string>
   placeholder?: string
   error?: string
   hint?: string
@@ -566,16 +570,19 @@ export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectE
 function cn(...c: (string | undefined | false | null)[]) { return c.filter(Boolean).join(' ') }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, options, placeholder, error, hint, required, className, id, ...rest }, ref) => {
+  ({ label, options, placeholder, error, hint, required, className, id, children, ...rest }, ref) => {
     const sid = id || (label ? label.toLowerCase().replace(/\\s+/g, '-') : undefined)
     return (
       <div className={cn('ui-field', error && 'ui-has-err', className)}>
-        {label && <label className={cn('ui-label', required && 'ui-label-req')} htmlFor={sid}>{label}</label>}
-        <select ref={ref} id={sid} className="ui-select" aria-invalid={!!error} {...rest}>
+        {label && <label className={cn('ui-label', required && 'ui-label-req')} htmlFor={sid}>{required ? label.replace(/\\s*\\*+\\s*$/, '') : label}</label>}
+        <select ref={ref} id={sid} className="ui-select" aria-invalid={!!error} required={required} {...rest}>
           {placeholder && <option value="" disabled>{placeholder}</option>}
-          {options.map(o => (
-            <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
-          ))}
+          {options
+            ? options.map(o => {
+                const opt = typeof o === 'string' ? { value: o, label: o } : o
+                return <option key={opt.value} value={opt.value} disabled={opt.disabled}>{opt.label}</option>
+              })
+            : children}
         </select>
         {error && <span className="ui-err-msg" role="alert">⚠ {error}</span>}
         {!error && hint && <span className="ui-hint">{hint}</span>}
@@ -652,10 +659,12 @@ Avatar.displayName = 'Avatar'
 const MODAL = `import React, { useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 
-export type ModalSize = 'sm' | 'md' | 'lg'
+export type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
 
 export interface ModalProps {
-  open: boolean
+  /** Either name works — the generator's docs advertise isOpen, older pages use open */
+  open?: boolean
+  isOpen?: boolean
   onClose: () => void
   title?: string
   size?: ModalSize
@@ -667,7 +676,8 @@ function Footer({ children }: { children: React.ReactNode }) {
   return <div className="ui-modal-footer">{children}</div>
 }
 
-const ModalInner: React.FC<ModalProps> = ({ open, onClose, title, size = 'md', children, closeOnOverlay = true }) => {
+const ModalInner: React.FC<ModalProps> = ({ open: openProp, isOpen, onClose, title, size = 'md', children, closeOnOverlay = true }) => {
+  const open = Boolean(openProp ?? isOpen)
   const handleKey = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => {
     if (!open) return
@@ -764,15 +774,23 @@ export interface StatProps {
   value: string | number
   label: string
   delta?: string
+  /** Alias of delta */
+  change?: string
   deltaType?: DeltaType
+  icon?: React.ReactNode
   className?: string
 }
 
 const ARROW = { up: '↑', down: '↓', neutral: '→' } as const
 function cn(...c: (string | undefined | false | null)[]) { return c.filter(Boolean).join(' ') }
 
-export const Stat: React.FC<StatProps> = ({ value, label, delta, deltaType = 'neutral', className }) => (
+export const Stat: React.FC<StatProps> = ({ value, label, delta: deltaProp, change, deltaType: typeProp, icon, className }) => {
+  const delta = deltaProp ?? change
+  // "+12%" / "-3%" imply a direction when none was given
+  const deltaType: DeltaType = typeProp ?? (/^\\s*\\+/.test(String(delta ?? '')) ? 'up' : /^\\s*-/.test(String(delta ?? '')) ? 'down' : 'neutral')
+  return (
   <div className={cn('ui-stat', className)}>
+    {icon && <div className="ui-stat-icon" aria-hidden="true">{icon}</div>}
     <div className="ui-stat-label">{label}</div>
     <div className="ui-stat-value">{value}</div>
     {delta && (
@@ -781,7 +799,8 @@ export const Stat: React.FC<StatProps> = ({ value, label, delta, deltaType = 'ne
       </div>
     )}
   </div>
-)
+  )
+}
 Stat.displayName = 'Stat'
 `
 
@@ -812,24 +831,31 @@ const PAGE_HEADER = `import React from 'react'
 
 export interface PageHeaderProps {
   title: string
-  subtitle?: string
+  subtitle?: React.ReactNode
+  /** Alias of subtitle */
+  description?: React.ReactNode
   badge?: React.ReactNode
+  /** Buttons shown on the right (children also land there) */
+  actions?: React.ReactNode
   children?: React.ReactNode
   className?: string
 }
 
 function cn(...c: (string | undefined | false | null)[]) { return c.filter(Boolean).join(' ') }
 
-export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, badge, children, className }) => (
+export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, description, badge, actions, children, className }) => {
+  const sub = subtitle ?? description
+  return (
   <div className={cn('ui-page-hd', className)}>
     <div className="ui-page-hd-left">
       {badge && <div>{badge}</div>}
       <h1 className="ui-page-hd-title">{title}</h1>
-      {subtitle && <p className="ui-page-hd-sub">{subtitle}</p>}
+      {sub && <p className="ui-page-hd-sub">{sub}</p>}
     </div>
-    {children && <div className="ui-page-hd-right">{children}</div>}
+    {(actions || children) && <div className="ui-page-hd-right">{actions}{children}</div>}
   </div>
-)
+  )
+}
 PageHeader.displayName = 'PageHeader'
 `
 
@@ -872,10 +898,43 @@ function Row({ children, clickable, className, onClick, ...rest }: React.HTMLAtt
   )
 }
 
-function TableRoot({ children, className }: { children: React.ReactNode; className?: string }) {
+type Column = string | { key: string; label?: React.ReactNode; render?: (row: any) => React.ReactNode }
+
+/** Sub-component style (Table.Head / Table.Body …) or data-driven: columns + rows. */
+function TableRoot({ children, className, columns, rows, onRowClick }: {
+  children?: React.ReactNode
+  className?: string
+  columns?: Column[]
+  rows?: any[]
+  onRowClick?: (row: any) => void
+}) {
+  const body = children ?? (columns && (
+    <>
+      <thead>
+        <tr className="ui-table-tr">
+          {columns.map(c => {
+            const key = typeof c === 'string' ? c : c.key
+            const label = typeof c === 'string' ? c.replace(/_/g, ' ') : (c.label ?? c.key)
+            return <th key={key} className="ui-table-th">{label}</th>
+          })}
+        </tr>
+      </thead>
+      <tbody>
+        {(rows ?? []).map((row, i) => (
+          <Row key={row?.id ?? i} clickable={!!onRowClick} onClick={onRowClick ? () => onRowClick(row) : undefined}>
+            {columns.map(c => {
+              const key = typeof c === 'string' ? c : c.key
+              const cell = typeof c !== 'string' && c.render ? c.render(row) : row?.[key]
+              return <Td key={key}>{cell === null || cell === undefined ? '—' : typeof cell === 'object' && !React.isValidElement(cell) ? JSON.stringify(cell) : cell}</Td>
+            })}
+          </Row>
+        ))}
+      </tbody>
+    </>
+  ))
   return (
     <div className={cn('ui-table-wrap', className)}>
-      <table className="ui-table">{children}</table>
+      <table className="ui-table">{body}</table>
     </div>
   )
 }
@@ -922,9 +981,12 @@ Navbar.displayName = 'Navbar'
 const TABS = `import React from 'react'
 
 export interface TabsProps {
-  value: string
+  value?: string
   onChange: (value: string) => void
-  children: React.ReactNode
+  children?: React.ReactNode
+  /** Array style: tabs={[{ id, label }]} active={id} */
+  tabs?: Array<{ id?: string; value?: string; label: React.ReactNode; disabled?: boolean }>
+  active?: string
   className?: string
 }
 
@@ -939,12 +1001,16 @@ function Tab({ value: tabValue, children, disabled, className }: TabProps & { _a
   return null
 }
 
-function TabsRoot({ value, onChange, children, className }: TabsProps) {
+function TabsRoot({ value: valueProp, onChange, children, tabs, active: activeProp, className }: TabsProps) {
+  const value = valueProp ?? activeProp
+  // Both documented styles become one list: <Tabs.Tab> children or a tabs array
+  const items: Array<{ tv: string; label: React.ReactNode; disabled?: boolean }> = tabs
+    ? tabs.map(t => ({ tv: String(t.id ?? t.value ?? ''), label: t.label, disabled: t.disabled }))
+    : (React.Children.toArray(children).filter(React.isValidElement) as React.ReactElement<TabProps>[])
+        .map(child => ({ tv: child.props.value, label: child.props.children, disabled: child.props.disabled }))
   return (
     <div className={['ui-tabs', className].filter(Boolean).join(' ')} role="tablist">
-      {React.Children.map(children, child => {
-        if (!React.isValidElement(child)) return null
-        const { value: tv, children: label, disabled } = child.props as TabProps
+      {items.map(({ tv, label, disabled }) => {
         const active = tv === value
         return (
           <button

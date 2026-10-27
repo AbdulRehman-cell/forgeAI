@@ -61,6 +61,11 @@ function detectStartCommand(serverDir: string): { cmd: string; args: string[] } 
   const pkgPath = path.join(serverDir, 'package.json')
   if (fs.existsSync(pkgPath)) {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+    // A plain "node <file>" start script is run directly: going through npm
+    // adds a second Node process (~40 MB) per backend, and five of those on a
+    // 512 MB box is what got the container OOM-killed when backends resumed.
+    const plainNode = /^node\s+([\w./-]+\.(?:c|m)?js)$/.exec(String(pkg.scripts?.start ?? '').trim())
+    if (plainNode && fs.existsSync(path.join(serverDir, plainNode[1]))) return { cmd: 'node', args: [plainNode[1]] }
     if (pkg.scripts?.start) return { cmd: 'npm', args: ['run', 'start'] }
     if (pkg.main)           return { cmd: 'node', args: [pkg.main] }
   }
@@ -163,11 +168,18 @@ export function pauseAllBackends(): Array<{ slug: string; serverDir: string }> {
   return running
 }
 
-/** Restart backends that were paused with pauseAllBackends (best-effort, non-blocking). */
+/** Restart backends that were paused with pauseAllBackends (best-effort, non-blocking).
+ *  One at a time, each waiting until it is listening: starting five at once
+ *  spiked the 512 MB container past its limit and Render killed the server
+ *  seconds after every completed build. */
 export function resumeBackends(backends: Array<{ slug: string; serverDir: string }>): void {
-  for (const { slug, serverDir } of backends) {
-    startBackend(slug, serverDir).catch(e => console.warn(`[processManager] Failed to resume ${slug}: ${e.message}`))
-  }
+  void (async () => {
+    for (const { slug, serverDir } of backends) {
+      if (startHolds > 0) { deferredStarts.set(slug, serverDir); continue } // a new build took the memory
+      await startBackend(slug, serverDir).catch(e => console.warn(`[processManager] Failed to resume ${slug}: ${e.message}`))
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+  })()
 }
 
 /** Pause every backend AND keep background restores from relaunching them

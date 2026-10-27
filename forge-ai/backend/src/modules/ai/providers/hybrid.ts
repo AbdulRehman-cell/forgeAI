@@ -46,7 +46,9 @@ export class HybridProvider implements AIProvider {
       const detail = String(
         body?.error?.message ?? body?.message ?? body?.error?.type ?? err.message ?? '',
       ).toLowerCase()
-      const outOfCredit = /credit balance|insufficient|quota|billing|payment|too low/.test(detail)
+      // Anthropic's monthly spend cap answers 400 "You have reached your
+      // specified API usage limits. You will regain access on …"
+      const outOfCredit = /credit balance|insufficient|quota|billing|payment|too low|usage limit|regain access/.test(detail)
       const recoverable =
         status === 429 || // rate limited
         status === 413 || // request too large

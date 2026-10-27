@@ -24,6 +24,29 @@ function isTransientNetworkError(err: any): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// Spend-limit circuit breaker. Once Anthropic says the account's spend cap or
+// credit is exhausted ("You will regain access on 2026-11-01…"), every call
+// until then is a guaranteed 400 — fail instantly instead, so callers fall
+// back to Gemini without a wasted round trip per file.
+let blockedUntil = 0
+let blockedReason = ''
+
+/** False while Anthropic has told us the account is out of credit / over its spend cap. */
+export function claudeAvailable(): boolean {
+  return Date.now() >= blockedUntil
+}
+
+function noteSpendLimit(err: any): void {
+  const msg = String(err?.response?.data?.error?.message ?? '')
+  if (!/usage limit|regain access|credit balance|insufficient/i.test(msg)) return
+  const regain = /regain access on (\d{4}-\d{2}-\d{2})(?: at (\d{2}:\d{2}))?/i.exec(msg)
+  const until = regain ? Date.parse(`${regain[1]}T${regain[2] ?? '00:00'}:00Z`) : NaN
+  // Unknown reset time (e.g. "credit balance too low"): re-check hourly
+  blockedUntil = Number.isFinite(until) ? until : Date.now() + 3_600_000
+  blockedReason = msg.slice(0, 200)
+  console.warn(`[claude] account unavailable until ${new Date(blockedUntil).toISOString()} — ${blockedReason}`)
+}
+
 export class ClaudeProvider implements AIProvider {
   name = 'claude'
   private apiKey: string
@@ -33,12 +56,19 @@ export class ClaudeProvider implements AIProvider {
   }
 
   async chat(messages: AIMessage[], systemPrompt?: string): Promise<AIResponse> {
+    if (!claudeAvailable()) {
+      // 402-shaped so HybridProvider treats it as "paid tier drained" and falls back
+      const err: any = new Error(`Claude unavailable: ${blockedReason}`)
+      err.response = { status: 402, data: { error: { message: err.message } } }
+      throw err
+    }
     let lastErr: any
     for (let attempt = 0; attempt <= RETRY_ATTEMPTS; attempt++) {
       try {
         return await this.request(messages, systemPrompt)
       } catch (err: any) {
         lastErr = err
+        if (err?.response?.status === 400 || err?.response?.status === 402) noteSpendLimit(err)
         if (attempt >= RETRY_ATTEMPTS || !isTransientNetworkError(err)) throw err
         const delay = RETRY_BASE_MS * 2 ** attempt
         console.warn(`[claude] network error (${err.code ?? err.message}) — retry ${attempt + 1}/${RETRY_ATTEMPTS} in ${delay}ms`)
