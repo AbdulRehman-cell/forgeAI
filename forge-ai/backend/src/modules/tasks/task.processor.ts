@@ -35,6 +35,7 @@ import {
   type BrandKit,
 } from '../../lib/brandKit'
 import { applyKitExtras } from '../../lib/blocks'
+import { runVisualQa, servedStylesheets, visualQaEngine, photoUrlsIn, brokenImages } from '../../lib/visualQa'
 
 const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
@@ -972,6 +973,22 @@ async function pushRepoToGitHub(
  *  package.json, vite.config, index.html or anything outside the project. A fix
  *  pass that rewrites the toolchain turns one build error into a dead project.
  *  Returns how many files were written. */
+/** Page markup visual QA looks section headings up in — static pages or React
+ *  pages, the home page first (it is what the reviewer sees). */
+function pageSources(root: string): string[] {
+  const out: { name: string; text: string }[] = []
+  const read = (dir: string, re: RegExp) => {
+    try {
+      for (const f of fs.readdirSync(dir)) if (re.test(f)) out.push({ name: f, text: fs.readFileSync(path.join(dir, f), 'utf8') })
+    } catch { /* folder absent for this stack */ }
+  }
+  read(root, /\.html$/)
+  read(path.join(root, 'src', 'pages'), /\.jsx?$/)
+  read(path.join(root, 'client', 'src', 'pages'), /\.jsx?$/)
+  const home = (n: string) => (/^(index\.html|home|landing)/i.test(n) ? 0 : 1)
+  return out.sort((a, b) => home(a.name) - home(b.name)).slice(0, 12).map((f) => f.text)
+}
+
 function applyBuildFixes(fixes: ParsedChange[], cwd: string): number {
   let applied = 0
   for (const fix of fixes) {
@@ -1050,7 +1067,7 @@ async function blitzDeploy(job: Job) {
     // just for the Vite build and hand them back afterwards (idempotent).
     let releaseBuildHold: (() => void) | null = null
     try {
-      const { selfHostedDeploy, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild, makeSlug } = await import('../../lib/selfHostedDeploy')
+      const { selfHostedDeploy, republishSite, findDeployRoot, patchRouterForStaticHosting, injectEnvForBuild, makeSlug } = await import('../../lib/selfHostedDeploy')
       const { Deployment } = await import('../hosting/deployment.model')
       const { startBackend, pauseAllBackends, resumeBackends, holdAllBackends, releaseBackendHold } = await import('../../lib/processManager')
       _resumeBackends = resumeBackends
@@ -1514,6 +1531,33 @@ INSTRUCTIONS:
         existingSlug: deploySlug,
         apiProxyUrl: mernProxyUrl,
       })
+
+      // ── Visual QA ── look at the live site on desktop and phone, fix what a
+      // client would notice, re-check. Runs before the build folder is cleaned up
+      // because a fix is appended to its served stylesheet and re-published.
+      let qaNote = ''
+      if (visualQaEngine() && geminiKey()) {
+        await updateTask(task, { progress: 92 }, '🔍 Checking the live site like a client would…')
+        const deployRoot = findDeployRoot(deploySourcePath)
+        const qa = await runVisualQa({
+          url: result.url,
+          site: repoName ?? 'site',
+          provider: createProvider('gemini'),
+          sources: pageSources(localPath),
+          servedCss: servedStylesheets(deployRoot),
+          sourceCss: ['styles.css', 'src/index.css', 'client/src/index.css'].map((p) => path.join(localPath, p)).find((p) => fs.existsSync(p)),
+          republish: () => republishSite(deployRoot, result.slug),
+          log: (m) => updateTask(task, {}, m),
+        })
+        if (qa) {
+          const final = qa.after && !qa.reverted ? qa.after : qa.before
+          task.metadata = { ...(task.metadata as object), visualQa: { ...qa, checkedAt: new Date().toISOString() } }
+          task.markModified('metadata')
+          qaNote = `\n\n**Visual check:** ${final.score}/10 on desktop and phone${qa.patched ? ` (was ${qa.before.score}/10 — fixed automatically)` : ''}.${final.issues.length ? ` Remaining: ${final.issues.slice(0, 3).map((i) => i.problem).join('; ')}` : ''}`
+        }
+      } else if (!visualQaEngine()) {
+        await updateTask(task, {}, 'ℹ️ Visual QA is off — add CLOUDFLARE_API_TOKEN (Browser Rendering) to have every deploy screenshotted and checked')
+      }
       // Clean up the temp dir extracted from the GitHub Actions artifact
       if (ghActionsTmpDir) {
         try { fs.rmSync(ghActionsTmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
@@ -1597,7 +1641,7 @@ INSTRUCTIONS:
         : ''
 
       await updateTask(task, { status: 'completed', progress: 100 },
-        `## ✅ Deployed to ForgeAI\n\nYour site is live at: **${result.url}**\n\n${providerNote}${backendNote}`, 'info')
+        `## ✅ Deployed to ForgeAI\n\nYour site is live at: **${result.url}**\n\n${providerNote}${backendNote}${qaNote}`, 'info')
       emitTaskUpdate(taskId, task.toObject())
     } catch (err: any) {
       // Always restore paused backends even on failure
@@ -7815,6 +7859,20 @@ async function buildSite(job: Job) {
         // Count-ups, rotating word and the WhatsApp button live outside React
         const shell = generated.find((f) => f.path === (stack === 'mern' ? 'client/index.html' : 'index.html'))
         if (shell) shell.content = applyKitExtras(shell.content, brandKit)
+      }
+    }
+
+    // ── Broken photos ── a URL the model mangled while copying it, or a photo
+    // that has gone: swap each for an unused library photo before anyone sees it
+    {
+      const pages = generated.filter((f) => /\.(html|jsx|css)$/.test(f.path))
+      const urls = [...new Set(pages.flatMap((f) => photoUrlsIn(f.content)))]
+      const broken = urls.length ? await brokenImages(urls) : []
+      if (broken.length) {
+        const spare = imagePool.filter((u) => !urls.includes(u))
+        const swap = broken.map((u, i) => [u, spare[i % Math.max(1, spare.length)] ?? `https://picsum.photos/seed/${siteName}-${i}/1600/1000`] as const)
+        for (const f of pages) for (const [from, to] of swap) f.content = f.content.split(from).join(to)
+        await updateTask(task, {}, `🖼️ Replaced ${broken.length} broken photo link(s) with working photos`)
       }
     }
     if (stack === 'mern' || stack === 'supabase') {

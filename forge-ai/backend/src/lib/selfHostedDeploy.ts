@@ -458,3 +458,14 @@ export async function selfHostedDeploy(options: {
   copyDir(deployRoot, siteDir)  // now throws on any file error
   return { url: localUrl(slug), slug, siteDir, provider: 'local' }
 }
+
+/** Re-publishes an already deployed build folder after an in-place edit (e.g.
+ *  a visual-QA CSS fix). Unlike selfHostedDeploy it does not patch index.html
+ *  again — that step is not idempotent. */
+export async function republishSite(deployRoot: string, slug: string): Promise<void> {
+  if (r2Configured()) {
+    await uploadDirToR2(deployRoot, slug)
+    return
+  }
+  copyDir(deployRoot, path.join(SITES_DIR, slug))
+}
