@@ -90,11 +90,9 @@ export function selectPack(designBrief: string): PackName {
 // Injected into every generation prompt so the AI uses pack classes rather
 // than reinventing them.
 export function getPackPromptNote(pack: PackName): string {
-  const heroNote = pack === 'bold'
-    ? `The BOLD pack hero is a DARK gradient background (deep navy/indigo) with vivid radial mesh glows — this is intentional. DO NOT override the hero background to white/light.`
-    : pack === 'dark'
-    ? `The DARK pack hero is on --bg (deep dark) with a radial primary glow — DO NOT make it white or grey.`
-    : `The CLEAN pack hero is white with a subtle gradient mesh. DO NOT change it to a flat grey.`
+  const heroNote = `When the DESIGN BRIEF has a BRAND KIT, its photo hero and page-hero are the only hero styles — never add glows, mesh or gradient backdrops to them.${pack === 'bold'
+    ? ' Without a kit, the BOLD pack hero is a dark navy background — do not turn it white.'
+    : pack === 'dark' ? ' Without a kit, the DARK pack hero sits on --bg — do not make it white or grey.' : ''}`
 
   return `
 FORGEAI DESIGN PACK (${pack.toUpperCase()}) IS ALREADY LOADED as the base CSS layer.

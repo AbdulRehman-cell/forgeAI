@@ -28,8 +28,12 @@ import {
 import { auditSite, type SiteAudit } from '../../lib/siteAudit'
 import { stripCodeFence } from '../agent/agent.tools'
 import type { AIProvider, AIMessage, AIResponse } from '../ai/providers/base'
-import { selectPack, getPackCss, getPackPromptNote, PALETTE_PRESETS } from '../../lib/designPacks'
+import { selectPack, getPackCss, getPackPromptNote, PALETTE_PRESETS, type PackName } from '../../lib/designPacks'
 import { getReactPackFiles, getReactPackCss, getReactPackPromptNote } from '../../lib/reactPack'
+import {
+  FONT_PAIRINGS, buildBrandKit, brandKitBrief, brandLayerCss, finalizeBrandCss, applyBrandToHtml, sizeInlineIcons, kitFavicon, faviconHref, logoInner,
+  type BrandKit,
+} from '../../lib/brandKit'
 
 const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'
 const REPOS_DIR = process.env.REPOS_DIR ?? path.join(process.cwd(), 'repos')
@@ -2417,17 +2421,17 @@ const BUILDER_SYSTEM_PROMPT = `You are ForgeAI Builder, an elite web designer an
 
 QUALITY BAR — the site must look like a designer built it (think Linear, Stripe, Vercel, Lovable), never "AI-generated filler":
 - Follow the DESIGN BRIEF you are given EXACTLY — its palette, fonts, type scale, spacing, and motifs. Never fall back to a generic default (never violet #8b5cf6 on slate #0f172a unless the brief says so).
-- A REAL type scale: big, confident headings using clamp() (hero h1 ~clamp(2.5rem, 6vw, 4.5rem), tight line-height ~1.05), a clear step down to body. Gradient text on ONE accent word of the hero headline when it fits the brand.
-- DEPTH, not flat: layered box-shadows, subtle gradients or a soft radial "mesh" backdrop on the hero, 1px translucent borders on cards, rounded corners. Nothing should look like an unstyled block.
+- A REAL type scale: big, confident headings using clamp() (hero h1 ~clamp(2.5rem, 6vw, 4.5rem), tight line-height ~1.05), a clear step down to body. The hero headline's accent is ONE phrase in solid brand colour (<span class="accent">) — never gradient text.
+- DEPTH, not flat: soft layered shadows, 1px borders on cards, rounded corners and real photography — never blurred colour blobs, glows or mesh backdrops. Nothing should look like an unstyled block.
 - RHYTHM: generous section padding (clamp(64px,10vw,120px) vertical), consistent spacing scale, aligned grids, a max-width content column.
 - Micro-interactions: smooth transitions (~180ms ease), hover/focus states on every interactive element (lift, glow, or color shift), tasteful scroll-reveal — never gratuitous.
 - Typography: link the brief's Google Font pairing in each page's <head> (a display font for headings + a clean body font). Load the weights you use.
-- Favicon: every page's <head> MUST include an inline emoji favicon, e.g. <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>"> (pick an emoji matching the site's theme).
+- Favicon and fonts: ForgeAI injects the brand's favicon and font links into every page — do not add your own.
 - CONTRAST IS NON-NEGOTIABLE: never light text on light backgrounds or dark on dark.
 - MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, gallery2, feature3) so each image is distinct and STABLE across reloads (sizes hero ≥ 1600 wide, gallery/cards ≥ 600 wide); avatars via https://i.pravatar.cc/300?img={n}. The HOME hero MUST have a full-bleed background image (a positioned <img> covering the section, or CSS background-image) WITH a dark gradient overlay so the headline stays perfectly legible. Put PLENTY of images across every page. Include at least one VIDEO — a relevant YouTube embed (<iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen> in a responsive 16:9 wrapper), or a muted autoplay <video autoplay muted loop playsinline>. Present images CLEANLY: object-fit: cover, tidy rounded corners — NEVER rotate/tilt/skew/overlap. Explicit width & height + descriptive alt on every <img>. Never reference local files that don't exist.
 - DYNAMIC & ANIMATED: make the site feel alive — smooth entrance/scroll-reveal animations, hover/focus micro-interactions, and a loading animation on page load. Rich and lively, never gratuitous.
 - Every section earns its place: a real hero with headline + subhead + primary CTA, a sticky translucent (backdrop-blur) nav, meaningful content sections, and a rich footer. Working links between all pages.
-- HEADER (professional, non-negotiable): ONE <nav> per page only — no duplicate nav for mobile/desktop, no extra .mobile-nav elements. Mobile hamburger is injected by script.js automatically — do NOT add your own hamburger button or mobile toggle. The <header> must be: sticky (position: sticky; top: 0; z-index: 100), semi-opaque (background with ≥88% opacity), backdrop-filter: blur(14px), -webkit-backdrop-filter: blur(14px), border-bottom: 1px solid var(--border) at rest. Layout: display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(1rem, 5vw, 2.5rem); height: 68px. Brand logo LEFT (font-weight: 700, font-size: 1.25rem, letter-spacing: -0.02em, no text-decoration). Nav links CENTER or RIGHT: display: flex; align-items: center; gap: clamp(1rem, 2.5vw, 2rem); each link font-weight: 500; font-size: .95rem; letter-spacing: .01em; text-decoration: none; padding: .3rem 0; border-bottom: 2px solid transparent; transition: color .2s, border-color .2s — active page link gets border-bottom-color: var(--primary). CTA button RIGHTMOST: background: var(--primary); color: #fff; padding: .55rem 1.3rem; border-radius: 8px; font-weight: 600; font-size: .9rem; white-space: nowrap; transition: opacity .2s, transform .15s; hover: opacity .88, translateY(-1px). On .scrolled: box-shadow: 0 4px 24px rgba(0,0,0,.12), height shrinks to 58px, background opacity increases to 96%. DESKTOP: nav links always on ONE ROW, never wrap. Add .scrolled via JS at scrollY > 60 (script.js handles this automatically).
+- HEADER (professional, non-negotiable): ONE <nav> per page only — no duplicate nav for mobile/desktop, no extra .mobile-nav elements. Mobile hamburger is injected by script.js automatically — do NOT add your own hamburger button or mobile toggle. The <header> must be: sticky (position: sticky; top: 0; z-index: 100), semi-opaque (background with ≥88% opacity), backdrop-filter: blur(14px), -webkit-backdrop-filter: blur(14px), border-bottom: 1px solid var(--border) at rest. Layout: display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(1rem, 5vw, 2.5rem); height: 68px. Brand logo LEFT — the BRAND KIT logo markup, exactly. Nav links CENTER or RIGHT: display: flex; align-items: center; gap: clamp(1rem, 2.5vw, 2rem); each link font-weight: 500; font-size: .95rem; letter-spacing: .01em; text-decoration: none; padding: .3rem 0; border-bottom: 2px solid transparent; transition: color .2s, border-color .2s — active page link gets border-bottom-color: var(--primary). CTA button RIGHTMOST (class="nav-cta"): background: var(--primary); color: var(--on-primary); padding: .55rem 1.3rem; border-radius: 8px; font-weight: 600; font-size: .9rem; white-space: nowrap; transition: opacity .2s, transform .15s; hover: opacity .88, translateY(-1px). On .scrolled: box-shadow: 0 4px 24px rgba(0,0,0,.12), height shrinks to 58px, background opacity increases to 96%. DESKTOP: nav links always on ONE ROW, never wrap. Add .scrolled via JS at scrollY > 60 (script.js handles this automatically).
 - Semantic HTML5; interactivity lives in script.js, styles live in styles.css — do NOT inline <style> or <script> blocks in HTML pages beyond tiny critical snippets.
 
 ⚠️ DESIGN SYSTEM RULES — BREAKS THAT MAKE SITES LOOK AMATEUR:
@@ -2719,8 +2723,9 @@ header nav .btn, .site-header nav .btn {
     flex-direction: column !important; align-items: stretch !important; width: 100% !important;
     gap: 0 !important; padding: 0 !important; margin: 0 !important; list-style: none !important;
   }
-  /* Touch-friendly link targets — 48px min height */
-  header nav a, .site-header nav a, .navbar nav a, header .nav-links a, header nav li a {
+  /* Touch-friendly link targets — 48px min height (.site-header .nav-links a must be
+     listed: the desktop rule above uses it, and would otherwise out-rank this one) */
+  header nav a, .site-header nav a, .navbar nav a, header .nav-links a, .site-header .nav-links a, header nav li a {
     display: flex !important; align-items: center !important;
     min-height: 48px !important; padding: .6rem 1.25rem !important;
     width: 100% !important; box-sizing: border-box !important;
@@ -3206,6 +3211,13 @@ footer, .site-footer { margin-top: clamp(4rem, 8vw, 6rem); padding: clamp(2.5rem
 }
 ${LOADING_CSS}${HAMBURGER_CSS}`
 
+/** A CSS request sometimes comes back as a component file. One such line in a
+ *  stylesheet fails PostCSS — and with it the whole site build — so these
+ *  replies are rejected before they are appended. */
+function notCss(text: string): boolean {
+  return /^\s*(import\s.+\sfrom\s|export\s+(default|const|function)\b|const\s+\w+\s*=|function\s+\w+\s*\(|return\s*\(|<\/?[A-Za-z][\w.]*[\s>/])/m.test(text)
+}
+
 function sanitizeCss(files: ParsedChange[], cssPath: string) {
   const entry = files.find((f) => f.path === cssPath)
   if (!entry) return
@@ -3432,7 +3444,7 @@ async function appendMissingStyles(
       )
       if (!res) { await sleep(2000); continue }
       const file = parseAIChanges(res.content)[0]
-      if (file?.content && file.content.trim().length > 100) {
+      if (file?.content && file.content.trim().length > 100 && !notCss(file.content)) {
         cssEntry.content += `\n\n/* ── Styles for remaining classes (round ${round + 1}) ── */\n${file.content.trim()}\n`
         appended = true
       } else {
@@ -3450,18 +3462,23 @@ async function appendMissingStyles(
 // file's prompt. This is what stops the builder from sometimes phoning in the
 // generic violet-on-slate default — every page follows ONE intentional design.
 
-const DESIGN_DIRECTOR_PROMPT = `You are an award-winning brand & UI designer. Given a product idea you invent a DISTINCTIVE visual identity that feels tailor-made for it — the palette, type, and motifs a top studio would choose. You NEVER reach for the generic default (never violet #8b5cf6 on slate #0f172a unless the brand genuinely calls for it). DEFAULT TO BRIGHT, LIGHT themes — a white or near-white --bg with strong colored accents. Only choose a dark palette when the category unmistakably demands it (gaming, nightlife, luxury black-label, crypto/DeFi, cybersecurity). Most sites — retail, food, health, education, SaaS, portfolio, quiz apps, productivity tools — should feel bright, airy, and energetic. You output a tight, prescriptive spec, no prose padding.`
+const DESIGN_DIRECTOR_PROMPT = `You are the art director of a top brand studio. You give a business ONE confident identity: one brand colour that owns its industry, a typeface pairing with character, real photography, and restraint everywhere else. Restraint reads as premium; ornament (gradient text, glows, blobs, many colours) reads as AI-generated. Light themes for almost everything; dark only for nightlife, gaming or luxury black-label brands. You output a tight, prescriptive spec — no prose padding.`
 
 // Strong, opinionated fallback — still far better than a bland default if the
 // model's brief call fails. Bright editorial identity that reads as "designed".
-const DEFAULT_DESIGN_BRIEF = `VIBE: bright, energetic, confident, modern, editorial.
-PALETTE: --bg #ffffff; --surface #f7f5f2; --surface-2 #edeae5; --text #18130f; --muted #6b6460; --primary #e85d04; --primary-hover #fb8500; --secondary #219ebc; --accent #ffb703; --border rgba(0,0,0,0.1).
-FONTS: headings 'Space Grotesk' (600/700), body 'Inter' (400/500) — both Google Fonts.
-TYPE SCALE: h1 clamp(2.5rem,6vw,4.5rem)/1.05/700; h2 clamp(1.75rem,3.5vw,2.75rem)/1.1/700; h3 clamp(1.25rem,2vw,1.5rem)/1.25/600; body 1.0625rem/1.7.
-SPACING: rhythm 4/8/16/24/40/64/96; section padding clamp(64px,10vw,120px) vertical; content max-width 1120px.
-MOTIFS: soft radial mesh-gradient hero backdrop blending --primary and --secondary at low opacity; glassy cards (--surface + 1px rgba(255,255,255,.07) border + layered shadow 0 20px 50px -20px rgba(0,0,0,.6)); pill buttons with a soft glow on hover; gradient text on the hero headline; sticky nav with a SEMI-OPAQUE --bg background (~82% opacity) AND backdrop-blur so content scrolls cleanly behind it — never a blur with no background; generous whitespace; rounded-2xl (16px) corners; smooth 180ms ease transitions.`
+// Used when the art director fails; the brand kit then infers colour and fonts
+// from the request's industry keywords.
+const DEFAULT_DESIGN_BRIEF = `VIBE: confident, clear, trustworthy, modern.
+MODE: light
+REFERENCE: a best-in-class site for this category — photo hero with the visitor's main action, proof (numbers, reviews), services or features, how it works, testimonials, FAQ, and a closing call to action.`
 
 const briefHeader = 'DESIGN BRIEF — follow it EXACTLY so every page shares ONE cohesive, premium identity (use these exact CSS variable names in :root):'
+
+/** With a brand kit the pack is only the component base, light or dark — the
+ *  bold pack's navy mesh hero and violet-tinted shadows would fight the kit. */
+function packFor(designBrief: string, kit?: BrandKit): PackName {
+  return kit ? (kit.mode === 'dark' ? 'dark' : 'clean') : selectPack(designBrief)
+}
 
 // Optional user-chosen vibe that steers the design director on top of the
 // automatic industry-matching. 'auto' (or unknown) adds nothing.
@@ -3534,13 +3551,13 @@ Write for THIS specific site — not generic. Every headline must feel written b
 
 /** Art-direct a distinctive identity for this specific site. Resilient: a
  *  provider failure or a thin reply falls back to the strong default brief. */
-async function buildDesignBrief(provider: AIProvider, prompt: string, siteName: string, style?: string): Promise<string> {
+export async function buildDesignBrief(provider: AIProvider, prompt: string, siteName: string, style?: string): Promise<string> {
   const styleLine = style && STYLE_DIRECTIVES[style]
     ? `\n\n${STYLE_DIRECTIVES[style]} (Still make the identity clearly match the site's industry/type.)`
     : ''
   const res = await safeChat(
     provider,
-    `Invent a distinctive visual identity for this website:\n\n"${prompt}"\n\nSite name: ${siteName}${styleLine}\n\nReturn a DESIGN BRIEF as plain text (no markdown fences) with EXACTLY these labelled lines, tailored to THIS product's mood:\nVIBE: 4-6 adjectives.\nPALETTE: hex/rgba for --bg --surface --surface-2 --text --muted --primary --primary-hover --secondary --accent --border. Cohesive, theme-appropriate, high contrast between --text and --bg. DEFAULT TO A BRIGHT/LIGHT palette (white or near-white --bg) — only go dark if the category unmistakably demands it (gaming, nightlife, luxury black-label, crypto). NOT the generic violet-on-slate default.\nFONTS: a real Google Fonts pairing — a display font for headings + a clean body font, with weights.\nTYPE SCALE: fluid clamp() sizes + line-height + weight for h1/h2/h3/body.\nSPACING: a spacing rhythm and section vertical padding and content max-width.\nMOTIFS: 5 SPECIFIC, implementable CSS treatments — name the exact effect, not a vague adjective. Examples of the level of specificity required: "hero has a radial mesh-gradient backdrop (two overlapping radial-gradient blobs at 30%/70% using --primary and --secondary at 30% opacity, blurred 60px)", "cards use a 1px rgba(255,255,255,.07) border + box-shadow 0 18px 44px -18px rgba(0,0,0,.5) + translateY(-4px) on hover", "primary button has a box-shadow 0 10px 30px -10px var(--primary) glow that intensifies on hover", "section dividers use a single-pixel linear-gradient(90deg, transparent, --border, transparent) line", "featured/highlighted cards get a 1px solid --primary border + a subtle glow". Keep treatments SUBTLE and contained — never large floating blobs that overlap content.\nPHOTO SUBJECTS: 2-4 comma-separated CONCRETE photo subjects showing the PLACES, PEOPLE, and real things a visitor expects for this category — not abstract concepts (e.g. a university: "university campus, students studying, graduation ceremony, library"; a restaurant: "plated gourmet food, restaurant interior, chef cooking"; a hotel: "hotel lobby, luxury suite, resort pool").\nREFERENCE: name this site's CATEGORY, then how best-in-class REAL sites in that category are built — their signature SECTIONS in the usual order, layout patterns, imagery style, and tone. (e.g. a hotel: full-bleed hero with a booking/enquiry bar, rooms & suites showcase, amenities, photo gallery, dining, special offers, guest reviews, location/map; a restaurant: hero, menu, reservations, gallery, story, hours/location; a SaaS: hero, logos, features, how-it-works, pricing, testimonials, FAQ, CTA.) Build this site to feel like a TOP example of its category, following those conventions.\n\nThe identity MUST obviously match this site's INDUSTRY/TYPE (a sports brand = athletic, bold, high-energy; a law firm = refined and trustworthy; a bakery = warm and inviting) — not a generic template. The hero headline must read with STRONG contrast against the hero background; keep any gradient/accent color to a SINGLE word so the headline never washes out, and no ghosting text-shadow.\n\nWhatever the vibe, the final result MUST be HIGH-CLASS with tremendous styling and tasteful visual effects — never plain, generic, or bare.\n\nBe specific and prescriptive — this is injected verbatim into every file generation.`,
+    `Art-direct the identity for this website:\n\n"${prompt}"\n\nSite name: ${siteName}${styleLine}\n\nReturn a DESIGN BRIEF as plain text (no markdown) with EXACTLY these labelled lines:\nBRAND NAME: the business name for the logo — from the request if it gives one (or the brand's real name when its existing site is included above); otherwise a credible 1–3 word name for this business.\nDESCRIPTOR: 2–3 words naming the business type, shown small under the logo (e.g. "Recruitment agency", "Artisan bakery", "Dental clinic").\nVIBE: 4–6 adjectives.\nBRAND COLOR: ONE hex colour that owns this industry and stands out (e.g. safety orange for logistics, oxblood for a steakhouse, forest green for landscaping, cobalt for a clinic). When the brand's real colours are given above, use their main brand colour. Avoid generic violet/indigo unless the brand genuinely is.\nMODE: light — or dark only for nightlife, gaming or luxury black-label brands, or when the request asks for it.\nFONT PAIRING: exactly one id from this list —\n${FONT_PAIRINGS.map((p) => `  ${p.id}: ${p.heading.family} + ${p.body.family}${p.headingCase === 'uppercase' ? ' (uppercase headlines)' : ''} — ${p.fits}`).join('\n')}\nPHOTO SUBJECTS: 3–4 comma-separated concrete photo searches. The FIRST is the hero: a wide, atmospheric shot of the real place or work (e.g. "warehouse interior shelves", "barber cutting hair", "restaurant dining room evening"). The others show people, products and details a visitor expects.\nHERO ACTION: the visitor's #1 task as a small form in the hero — a title plus 2–3 fields and the button label (e.g. "Find a job: keyword, location → Search jobs"; "Book a table: date, guests → Find a table"; "Get a quote: service, postcode → Get my quote"), or "none" if nothing form-like fits.\nHERO PROOF: 3–4 short stats believable for this business (e.g. "50+ active roles; 9 locations; 48hr average start").\nREFERENCE: this site's category, and how best-in-class REAL sites in it are built — their signature sections in order, imagery and tone (a hotel: rooms, amenities, gallery, dining, offers, reviews, location; a restaurant: menu, reservations, gallery, story, hours; a SaaS: logos, features, how it works, pricing, testimonials, FAQ).\n\nThe identity must obviously belong to this INDUSTRY (a sports brand = athletic and punchy; a law firm = refined; a bakery = warm). Premium comes from restraint: one colour, strong type, real photos — never gradient text, glows or decorative blobs.`,
     DESIGN_DIRECTOR_PROMPT,
   )
   const brief = res?.content?.trim()
@@ -3556,41 +3573,104 @@ async function urlIsImage(url: string): Promise<boolean> {
   } catch { return false }
 }
 
-/** Fetch a pool of topical, real web photos for the given subjects — Unsplash
- *  when UNSPLASH_ACCESS_KEY is set (highest quality), otherwise the keyless
- *  Openverse API (CC-licensed web photos, each URL validated so it truly loads).
- *  Returns [] on any error / no subjects → the builder falls back to picsum, so
- *  this can never break a build and never yields a broken image. */
-async function fetchImagePool(subjects: string[]): Promise<string[]> {
+// Archive scans, artwork and government press photos rank high on keyword
+// search but never belong on a business site: paintings, prints, maps, pre-1950
+// photos and military/NASA/agency uploads are skipped.
+const NOT_A_PHOTO = /painting|watercolou?r|lithograph|woodcut|engraving|etching|drawing|illustration|poster|\bmap\b|diagram|logo|icon|coat of arms|stamp|museum|circa|\b1[0-8]\d\d\b|\b19[0-4]\d\b|\bU\.?S\.? |army|navy|air force|marine|military|soldier|squadron|munition|nasa|\bksc-|dpla|dvids|usda|blackhawk|\bfob\b|coast guard|national guard|coalition|embassy|protest|labor relations/i
+
+interface PoolPhoto { url: string; width: number; height: number }
+
+/** Wide, large photos first — the first subject's best one becomes the hero. */
+const heroRank = (p: PoolPhoto) => (p.width / Math.max(1, p.height) >= 1.3 ? 1 : 0) * 10_000 + Math.min(p.width, 4000)
+
+/** Keyless and fast (~1s): Wikimedia Commons photos in search-relevance order,
+ *  CC0/public domain first among equals. `quality` limits the search to the
+ *  community-reviewed "Quality images" — sharp, well-composed shots. A file's
+ *  title must name one of the subject's keywords (full-text hits on long
+ *  descriptions drift off topic). */
+async function commonsPhotos(subject: string, quality: boolean): Promise<PoolPhoto[]> {
+  const { data } = await axios.get('https://commons.wikimedia.org/w/api.php', {
+    params: {
+      action: 'query', format: 'json', generator: 'search', gsrnamespace: 6, gsrlimit: 20,
+      gsrsearch: `${subject} filetype:bitmap${quality ? ' incategory:"Quality_images"' : ''}`,
+      prop: 'imageinfo', iiprop: 'url|size|mime|extmetadata', iiurlwidth: 1920, iiextmetadatafilter: 'LicenseShortName',
+    },
+    headers: { 'User-Agent': 'ForgeAI-site-builder/1.0 (photo search for generated websites)' },
+    timeout: 10_000,
+  })
+  const keys = subject.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4)
+  const named = (title: string) => !keys.length || keys.some((k) => title.toLowerCase().includes(k))
+  const pages = Object.values<any>(data?.query?.pages ?? {})
+    .filter((p) => !NOT_A_PHOTO.test(String(p?.title ?? '')) && named(String(p?.title ?? '')))
+    .map((p) => ({ info: p?.imageinfo?.[0], index: Number(p?.index ?? 99) }))
+    .filter(({ info }) => info?.mime === 'image/jpeg' && info.width >= 1200)
+  const free = (info: any) => /cc0|public domain/i.test(String(info?.extmetadata?.LicenseShortName?.value ?? '')) ? 0 : 1
+  return pages
+    .sort((a, b) => a.index - b.index || free(a.info) - free(b.info))
+    .map(({ info }) => ({ url: String(info.thumburl ?? info.url).split('?')[0], width: info.width, height: info.height }))
+}
+
+/** Keyless but often slow (10–45s): Openverse, each URL HEAD-checked so it truly loads. */
+async function openversePhotos(subject: string): Promise<PoolPhoto[]> {
+  const { data } = await axios.get('https://api.openverse.org/v1/images/', {
+    params: { q: subject, page_size: 10, mature: 'false', size: 'large' },
+    timeout: 20_000,
+  })
+  const candidates = (data?.results ?? [])
+    .filter((r: any) => typeof r?.url === 'string' && r.url.startsWith('https') && !/\.svg(\?|$)/i.test(r.url))
+    .map((r: any) => ({ url: r.url as string, width: Number(r.width) || 0, height: Number(r.height) || 0 }))
+  const checked = await Promise.all(candidates.map(async (p: PoolPhoto) => ((await urlIsImage(p.url)) ? p : null)))
+  return checked.filter((p): p is PoolPhoto => !!p)
+}
+
+/** Fetch a pool of topical, real web photos for the given subjects. Licensed
+ *  stock when a key is set (UNSPLASH_ACCESS_KEY or PEXELS_API_KEY — best
+ *  quality, free for commercial use), otherwise Wikimedia Commons with
+ *  Openverse as backup. Photo 1 is the best wide shot of the first subject (the
+ *  hero). Returns [] when nothing is found → the builder falls back to picsum,
+ *  so this can never break a build. */
+export async function fetchImagePool(subjects: string[]): Promise<string[]> {
   const subs = subjects.slice(0, 4).filter(Boolean)
   if (!subs.length) return []
-  const key = process.env.UNSPLASH_ACCESS_KEY
-  const perSubject = await Promise.all(subs.map(async (subject): Promise<string[]> => {
+  const unsplash = process.env.UNSPLASH_ACCESS_KEY
+  const pexels = process.env.PEXELS_API_KEY
+  const perSubject = await Promise.all(subs.map(async (subject, i): Promise<string[]> => {
+    let photos: PoolPhoto[] = []
     try {
-      if (key) {
+      if (unsplash) {
         const { data } = await axios.get('https://api.unsplash.com/search/photos', {
           params: { query: subject, per_page: 6, orientation: 'landscape', content_filter: 'high' },
-          headers: { Authorization: `Client-ID ${key}` },
+          headers: { Authorization: `Client-ID ${unsplash}` },
           timeout: 8000,
         })
-        return (data?.results ?? [])
-          .map((p: any) => p?.urls?.raw)
-          .filter((u: any): u is string => typeof u === 'string')
-          .map((u: string) => `${u}&w=1600&q=80&fit=crop`)
+        photos = (data?.results ?? [])
+          .filter((p: any) => typeof p?.urls?.raw === 'string')
+          .map((p: any) => ({ url: `${p.urls.raw}&w=1920&q=80&fit=crop`, width: Number(p.width) || 0, height: Number(p.height) || 0 }))
+      } else if (pexels) {
+        const { data } = await axios.get('https://api.pexels.com/v1/search', {
+          params: { query: subject, per_page: 8, orientation: 'landscape' },
+          headers: { Authorization: pexels },
+          timeout: 8000,
+        })
+        photos = (data?.photos ?? [])
+          .filter((p: any) => typeof p?.src?.large2x === 'string')
+          .map((p: any) => ({ url: p.src.large2x as string, width: Number(p.width) || 0, height: Number(p.height) || 0 }))
       }
-      // Keyless: Openverse CC-licensed web photos, validated so only loading URLs remain.
-      const { data } = await axios.get('https://api.openverse.org/v1/images/', {
-        params: { q: subject, page_size: 8, mature: 'false' },
-        timeout: 8000,
-      })
-      const candidates = (data?.results ?? [])
-        .map((r: any) => r?.url)
-        .filter((u: any): u is string => typeof u === 'string' && u.startsWith('https') && !/\.svg(\?|$)/i.test(u))
-      const checked = await Promise.all(candidates.map(async (u: string) => ((await urlIsImage(u)) ? u : '')))
-      return checked.filter(Boolean)
-    } catch {
-      return []
+    } catch { /* stock API down or over quota — the keyless sources below still work */ }
+    // Commons matches EVERY word, so a descriptive subject ("warehouse interior
+    // with forklift and shelving") finds little — retry with its first keywords
+    const words = subject.toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w && !/^(with|and|of|on|in|at|the|a|an|for|to|from|up|close)$/.test(w))
+    // Reviewed "Quality images" first at each query length, then all photos
+    for (const q of [...new Set([subject, words.slice(0, 3).join(' '), words.slice(0, 2).join(' ')])].filter(Boolean)) {
+      for (const quality of [true, false]) {
+        if (photos.length >= 4) break
+        const more = await commonsPhotos(q, quality).catch(() => [])
+        photos = [...photos, ...more.filter((p) => !photos.some((x) => x.url === p.url))]
+      }
     }
+    if (photos.length < 3) photos = [...photos, ...(await openversePhotos(subject).catch(() => []))]
+    if (i === 0) photos.sort((a, b) => heroRank(b) - heroRank(a))
+    return photos.slice(0, 8).map((p) => p.url)
   }))
   return [...new Set(perSubject.flat())].slice(0, 18)
 }
@@ -3619,6 +3699,8 @@ async function generateStaticSite(
   /** If set, write each generated file to this directory as a checkpoint so
    *  a server restart during appendMissingStyles does not lose all work. */
   checkpointDir?: string,
+  /** The fixed identity — palette, fonts, logo, photo hero, taste rules */
+  kit?: BrandKit,
 ): Promise<{ files: ParsedChange[]; summary?: string } | null> {
   const generated: ParsedChange[] = []
   // The design brief is identical for every file in this build, so it rides in
@@ -3626,7 +3708,7 @@ async function generateStaticSite(
   // re-sent inside each user message. Combined they clear Claude's ~1–2k-token
   // cache minimum, so every per-file call after the first reads this whole
   // prefix at ~0.1x input price rather than paying for it again.
-  const pack = selectPack(designBrief)
+  const pack = packFor(designBrief, kit)
   const packCss = getPackCss(pack)
   const builderSystem = `${BUILDER_SYSTEM_PROMPT}\n\n${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}`
 
@@ -3661,7 +3743,7 @@ async function generateStaticSite(
         file = { path: expectPath, content: raw }
       }
 
-      if (file?.content?.trim()) {
+      if (file?.content?.trim() && !(expectPath.endsWith('.css') && notCss(file.content))) {
         if (label === 'Claude') {
           await updateTask(task, {}, `🤖 Claude stepped in to generate ${expectPath}`)
         }
@@ -3681,9 +3763,9 @@ Generate ONLY index.html now. Include <meta name="viewport" content="width=devic
 ${source
   ? `This is a REBUILD of an established company's existing website. Their current site has ${source.pages} pages and ${source.images} images${source.sections.length ? `, with sections like: ${source.sections.slice(0, 10).join('; ')}` : ''}. Your rebuild MUST BE RICHER THAN THEIRS, never thinner — at least ${Math.max(4, source.pages)} pages and at least ${Math.max(10, source.images)} images. Mirror THEIR information architecture (the pages and sections listed in the BRAND SOURCE), then improve on it: better hierarchy, stronger visuals, clearer calls to action. Do NOT replace their structure with a generic template — a client will not abandon a site they like for a stock layout.`
   : `This site MUST have AT LEAST 4 pages total: index.html PLUS at least 3 more pages that fit the product (e.g. about, features/services, contact, gallery, pricing).`} Add working nav links to ALL of them in the sticky header nav.
-Make the home page LONG, impressive and FULLY RESPONSIVE like a real product homepage: a sticky nav, a full hero (eyebrow + big headline with an accent span + subhead + two CTAs), ${source
+Make the home page LONG, impressive and FULLY RESPONSIVE like a real product homepage: a sticky nav${kit ? ' with the BRAND KIT logo' : ''}, ${kit ? 'the LANDING HERO built EXACTLY as the BRAND KIT shows (hero-photo structure, its HERO PHOTO, the HERO ACTION card and HERO PROOF stats)' : 'a full hero (eyebrow + big headline with an accent span + subhead + two CTAs)'},${source
   ? `then rebuild THEIR OWN SECTIONS from the BRAND SOURCE — the same topics and services they already show, in a comparable order — but executed far better: richer imagery, stronger typography, clearer hierarchy. Keep every service, capability and claim their current site makes; losing content is a downgrade. **HARD MINIMUM: at least 4 substantial content sections AFTER the hero (5 sections total including the hero).** If the source has fewer, invent additional sections that fit their business category and content (e.g. a "why choose us" / process / testimonials / FAQ / CTA banner)`
-  : `then AT LEAST FIVE MORE full sections AFTER the hero (6 <section> elements total on the homepage — hard minimum, do not ship fewer), FOLLOWING THIS SITE'S CATEGORY CONVENTIONS from the DESIGN BRIEF (the sections a best-in-class real site in this category has, in their usual order — e.g. a hotel: rooms/suites, amenities, gallery, offers, reviews, location; a SaaS: features, how-it-works, pricing, testimonials, FAQ)`}, and a rich footer.\n\n**PLENTY OF IMAGES — this is critical, the site must feel photo-rich and visual, not text-heavy.** Requirements:\n- Full-bleed hero background image with dark gradient overlay (a positioned <img> OR CSS background-image on the hero section).\n- AT LEAST 3 OTHER SECTIONS with their own background imagery — either full-bleed background photos with overlay, subtle background patterns, OR a prominent side/inline photo. Not every section needs a hero-style background, but the page must feel VISUALLY rich section-to-section, never a wall of text on a plain background.\n- A dedicated gallery/showcase section with 4-6 photos in a grid.\n- Testimonial section with pravatar avatars.\n- Total: at least 10 real photos across the homepage.\n\nUse https://picsum.photos/seed/{seed}/{w}/{h} URLs (seed = a unique word+number per image so each is distinct and stable — hero1, gallery2, feature3, etc.) at appropriate sizes (heroes ≥ 1600 wide, gallery ≥ 600 wide). Avatars via https://i.pravatar.cc/300?img={n}. These URLs always resolve.\n\nMake the home page feel alive with smooth entrance animations, scroll-reveal on sections, and hover micro-interactions. Use fluid, responsive markup — no fixed pixel widths that overflow on phones. Real, specific, on-brand copy — never lorem, never "..." placeholders.
+  : `then AT LEAST FIVE MORE full sections AFTER the hero (6 <section> elements total on the homepage — hard minimum, do not ship fewer), FOLLOWING THIS SITE'S CATEGORY CONVENTIONS from the DESIGN BRIEF (the sections a best-in-class real site in this category has, in their usual order — e.g. a hotel: rooms/suites, amenities, gallery, offers, reviews, location; a SaaS: features, how-it-works, pricing, testimonials, FAQ)`}, and a rich footer.\n\n**PLENTY OF IMAGES — this is critical, the site must feel photo-rich and visual, not text-heavy.** Requirements:\n- ${kit ? 'The hero is the BRAND KIT photo hero — the stylesheet adds its overlay.' : 'Full-bleed hero background image with dark gradient overlay (a positioned <img> OR CSS background-image on the hero section).'}\n- AT LEAST 3 OTHER SECTIONS with their own background imagery — either full-bleed background photos with overlay, subtle background patterns, OR a prominent side/inline photo. Not every section needs a hero-style background, but the page must feel VISUALLY rich section-to-section, never a wall of text on a plain background.\n- A dedicated gallery/showcase section with 4-6 photos in a grid.\n- Testimonial section with pravatar avatars.\n- Total: at least 10 real photos across the homepage.\n\nWhen the DESIGN BRIEF has a PHOTO LIBRARY use only those photos; otherwise use https://picsum.photos/seed/{seed}/{w}/{h} URLs (seed = a unique word+number per image so each is distinct and stable — hero1, gallery2, feature3, etc.) at appropriate sizes (heroes ≥ 1600 wide, gallery ≥ 600 wide). Avatars via https://i.pravatar.cc/300?img={n}. These URLs always resolve.\n\nMake the home page feel alive with smooth entrance animations, scroll-reveal on sections, and hover micro-interactions. Use fluid, responsive markup — no fixed pixel widths that overflow on phones. Real, specific, on-brand copy — never lorem, never "..." placeholders.
 After the file, add exactly two lines:
 EXTRA PAGES: comma-separated .html filenames the nav links to — LIST AT LEAST 3
 SITE SUMMARY: one sentence describing the site`,
@@ -3738,7 +3820,7 @@ SITE SUMMARY: one sentence describing the site`,
     await updateTask(task, { progress: 20 }, `📄 Generating ${page}…`)
     await sleep(1500)
     const ok = await genFile(
-      `Here is the site's index.html for reference (reuse its exact header, nav, footer, and linked styles.css/script.js):\n\`\`\`html\n${indexHtml.slice(0, 6000)}\n\`\`\`\n\nGenerate the COMPLETE ${page} page for this site (original request: ${prompt.slice(0, 300)}). Full, polished content — no placeholders.`,
+      `Here is the site's index.html for reference (reuse its exact header, nav, footer, and linked styles.css/script.js):\n\`\`\`html\n${indexHtml.slice(0, 6000)}\n\`\`\`\n\nGenerate the COMPLETE ${page} page for this site (original request: ${prompt.slice(0, 300)}). Full, polished content — no placeholders.${kit ? ' Start the page with the BRAND KIT page-hero.' : ''}`,
       page,
     )
     if (ok) {
@@ -3776,7 +3858,7 @@ SITE SUMMARY: one sentence describing the site`,
     ? `\n\n═══ THE SITE'S CURRENT STYLESHEET — YOUR NEW ONE MUST BE AT LEAST 100% BETTER ═══\nBelow is the CSS the client's existing site actually ships. Read it — see their palette, their type scale, their spacing rhythm, their card/button treatment. Then write a stylesheet that unambiguously beats it: sharper typography, richer palette (built on top of THEIR brand colors so it's still recognisable), stronger depth hierarchy, better spacing rhythm, more thoughtful hover/focus states, and full responsive coverage. Not just different — measurably better. Do NOT copy their rules verbatim, do NOT inherit their exact class names in your CSS unless the generated HTML also uses them. Use this as a QUALITY FLOOR and a POINT OF DEPARTURE:\n\n\`\`\`css\n${originalCss.slice(0, 30000)}\n\`\`\`\n`
     : ''
   if (!(await genFile(
-    `Here are ALL the site's pages:\n\n${allPagesHtml()}\n\nOriginal request: ${prompt.slice(0, 400)}\n\nGenerate the COMPLETE styles.css for this site: every class and id used in ANY page above, plus base styles and the full quality bar. Style all forms, inputs, selects, textareas, checkbox groups, fieldsets, cards, and grids — no element on any page may render with browser defaults.\n\nThe site MUST be FULLY RESPONSIVE, mobile-first: include \`img, video { max-width: 100%; height: auto }\`, a fluid max-width content container, and @media breakpoints at 960px and 640px that stack multi-column grids to one column, wrap/collapse the nav, shrink the hero and section padding, and let wide content (e.g. tables) scroll horizontally. Nothing may overflow the viewport horizontally on a phone.${beatReference}`,
+    `Here are ALL the site's pages:\n\n${allPagesHtml()}\n\nOriginal request: ${prompt.slice(0, 400)}\n\nGenerate the COMPLETE styles.css for this site: every class and id used in ANY page above, plus base styles and the full quality bar. Style all forms, inputs, selects, textareas, checkbox groups, fieldsets, cards, and grids — no element on any page may render with browser defaults.\n\nThe site MUST be FULLY RESPONSIVE, mobile-first: include \`img, video { max-width: 100%; height: auto }\`, a fluid max-width content container, and @media breakpoints at 960px and 640px that stack multi-column grids to one column, wrap/collapse the nav, shrink the hero and section padding, and let wide content (e.g. tables) scroll horizontally. Nothing may overflow the viewport horizontally on a phone.${kit ? `\n\nThe BRAND KIT classes are ALREADY styled by ForgeAI — write NO rules for: header layout, .nav-brand, .brand-mark, .brand-text, .brand-name, .brand-tag, .accent, .hero-photo and everything inside it (.hero-inner, .hero-copy, .hero-eyebrow, .hero-lead, .hero-actions, .hero-aside, .hero-card, .hero-form, .hero-glass*, .hero-stats, .hero-stat*), .page-hero, .btn-primary. Do not write a :root palette, colour hex codes or font-family — use the BRAND KIT variables.` : ''}${beatReference}`,
     'styles.css',
     stylist,
   ))) {
@@ -3794,6 +3876,10 @@ SITE SUMMARY: one sentence describing the site`,
   }
 
   sanitizeCss(generated, 'styles.css')
+  // In place before the missing-styles pass so the kit's classes count as styled
+  // (finalizeBrandCss later moves the layer to the very end)
+  const siteCss = generated.find((f) => f.path === 'styles.css')
+  if (kit && siteCss) siteCss.content += `\n${brandLayerCss(kit)}\n`
 
   // Checkpoint: write core files to disk before the CSS extension pass so a
   // server restart during appendMissingStyles does not lose the whole build.
@@ -3827,7 +3913,9 @@ SITE SUMMARY: one sentence describing the site`,
   if (stylesEntry) {
     // Pack CSS is the deterministic foundation layer — AI rules override on top
     stylesEntry.content = `${packCss}\n/* ── Site Styles ── */\n${stylesEntry.content}\n${LOADING_CSS}\n${FINAL_FIXES_CSS}\n${HAMBURGER_CSS}\n${REVEAL_SAFETY_CSS}\n${HERO_CONTRAST_SAFETY_CSS}`
+    if (kit) stylesEntry.content = finalizeBrandCss(stylesEntry.content, kit, { fontImport: false })
   }
+  if (kit) for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applyBrandToHtml(f.content, kit)
   const scriptEntry = generated.find((f) => f.path === 'script.js')
   // Preloader scrub — the model often invents its OWN preloader (#preloader,
   // .preloader, body.loading-state) expecting matching JS handlers we didn't
@@ -4361,8 +4449,8 @@ RULES:
 - STYLING — READ CAREFULLY: there is NO Tailwind here. NEVER write utility classes like "flex", "grid", "p-6", "px-4", "mx-auto", "gap-4", "text-lg", "text-center", "font-bold", "bg-white", "rounded-xl", "shadow-md", "max-w-6xl", "md:flex". They render COMPLETELY UNSTYLED. Instead, a global DESIGN SYSTEM is already loaded that styles this exact class VOCABULARY — build your markup out of it so it looks polished with zero extra CSS:
   ⚠️ THIS IS REACT JSX — ALWAYS use className="..." not class="...". Using class= silently breaks ALL styling. Every single element must use className.
   • Layout: wrap page content in <div className="container">; group sections as <section className="section">…; use "grid grid-2 | grid-3 | grid-4" for card rows; center intros with className="section-head".
-  • Hero (landing): <section className="hero"><img className="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""/><div className="container"> <span className="eyebrow">…</span> <h1>… use <span className="gradient-text">ONE accent word</span> (never the whole headline — it must stay high-contrast/legible)</h1> <p className="hero-subtitle">…</p> <div className="hero-actions"><a className="btn-primary">…</a><a className="btn-secondary">…</a></div> </div></section>
-  • DECORATIVE ELEMENTS — CRITICAL: Any background glow, gradient orb, mesh backdrop, radial blur, or purely visual/decorative element inside a section MUST use \`position: absolute\` (e.g. \`position: absolute; inset: 0; pointer-events: none; z-index: 0\`). The container/div with the actual text content that follows it MUST have \`position: relative; z-index: 1\`. NEVER give a decorative element \`position: relative\` — it will take up its full height in the document flow, pushing all hero text and CTA buttons far below the fold, leaving a blank screen for the user. This is a critical layout bug.
+  • Hero (landing): build the BRAND KIT LANDING HERO exactly (<section className="hero hero-photo"> with hero-bg, hero-inner, hero-copy, hero-aside, hero-stats). Inner pages start with the BRAND KIT page-hero.
+  • NO DECORATIVE ELEMENTS: no background glows, gradient orbs, mesh backdrops or radial blurs (banned by the BRAND KIT taste rules). Anything purely visual that you do add must be position: absolute with pointer-events: none so it never pushes content down.
   • Buttons: className="btn-primary" / "btn-secondary" / "btn-ghost" (on <a> or <button>).
   • Cards & content: className="card" or "feature-card" (with className="feature-icon"), "stats"+"stat-value"/"stat-label", "step"+"step-num", "testimonial", "badge", "card-elevated" for highlighted plans.
   • Filtering: className="filter-bar" wrapping buttons — add className="active" on the selected one.
@@ -4374,9 +4462,9 @@ RULES:
   • Feedback: className="alert alert-success" / "alert-error" / "alert-info" for inline messages.
   • CTA sections: wrap in <div className="cta-section"> for a gradient call-to-action block.
   • Reveal: add className="animate-in" to sections/cards — the design system animates them in.
-  • Nav lives in <header> with a className="nav-logo" and a <nav> of links (add className="active" on the current one). Footer is <footer className="footer"> with className="footer-grid" inside.
+  • Nav lives in <header className="site-header"> with the BRAND KIT logo and a <nav className="nav-links"> of links (add className="active" on the current one). Footer is <footer className="footer"> with className="footer-grid" inside.
   You MAY add extra semantic classNames for page-specific bits (the stylesheet covers them too), but ALWAYS build on this vocabulary — never bare unstyled <div>s for structural things.
-- QUALITY BAR: the UI must look like a designer built it (Linear/Stripe/Vercel/Lovable tier), never "AI-generated filler". Follow the DESIGN BRIEF you are given EXACTLY — its palette, fonts, type scale, spacing, and motifs — and never fall back to a generic default (never violet #8b5cf6 on slate #0f172a unless the brief says so). Big confident headings with a clamp() type scale; DEPTH via layered shadows, subtle gradients / soft mesh hero backdrop, and 1px translucent card borders; generous section padding and a max-width content column; smooth ~180ms hover/focus micro-interactions on every interactive element; a sticky nav that has BOTH a semi-opaque --bg background (~82% opacity) AND backdrop-blur (a blurred nav with no background lets content smear through it — always give it the background). CONTRAST IS NON-NEGOTIABLE — the hero headline must read with strong contrast against its background; use gradient-text on AT MOST one accent word (never the whole headline), and never let words fade into the background. No heavy text-shadow/glow that ghosts the text. MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, feature2, gallery3) so each image is distinct and STABLE (sizes hero/showcase ≥ 1200 wide, cards ≥ 600 wide), avatars via https://i.pravatar.cc/300?img={n}. The LANDING hero MUST START with a full-bleed background image — <img className="hero-bg" src="https://picsum.photos/seed/hero1/1600/900" alt=""/> as the FIRST child of <section className="hero"> — UNLESS the request explicitly says no hero image. Put PLENTY of images across every page (feature/gallery/showcase/testimonial sections). Include at least one VIDEO from the web: a relevant YouTube embed inside <div className="video-embed"><iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen></iframe></div>, or a muted autoplay looping <video className="hero-bg" autoPlay muted loop playsInline/>. Present images cleanly (object-fit: cover, rounded corners) — NEVER rotate/tilt/skew/overlap them. Explicit width/height + descriptive alt on every <img>. Never reference local files that don't exist.
+- QUALITY BAR: the UI must look like a designer built it (Linear/Stripe/Vercel/Lovable tier), never "AI-generated filler". Follow the DESIGN BRIEF you are given EXACTLY — its palette, fonts, type scale, spacing, and motifs — and never fall back to a generic default (never violet #8b5cf6 on slate #0f172a unless the brief says so). Big confident headings with a clamp() type scale; DEPTH via soft layered shadows, 1px card borders and real photography (never glows, blobs or mesh backdrops); generous section padding and a max-width content column; smooth ~180ms hover/focus micro-interactions on every interactive element; a sticky nav that has BOTH a semi-opaque --bg background (~82% opacity) AND backdrop-blur (a blurred nav with no background lets content smear through it — always give it the background). CONTRAST IS NON-NEGOTIABLE — the hero headline must read with strong contrast against its background; the headline accent is ONE phrase in solid brand colour (<span className="accent">), never gradient text, and never let words fade into the background. No heavy text-shadow/glow that ghosts the text. MEDIA — the site must be MEDIA-RICH, everything loaded from the web with URLs that ALWAYS resolve. If the DESIGN BRIEF includes a PHOTO LIBRARY, use THOSE exact URLs for real photos (they are topical + always load); otherwise use high-quality photos via https://picsum.photos/seed/{seed}/{w}/{h} where {seed} is a short UNIQUE word+number per image (e.g. hero1, feature2, gallery3) so each image is distinct and STABLE (sizes hero/showcase ≥ 1200 wide, cards ≥ 600 wide), avatars via https://i.pravatar.cc/300?img={n}. The LANDING hero is the BRAND KIT photo hero (its HERO PHOTO as <img className="hero-bg"> first inside <section className="hero hero-photo">). Put PLENTY of images across every page (feature/gallery/showcase/testimonial sections). Include at least one VIDEO from the web: a relevant YouTube embed inside <div className="video-embed"><iframe src="https://www.youtube.com/embed/VIDEO_ID" allowfullscreen></iframe></div>, or a muted autoplay looping <video className="hero-bg" autoPlay muted loop playsInline/>. Present images cleanly (object-fit: cover, rounded corners) — NEVER rotate/tilt/skew/overlap them. Explicit width/height + descriptive alt on every <img>. Never reference local files that don't exist.
 - DYNAMIC & ANIMATED: make the app feel alive — entrance/scroll-reveal animations, hover/focus micro-interactions, and loading states (a spinner or skeleton placeholders) while data is fetching. A page loader is shown until the app mounts. Lively, never static.
 - FOLLOW CATEGORY CONVENTIONS: build the sections, layout, and structure that best-in-class REAL sites in this site's CATEGORY use — the DESIGN BRIEF's REFERENCE names the category and its conventions. A hotel must feel like a hotel site (rooms, amenities, gallery, offers, location), a restaurant like a restaurant site (menu, reservations, gallery), etc. — not a generic template.
 - SUBSTANCE & DENSITY: build RICH, full pages — never thin one-section pages. Every major page MUST have 6–8 distinct sections. Landing/Home: hero → stats/social-proof → feature highlights (3-col grid) → how-it-works (step-row) → gallery or showcase → testimonials → CTA banner → footer. Listing pages: filter-bar + category-btn chips → grid of cards → pagination. Detail/single-item pages: hero image → key details + action button → description → related items grid. Form/booking pages: a prominent booking-card search bar → results → booking confirmation. Each section must have a real eyebrow label, a strong h2, a sub-paragraph, and the appropriate visual treatment. Pages that match what Lovable would build — never sparse.
@@ -5640,7 +5728,7 @@ interface SupabasePlan {
   hasAuth: boolean
   /** Routes only staff may use (orders inbox, menu manager…) — gated by useStaff() */
   staffPaths: string[]
-  brand: { emoji: string; tagline: string; ctaLabel: string; ctaPath: string }
+  brand: { tagline: string; ctaLabel: string; ctaPath: string }
 }
 
 /** A /login page exists when visitors have accounts or staff need to sign in. */
@@ -5742,7 +5830,6 @@ export function sanitizeSupabasePlan(raw: any, siteName: string): SupabasePlan |
     hasAuth,
     staffPaths: keptStaff,
     brand: {
-      emoji: [...String(b.emoji ?? '').replace(/[\s<>{}"'`\\]/g, '')].slice(0, 2).join('') || '✨',
       tagline: String(b.tagline ?? '').trim().slice(0, 140),
       ctaLabel: String(b.ctaLabel ?? '').trim().slice(0, 24) || 'Get started',
       ctaPath,
@@ -5765,7 +5852,7 @@ Return JSON exactly in this shape:
   "tables": [{ "name": "snake_case_plural", "columns": [{ "name": "snake_case", "type": "text|integer|bigint|boolean|timestamptz|date|numeric|jsonb|text[]", "nullable": true }], "access": "public_read|public_submit|public_write|auth_required" }],
   "pages": [{ "file": "PascalCase.jsx", "title": "Short nav label", "path": "/route", "description": "What the page shows and which tables it reads or writes", "staffOnly": false }],
   "hasAuth": false,
-  "brand": { "emoji": "one emoji", "tagline": "one-line value proposition", "ctaLabel": "2-3 word header button", "ctaPath": "/route of the main customer-facing page" }
+  "brand": { "tagline": "one-line value proposition", "ctaLabel": "2-3 word header button", "ctaPath": "/route of the main customer-facing page" }
 }
 
 Rules:
@@ -5873,8 +5960,11 @@ async function withHeartbeat<T>(work: Promise<T>, beat: (secs: number) => unknow
   try { return await work } finally { clearInterval(timer) }
 }
 
-export function supabaseScaffoldFiles(plan: SupabasePlan, siteName: string): ParsedChange[] {
+export function supabaseScaffoldFiles(plan: SupabasePlan, siteName: string, kit?: BrandKit): ParsedChange[] {
   const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'supabase-app'
+  // Monogram logo + descriptor (never an emoji) — the brand layer styles it
+  const logo = logoInner(plan.name, kit?.descriptor ?? '', 'jsx')
+  const favicon = kit ? kitFavicon(kit) : faviconHref(plan.name[0]?.toUpperCase() ?? 'S', '#1f2937', '#ffffff')
   const comp = (p: SupabasePage) => p.file.replace(/\.jsx$/, '')
   // Staff tools stay out of the public header — they live in the footer's Staff column
   const nav = plan.pages.filter((p) => p.path !== '/login' && !plan.staffPaths.includes(p.path))
@@ -6000,9 +6090,8 @@ ${plan.hasAuth ? '  const { user } = useSession()\n' : ''}
     <div className="app-shell">
       <ScrollToTop />
       <header className={\`site-header\${scrolled ? ' scrolled' : ''}\`}>
-        <Link to="/" className="nav-brand">
-          <span className="brand-mark" aria-hidden="true">${plan.brand.emoji}</span>
-          <span className="brand-name">{BRAND}</span>
+        <Link to="/" className="nav-brand" aria-label={\`\${BRAND} home\`}>
+          ${logo}
         </Link>
         <nav className="nav-links" aria-label="Main navigation">
           {NAV.map((item) => (
@@ -6028,7 +6117,7 @@ ${plan.pages.map((p) => `          <Route path=${jsStr(p.path)} element={<${comp
       <footer className="site-footer">
         <div className="container footer-grid">
           <div className="footer-brand">
-            <Link to="/" className="footer-logo">${plan.brand.emoji} {BRAND}</Link>
+            <Link to="/" className="footer-logo">${logo}</Link>
             <p className="footer-desc">${(plan.brand.tagline || `${plan.name} — built for you.`).replace(/[<>{}]/g, '')}</p>
           </div>
           <div className="footer-col">
@@ -6084,7 +6173,7 @@ new MutationObserver(wire).observe(document.getElementById('root'), { childList:
     '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
     `    <title>${plan.name.replace(/[<>&]/g, '')}</title>`,
     `    <meta name="description" content="${(plan.brand.tagline || plan.name).replace(/["<>&]/g, '')}" />`,
-    `    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>${plan.brand.emoji}</text></svg>" />`,
+    `    <link rel="icon" href="${favicon}" />`,
     '    <link rel="preconnect" href="https://fonts.googleapis.com" />',
     '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
     `    <style>${HAMBURGER_CSS}</style>`,
@@ -6161,7 +6250,7 @@ export default function ${name}() {
   return (
     <section className="section">
       <div className="container section-head">
-        <span className="eyebrow">${plan.brand.emoji} ${plan.name.replace(/[<>{}]/g, '')}</span>
+        <span className="eyebrow">${plan.name.replace(/[<>{}]/g, '')}</span>
         <h1>${page.title.replace(/[<>{}]/g, '')}</h1>
         <p>${(page.description || plan.brand.tagline).replace(/[<>{}]/g, '')}</p>
         <Link to="/" className="btn btn-primary">Back home</Link>
@@ -6270,6 +6359,7 @@ export async function generateSupabaseSite(
   siteName: string,
   designBrief: string,
   log: (message: string, progress?: number) => Promise<unknown>,
+  kit?: BrandKit,
 ): Promise<{ files: ParsedChange[]; plan: SupabasePlan; seed: SeedRows; summary: string }> {
   const files: ParsedChange[] = []
 
@@ -6293,7 +6383,7 @@ export async function generateSupabaseSite(
     return list.length ? list : [provider]
   }
 
-  const pack = selectPack(designBrief)
+  const pack = packFor(designBrief, kit)
   const packCss = getPackCss(pack)
   const uiNote = getReactPackPromptNote().replace(/client\/src\//g, 'src/')
   const briefBlock = `${briefHeader}\n${designBrief}\n\n${getPackPromptNote(pack)}\n\n${uiNote}\n\n`
@@ -6328,6 +6418,11 @@ export async function generateSupabaseSite(
           ? file.content
           : (!/<file\b/.test(res.content) && res.content.trim().length > 200 ? stripCodeFence(res.content.trim()) : '')
         if (!body.trim()) { await sleep(1500); continue }
+        if (expectPath.endsWith('.css') && notCss(body)) {
+          nudge = '\n\nYOUR LAST REPLY WAS JAVASCRIPT/JSX. Reply with CSS rules ONLY — no imports, no components, no markup.'
+          await log(`🎨 ${label} came back as code instead of CSS — asking again`)
+          continue
+        }
         if (isJsx && attempt === 0 && looksTailwind(body)) {
           nudge = '\n\nYOUR LAST ATTEMPT USED TAILWIND UTILITY CLASSES — this project has NO Tailwind, so they render unstyled. Rewrite the SAME content using ONLY descriptive semantic classNames (e.g. "hero", "note-card", "notes-grid", "section-title").'
           await log(`🎨 ${label} used Tailwind — regenerating with semantic classes`)
@@ -6345,10 +6440,12 @@ export async function generateSupabaseSite(
   const plan = await withHeartbeat(planSupabaseSite(writers(), prompt, siteName), (s) => log(`⏳ Still planning (${s}s)…`))
   await log(`📐 Tables: ${plan.tables.map((t) => `${t.name} (${t.access.replace('_', ' ')})`).join(', ')} | Pages: ${plan.pages.map((p) => p.file).join(', ')}${plan.hasAuth ? ' | with sign-in' : ''}`, 15)
 
+  // One name everywhere: the logo, the shell and every page come from the kit
+  if (kit) plan.name = kit.name
   const contract = supabaseDataContract(plan)
 
   // Deterministic scaffold: configs, Supabase client, App shell with routing
-  files.push(...supabaseScaffoldFiles(plan, siteName))
+  files.push(...supabaseScaffoldFiles(plan, siteName, kit))
   for (const f of getReactPackFiles()) files.push({ path: f.path.replace(/^client\/src\//, 'src/'), content: f.content })
   const appJsx = files.find((f) => f.path === 'src/App.jsx')!.content
   await log('📦 Scaffold, Supabase client and app shell written', 18)
@@ -6363,14 +6460,16 @@ export async function generateSupabaseSite(
     const isStaffPage = plan.staffPaths.includes(page.path)
     const afterLogin = plan.hasAuth ? '/' : (plan.staffPaths[0] ?? '/')
     const richness = isLanding
-      ? 'This is the LANDING page — long and impressive like a real product homepage. Include IN ORDER: (1) a full hero (eyebrow + big headline with ONE <span className="gradient-text"> accent word + subhead + two CTAs as <Link className="btn btn-primary"> / <Link className="btn btn-secondary">), then AT LEAST FIVE more <section className="section"> blocks that fit the product — e.g. a feature grid (grid-3 of feature-card), how it works (steps), a LIVE preview of real data from a table visitors can read (latest few rows, with loading/empty states), testimonials, an FAQ and a final cta-section. Every section wraps its content in <div className="container"> with a section-head (eyebrow + h2 + intro). Add className="reveal" to sections for scroll animations.'
+      ? `This is the LANDING page — long and impressive like a real product homepage. Include IN ORDER: (1) ${kit
+          ? 'the LANDING HERO built EXACTLY as the BRAND KIT shows. Its hero-card form must WORK: on submit, navigate (useNavigate) to the matching listing page with the entered values as URL search params (?q=…&location=…), or insert into the matching submit table with a success message'
+          : 'a full hero (eyebrow + big headline with ONE <span className="accent"> accent phrase + subhead + two CTAs as <Link className="btn btn-primary"> / <Link className="btn btn-secondary">)'}, then AT LEAST FIVE more <section className="section"> blocks that fit the product — e.g. a feature grid (grid-3 of feature-card), how it works (steps), a LIVE preview of real data from a table visitors can read (latest few rows, with loading/empty states), testimonials, an FAQ and a final cta-section. Every section wraps its content in <div className="container"> with a section-head (eyebrow + h2 + intro). Add className="reveal" to sections for scroll animations.`
       : isLogin
         ? (plan.hasAuth
             ? `This is the SIGN-IN page: a centered auth card with tabs or a toggle between "Sign in" and "Create account", email + password fields, a submit button with a loading state, error/success alerts, and navigate("${afterLogin}") after success. If the user is already signed in, show who is signed in and a Sign out button.`
             : `This is the STAFF SIGN-IN page (visitors never need it): a centered card titled for ${plan.name} staff with "Sign in" and "First time? Create your staff account" modes (email + password, supabase.auth.signInWithPassword / signUp), loading state and error alerts. Explain in one line that only emails on the staff list get access. After success navigate("${afterLogin}"). If already signed in, show the email, a link to ${afterLogin} and a Sign out button.`)
         : isStaffPage
           ? 'This is a STAFF-ONLY page. Gate it with useStaff() exactly as the STAFF rules say (spinner → sign-in card → "not on the staff list" → content). Once isStaff, build a real back-office: stats row, filters/search, the full list of rows (newest first) with status changes, edit and delete (use the Modal component with isOpen for confirmations and details — never window.confirm), plus loading skeleton, empty state and error alert.'
-          : 'Start with a compact page hero (eyebrow + h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content. If this page lets visitors work with data, build the full working experience the access rules allow: forms with validation, disabled submit + "Saving…" while pending, success feedback and reset on success; lists only of tables visitors may read; loading skeleton, empty state and error alert.'
+          : `Start with ${kit ? 'the BRAND KIT page-hero' : 'a compact page hero (eyebrow + h1 + one line)'}, then AT LEAST THREE substantial <section className="section"> blocks of real content. If this page lets visitors work with data, build the full working experience the access rules allow: forms with validation, disabled submit + "Saving…" while pending, success feedback and reset on success; lists only of tables visitors may read; loading skeleton, empty state and error alert. A listing page also reads optional URL search params (useSearchParams: q, location, category) to pre-fill its filters — the home page's hero search links here.`
     const content = await ask(
       `${briefBlock}${contract}\n\nAPP SHELL (already written — pages render INSIDE <main>; do NOT render a header, nav or footer):\n\`\`\`jsx\n${appJsx.slice(0, 2500)}\n\`\`\`\n\nGenerate src/pages/${page.file} — "${page.title}" at ${page.path}: ${page.description}\nOriginal request: ${prompt.slice(0, 400)}\n\n${richness}\n\nWrite REAL, specific, on-brand copy — never lorem ipsum, "..." or TODO. Use https://picsum.photos/seed/{word}/{w}/{h} for any photo not in the PHOTO LIBRARY. Export default function ${page.file.replace(/\.jsx$/, '')}.`,
       `src/pages/${page.file}`,
@@ -6422,7 +6521,9 @@ export async function generateSupabaseSite(
   // Foundation (design pack + component library + element baseline) → AI theme
   // → per-file rules for exactly the classes that file uses → safety net.
   const cssPath = 'src/index.css'
-  const cssEntry: ParsedChange = { path: cssPath, content: packCss + '\n' + getReactPackCss() + '\n' + BASE_CSS }
+  // The brand layer sits in the sheet from the start so its classes count as
+  // styled; finalizeBrandCss moves it back to the very end once the AI is done.
+  const cssEntry: ParsedChange = { path: cssPath, content: packCss + '\n' + getReactPackCss() + '\n' + BASE_CSS + (kit ? `\n${brandLayerCss(kit)}\n` : '') }
   files.push(cssEntry)
   const cssImports: string[] = []
   const takeImports = (css: string): string => css.split('\n').filter((l) => {
@@ -6437,7 +6538,9 @@ export async function generateSupabaseSite(
 
   await log('🎨 Generating the theme…', 62)
   const themeCss = await askCss(
-    `App shell:\n\`\`\`jsx\n${appJsx.slice(0, 4000)}\n\`\`\`\n\nA complete design-system stylesheet is ALREADY loaded — it styles the header/nav, hero, sections, cards, buttons, grids, forms and footer from CSS variables. Your job is the :root theme that drives it, applying the DESIGN BRIEF exactly:\n1. A :root block defining ALL of: --bg, --surface, --surface-2, --text, --muted, --on-primary, --primary, --primary-hover, --secondary, --accent, --border, --radius, --radius-sm, --h1, --h2, --h3, --font-heading, --font-body (fonts from the brief; add the Google Fonts @import for them on the first line). Strong contrast between --text and --bg/--surface is non-negotiable.\n2. Polished rules for the shell classes: .app-shell, .site-main, .brand-mark, .brand-name, .footer-grid, .footer-brand, .footer-col, .footer-logo, .not-found.\nOutput as <file path="additions.css">.`,
+    kit
+      ? `App shell:\n\`\`\`jsx\n${appJsx.slice(0, 4000)}\n\`\`\`\n\nA complete design-system stylesheet is ALREADY loaded, and the BRAND KIT fixes the palette, fonts, logo, header and heroes. Do NOT write a :root block, colour hex codes, font-family or @import. Write polished rules ONLY for these shell classes, using the BRAND KIT variables: .app-shell, .site-main, .footer-grid, .footer-brand, .footer-desc, .footer-col, .footer-col-title, .footer-col-links, .footer-bottom, .not-found.\nOutput as <file path="additions.css">.`
+      : `App shell:\n\`\`\`jsx\n${appJsx.slice(0, 4000)}\n\`\`\`\n\nA complete design-system stylesheet is ALREADY loaded — it styles the header/nav, hero, sections, cards, buttons, grids, forms and footer from CSS variables. Your job is the :root theme that drives it, applying the DESIGN BRIEF exactly:\n1. A :root block defining ALL of: --bg, --surface, --surface-2, --text, --muted, --on-primary, --primary, --primary-hover, --secondary, --accent, --border, --radius, --radius-sm, --h1, --h2, --h3, --font-heading, --font-body (fonts from the brief; add the Google Fonts @import for them on the first line). Strong contrast between --text and --bg/--surface is non-negotiable.\n2. Polished rules for the shell classes: .app-shell, .site-main, .brand-mark, .brand-name, .footer-grid, .footer-brand, .footer-col, .footer-logo, .not-found.\nOutput as <file path="additions.css">.`,
     'theme',
   )
   if (themeCss) cssEntry.content += `\n/* ── Theme & shell ── */\n${themeCss}\n`
@@ -6475,6 +6578,7 @@ export async function generateSupabaseSite(
     const imports = [...new Set([...lines.filter((l) => /^\s*@import\b/.test(l)).map((l) => l.trim()), ...cssImports])]
     if (imports.length) cssEntry.content = `${imports.join('\n')}\n\n${lines.filter((l) => !/^\s*@import\b/.test(l)).join('\n')}`
   }
+  if (kit) cssEntry.content = finalizeBrandCss(cssEntry.content, kit, { fontImport: true })
   // Vite only bundles CSS that is imported — without this line the whole site
   // ships unstyled, so guarantee it whatever earlier passes did to main.jsx.
   const mainEntry = files.find((f) => f.path === 'src/main.jsx')
@@ -6533,10 +6637,11 @@ export async function generateMernSite(
   siteName: string,
   designBrief: string,
   log: (message: string, progress?: number) => Promise<unknown>,
+  kit?: BrandKit,
 ): Promise<{ files: ParsedChange[]; summary: string; adminPassword: string; plan?: MernPlan }> {
   const files: ParsedChange[] = []
   const adminPassword = generateAdminPassword()
-  const pack = selectPack(designBrief)
+  const pack = packFor(designBrief, kit)
   const packCss = getPackCss(pack)
   // Injected into the VISUAL files (App shell, pages, stylesheet) so the whole
   // UI shares one identity. Backend files (models/routes/server) skip it.
@@ -6668,7 +6773,7 @@ export async function generateMernSite(
   await sleep(1500)
   const routeList = plan.pages.map((p) => `${p.route} → pages/${p.file}`).join(', ')
   await gen(
-    `${briefBlock}${contract}\n\nGenerate client/src/App.jsx — the root component with a HIGHLY PROFESSIONAL sticky header, <Routes>, and a rich footer.\n\nHEADER REQUIREMENTS (the #1 thing visitors judge — get this perfect):\n- ONE <header> with ONE <nav> inside — never two navs, no .mobile-nav sibling. The CSS hamburger system in index.css handles mobile automatically; do NOT add hamburger buttons, display:none toggles, or mobile-specific nav elements.\n- JSX structure: <header className="site-header"> wrapping: <div className="nav-brand"> (logo left), <nav className="nav-links"> (links center/right), <button className="nav-cta"> (CTA rightmost). This className contract lets index.css target every element precisely.\n- Sticky + frosted glass: position:'sticky', top:0, zIndex:100. The inline style or class must set: background with ≥88% opacity + backdropFilter:'blur(14px)' + WebkitBackdropFilter:'blur(14px)' + borderBottom:'1px solid var(--border)'. Height: 68px. Padding: 0 clamp(1rem,5vw,2.5rem). Display: flex, alignItems: center, justifyContent: space-between.\n- Scroll shrink: useEffect that adds/removes className "scrolled" at scrollY > 60. scrolled state: box-shadow 0 4px 24px rgba(0,0,0,.12), height 58px, slightly darker bg. ALWAYS clean up the listener: return () => window.removeEventListener('scroll', handler).\n- nav-brand: font-weight 700, font-size 1.25rem, letterSpacing -0.02em, no underline, display:flex, alignItems:center, gap:.5rem. Include an emoji icon matching the site theme.\n- nav-links: display:flex, alignItems:center, gap:clamp(1rem,2.5vw,2rem), listStyle:none. Each <NavLink> gets className={({isActive})=>isActive?'active':''} — active link shows accent underline (borderBottom: 2px solid var(--primary)). Link font: weight 500, size .95rem.\n- nav-cta: a <Link> styled as a pill button — background var(--primary), color #fff, padding .55rem 1.3rem, borderRadius 8px, fontWeight 600, fontSize .9rem, whiteSpace nowrap, textDecoration none, transition opacity .2s + translateY(-1px) on hover. Label it something action-oriented matching the site ("Get Started", "Book Now", "Try Free", etc.).\n- Footer: 3–4 columns on desktop (stacks to 1 on mobile), dark or surface background, brand description left, nav links columns, social icons, copyright.\n\nBrand name: "${siteName}". Routes and pages: ${routeList}.\n\nREMINDER: main.jsx already wraps in <BrowserRouter> — do NOT add another Router here.`,
+    `${briefBlock}${contract}\n\nGenerate client/src/App.jsx — the root component with a HIGHLY PROFESSIONAL sticky header, <Routes>, and a rich footer.\n\nHEADER REQUIREMENTS (the #1 thing visitors judge — get this perfect):\n- ONE <header> with ONE <nav> inside — never two navs, no .mobile-nav sibling. The CSS hamburger system in index.css handles mobile automatically; do NOT add hamburger buttons, display:none toggles, or mobile-specific nav elements.\n- JSX structure: <header className="site-header"> wrapping: the nav-brand logo (left), <nav className="nav-links"> (links, grouped right), a <Link className="nav-cta"> (CTA rightmost), and directly after the header <main className="site-main"> holding <Routes>. This className contract lets index.css target every element precisely.\n- Sticky + frosted glass: position:'sticky', top:0, zIndex:100. The inline style or class must set: background with ≥88% opacity + backdropFilter:'blur(14px)' + WebkitBackdropFilter:'blur(14px)' + borderBottom:'1px solid var(--border)'. Height: 68px. Padding: 0 clamp(1rem,5vw,2.5rem). Display: flex, alignItems: center, justifyContent: space-between.\n- Scroll shrink: useEffect that adds/removes className "scrolled" at scrollY > 60. scrolled state: box-shadow 0 4px 24px rgba(0,0,0,.12), height 58px, slightly darker bg. ALWAYS clean up the listener: return () => window.removeEventListener('scroll', handler).\n- nav-brand: ${kit ? 'use EXACTLY the BRAND KIT logo markup (monogram tile + name + descriptor) — no emoji, no extra styling; it is already styled.' : 'font-weight 700, font-size 1.25rem, letterSpacing -0.02em, no underline, display:flex, alignItems:center, gap:.5rem. A monogram tile (first letter on --primary) before the name — never an emoji.'}\n- nav-links: display:flex, alignItems:center, gap:clamp(1rem,2.5vw,2rem), listStyle:none. Each <NavLink> gets className={({isActive})=>isActive?'active':''} — active link shows accent underline (borderBottom: 2px solid var(--primary)). Link font: weight 500, size .95rem.\n- nav-cta: a <Link> styled as a pill button — background var(--primary), color #fff, padding .55rem 1.3rem, borderRadius 8px, fontWeight 600, fontSize .9rem, whiteSpace nowrap, textDecoration none, transition opacity .2s + translateY(-1px) on hover. Label it something action-oriented matching the site ("Get Started", "Book Now", "Try Free", etc.).\n- Footer: 3–4 columns on desktop (stacks to 1 on mobile), dark or surface background, brand description left, nav links columns, social icons, copyright.\n\nBrand name: "${siteName}". Routes and pages: ${routeList}.\n\nREMINDER: main.jsx already wraps in <BrowserRouter> — do NOT add another Router here.`,
     'client/src/App.jsx',
   )
 
@@ -6756,7 +6861,7 @@ export async function generateMernSite(
     const isLanding = p.route === '/'
     const isDashboard = /dashboard|analytics|stats|overview|report/i.test(p.file + ' ' + p.purpose)
     const richness = isLanding
-      ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. ⚠️ THIS IS REACT JSX — use className= everywhere, NEVER class=. Include, IN ORDER: (1) a full hero (eyebrow + big headline with a <span className="gradient-text"> accent + subhead + two CTAs), then AT LEAST SIX more full <section className="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial), a pricing/plans row, an FAQ, and a final cta-section — and a rich footer. Every section wrapped in <div className="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance animations (className="animate-in") and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
+      ? `This is the LANDING page — make it LONG and impressive, like a real product homepage. ⚠️ THIS IS REACT JSX — use className= everywhere, NEVER class=. Include, IN ORDER: (1) ${kit ? 'the LANDING HERO built EXACTLY as the BRAND KIT shows (its hero-card form navigates to the matching page with the entered values as URL search params)' : 'a full hero (eyebrow + big headline with ONE <span className="accent"> accent phrase + subhead + two CTAs)'}, then AT LEAST SIX more full <section className="section"> blocks chosen to fit the product — e.g. a feature grid (grid-3 of feature-card with feature-icon), a "how it works" steps row (step + step-num), a stats band (stat-value/stat-label), a showcase/gallery, a testimonials grid (testimonial), a pricing/plans row, an FAQ, and a final cta-section — and a rich footer. Every section wrapped in <div className="container">, with a section-head (eyebrow + h2 + intro). Make it feel alive with entrance animations (className="animate-in") and hover micro-interactions. Populate sections with several images (https://picsum.photos/seed/{seed}/{w}/{h} URLs that always load + pravatar avatars for people).`
       : isDashboard
         ? `This is a DASHBOARD/ANALYTICS page — build a full data visualization experience. ⚠️ REACT JSX: always className= never class=. REQUIRED STRUCTURE: (1) Row of 4 KPI stat cards (total, growth, revenue, active users — fetch real numbers from the API) using className="stats" + className="stat-value"/"stat-label". (2) A BarChart using Recharts showing monthly/weekly trends — import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'. Wrap in <ResponsiveContainer width="100%" height={300}>. Use fill="#6366f1" on <Bar> for visibility. Set tick={{fill:'var(--muted,#94a3b8)'}} on XAxis/YAxis. Tooltip contentStyle={{background:'var(--card-bg,#1e293b)',border:'1px solid rgba(255,255,255,.1)',borderRadius:'8px',color:'var(--text,#e2e8f0)'}}. (3) A second chart — LineChart for a different metric (e.g. signups over time, revenue trend) with stroke="#22d3ee". (4) A recent-activity table showing the last 10 records. (5) Any relevant PieChart or donut for category breakdown with fill colors from this palette: ["#6366f1","#22d3ee","#f59e0b","#10b981","#f43f5e"]. Fetch all chart data from the backend API. Show loading skeletons while data is loading. Make the page feel like a real SaaS dashboard (Linear/Stripe-tier).`
         : `Give it a compact page hero (h1 + one line), then AT LEAST THREE substantial <section className="section"> blocks of real content (not one thin block). ⚠️ REACT JSX: always className= never class=.`
@@ -6863,7 +6968,7 @@ export async function generateMernSite(
   // AI theme + shell → per-page rules → batched safety-net pass.
   // Pack CSS is the deterministic foundation; BASE_CSS element baseline follows;
   // AI theme and per-page rules are appended on top of both.
-  const cssEntry: ParsedChange = { path: 'client/src/index.css', content: packCss + '\n' + getReactPackCss() + '\n' + BASE_CSS }
+  const cssEntry: ParsedChange = { path: 'client/src/index.css', content: packCss + '\n' + getReactPackCss() + '\n' + BASE_CSS + (kit ? `\n${brandLayerCss(kit)}\n` : '') }
   files.push(cssEntry)
   for (const f of getReactPackFiles()) files.push(f)
 
@@ -6886,7 +6991,7 @@ export async function generateMernSite(
       const res = await safeChat(provider, briefBlock + instruction, MERN_SYSTEM_PROMPT)
       if (!res) { await sleep(2000); continue }
       const file = parseAIChanges(res.content)[0]
-      if (file?.content?.trim()) return stripAndCollectImports(stripCodeFence(file.content.trim()))
+      if (file?.content?.trim() && !notCss(file.content)) return stripAndCollectImports(stripCodeFence(file.content.trim()))
       await sleep(2000)
     }
     return ''
@@ -6896,7 +7001,7 @@ export async function generateMernSite(
   await sleep(1500)
   const appShellJsx = files.find((f) => f.path === 'client/src/App.jsx')?.content ?? ''
   const themeCss = await askCss(
-    `App.jsx — the shared shell (header/nav/footer):\n\`\`\`jsx\n${appShellJsx.slice(0, 5000)}\n\`\`\`\n\nOriginal request: ${prompt.slice(0, 300)}\n\nA complete DESIGN-SYSTEM stylesheet is ALREADY loaded — it fully styles the header/nav, hero, cards, buttons, grids, stats, forms, and footer from CSS variables. Your ONE job now is a killer :root theme that drives it, applying the DESIGN BRIEF EXACTLY. Output client/src/index.css containing:\n1. A :root block that DEFINES ALL of these (components read them by these EXACT names): --bg, --surface, --surface-2, --text, --muted, --on-primary, --primary, --primary-hover, --secondary, --accent, --border, --radius, --radius-sm, and the type scale --h1 --h2 --h3 (the brief's fluid clamp() sizes — a big confident --h1). Set --font-heading and --font-body from the brief's pairing (already-linked Google Fonts: Space Grotesk, Sora, Inter, Poppins, Playfair Display, DM Sans). Use the brief's EXACT palette; CONTRAST between --text and --bg/--surface is non-negotiable.\n2. OPTIONALLY a few small brand-accent rules ONLY for App.jsx classNames that need a bespoke touch beyond the system (e.g. a logo mark). Do NOT re-implement the header/nav/footer layout — the system already handles it; just theme it. Never reference a var you don't define.\nOutput as <file path="client/src/index.css">.`,
+    `App.jsx — the shared shell (header/nav/footer):\n\`\`\`jsx\n${appShellJsx.slice(0, 5000)}\n\`\`\`\n\nOriginal request: ${prompt.slice(0, 300)}\n\nA complete DESIGN-SYSTEM stylesheet is ALREADY loaded — it fully styles the header/nav, hero, cards, buttons, grids, stats, forms, and footer from CSS variables. Your ONE job now is a killer :root theme that drives it, applying the DESIGN BRIEF EXACTLY. Output client/src/index.css containing:\n1. A :root block that DEFINES ALL of these (components read them by these EXACT names): --bg, --surface, --surface-2, --text, --muted, --on-primary, --primary, --primary-hover, --secondary, --accent, --border, --radius, --radius-sm, and the type scale --h1 --h2 --h3 (the brief's fluid clamp() sizes — a big confident --h1). ${kit ? 'The BRAND KIT already defines the palette and fonts and they override yours — still define the variables, using the BRAND KIT values.' : "Set --font-heading and --font-body from the brief's pairing (already-linked Google Fonts: Space Grotesk, Sora, Inter, Poppins, Playfair Display, DM Sans). Use the brief's EXACT palette; CONTRAST between --text and --bg/--surface is non-negotiable."}\n2. OPTIONALLY a few small brand-accent rules ONLY for App.jsx classNames that need a bespoke touch beyond the system (e.g. a logo mark). Do NOT re-implement the header/nav/footer layout — the system already handles it; just theme it. Never reference a var you don't define.\nOutput as <file path="client/src/index.css">.`,
   )
   if (themeCss) cssEntry.content += `\n/* ── Theme & shell ── */\n${themeCss}\n`
 
@@ -6951,6 +7056,7 @@ export async function generateMernSite(
       console.log(`[css] pinned ${mergedImports.length} @import(s) to top of index.css`)
     }
   }
+  if (kit) cssEntry.content = finalizeBrandCss(cssEntry.content, kit, { fontImport: true })
 
   // Vite only bundles CSS that is IMPORTED. The missing-import sanitizer runs
   // before index.css exists and may have stripped the import from main.jsx —
@@ -7157,7 +7263,7 @@ async function claudePolishCss(
     QA_SYSTEM_PROMPT,
   )
   const add = res ? parseAIChanges(res.content)[0]?.content : undefined
-  if (add && add.trim().length > 40) {
+  if (add && add.trim().length > 40 && !notCss(add)) {
     const addStripped = stripCodeFence(add.trim()).split('\n').filter((l) => !/^\s*@import\b/.test(l)).join('\n')
     css.content += `\n/* ── Claude QA polish ── */\n${addStripped}\n`
     sanitizeCss(files, cssPath)
@@ -7454,18 +7560,10 @@ async function buildSite(job: Job) {
     let designBrief = await buildDesignBrief(visualDirector, prompt, siteName, style)
 
     // ── User-chosen palette override ──
-    // If the client picked a preset palette, replace the AI-generated PALETTE
-    // line so colors are deterministic. VIBE, fonts, and motifs stay AI-generated.
-    if (paletteId && PALETTE_PRESETS[paletteId]) {
-      const preset = PALETTE_PRESETS[paletteId]
-      const paletteLine = `PALETTE: ${preset.cssVars}`
-      if (/^PALETTE:/m.test(designBrief)) {
-        designBrief = designBrief.replace(/^PALETTE:.*$/m, paletteLine)
-      } else {
-        designBrief += `\n${paletteLine}`
-      }
-      await updateTask(task, {}, `🎨 Using "${preset.name}" color palette`)
-    }
+    // A preset the client picked sets the brand colour and light/dark mode of
+    // the brand kit; the rest of the palette is derived from it like any other.
+    const preset = paletteId ? PALETTE_PRESETS[paletteId] : undefined
+    if (preset) await updateTask(task, {}, `🎨 Using "${preset.name}" color palette`)
 
     // The brand's real facts ride in the design brief, which is injected verbatim
     // into every file generation — so every page uses their true content.
@@ -7489,9 +7587,22 @@ async function buildSite(job: Job) {
       .split(',').map((s) => s.trim().replace(/["'.]/g, '')).filter(Boolean).slice(0, 4)
     const imagePool = await fetchImagePool(photoSubjects.length ? photoSubjects : [prompt.split(/[.,\n]/)[0].slice(0, 60)])
     if (imagePool.length) {
-      designBrief += `\n\nPHOTO LIBRARY — use THESE EXACT topical photo URLs for the <img> src of every real photo on the site (pick fitting ones per section; reuse across pages as needed). They are high-res and ALWAYS load. Do NOT use picsum while this library is present:\n${imagePool.map((u, i) => `${i + 1}. ${u}`).join('\n')}`
+      designBrief += `\n\nPHOTO LIBRARY — use THESE EXACT topical photo URLs for the <img> src of every real photo on the site (pick fitting ones per section; reuse across pages as needed). They are high-res and ALWAYS load. Do NOT use picsum while this library is present. Photo 1 is reserved for the landing hero:\n${imagePool.map((u, i) => `${i + 1}. ${u}`).join('\n')}`
       await updateTask(task, {}, `🖼️ Loaded ${imagePool.length} topical web photos (${photoSubjects.join(', ') || 'site topic'})`)
     }
+
+    // ── Brand kit ── the identity is fixed in code from here on: palette,
+    // fonts, logo, hero photo and taste rules ride in the brief to every file,
+    // and the brand layer CSS is appended last to every stylesheet.
+    const brandKit = buildBrandKit({
+      brief: designBrief,
+      prompt,
+      fallbackName: displayNameFromSlug(siteName),
+      heroPhoto: imagePool[0],
+      override: preset ? { brandHex: preset.primaryColor, mode: preset.isDark ? 'dark' : 'light' } : undefined,
+    })
+    designBrief += `\n\n${brandKitBrief(brandKit, stack === 'mern' || stack === 'supabase' ? 'jsx' : 'html')}`
+    await updateTask(task, {}, `🎨 Brand kit: ${brandKit.name} — ${brandKit.brandHex}, ${brandKit.pairing.heading.family} + ${brandKit.pairing.body.family}, ${brandKit.mode} mode`)
 
     // ── PRD: Claude writes the content blueprint before any coding starts ──
     // Phase 1 (above): visual identity via buildDesignBrief (Gemini).
@@ -7536,7 +7647,7 @@ async function buildSite(job: Job) {
     if (stack === 'mern') {
       await updateTask(task, { progress: 10 }, '🧱 Building a full-stack MERN app…')
       const result = await generateMernSite(provider, prompt, siteName, designBrief, (message, progress) =>
-        updateTask(task, progress ? { progress } : {}, message))
+        updateTask(task, progress ? { progress } : {}, message), brandKit)
       if (!result.files.some((f) => f.path === 'client/src/App.jsx')) {
         return await fail('The AI could not generate the React app shell — please try again (rephrase the description slightly).')
       }
@@ -7560,7 +7671,7 @@ async function buildSite(job: Job) {
       }
       await updateTask(task, { progress: 10 }, '⚡ Building Supabase full-stack app…')
       const result = await generateSupabaseSite(provider, prompt, siteName, designBrief,
-        (message, progress) => updateTask(task, progress ? { progress } : {}, message))
+        (message, progress) => updateTask(task, progress ? { progress } : {}, message), brandKit)
       generated.push(...result.files)
       summaryLine = result.summary
       supabasePlan = result.plan
@@ -7629,6 +7740,7 @@ async function buildSite(job: Job) {
         stylist,
         sourceProfile?.originalCss,
         sitePath,
+        brandKit,
       )
       if (!result) {
         return await fail('The AI did not produce an index.html — please try again (rephrase the description slightly).')
@@ -7666,6 +7778,18 @@ async function buildSite(job: Job) {
 
     // ── Post-QA hardening ── runs after ALL AI passes so nothing can reintroduce
     // the two most common deploy-breaking bugs: @import mid-file and a broken ui.jsx
+    // The brand layer goes back to the very end — QA polish was appended after
+    // it — and the taste guard re-lints whatever the QA passes wrote.
+    {
+      const cssPath = stack === 'mern' ? 'client/src/index.css' : stack === 'supabase' ? 'src/index.css' : 'styles.css'
+      const css = generated.find((f) => f.path === cssPath)
+      if (css) css.content = finalizeBrandCss(css.content, brandKit, { fontImport: stack === 'mern' || stack === 'supabase' })
+      if (stack !== 'mern' && stack !== 'supabase') {
+        for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applyBrandToHtml(f.content, brandKit)
+      } else {
+        for (const f of generated.filter((g) => g.path.endsWith('.jsx'))) f.content = sizeInlineIcons(f.content)
+      }
+    }
     if (stack === 'mern' || stack === 'supabase') {
       // 1. @imports must be at the very top of index.css — claudePolishCss strips
       //    them from its own chunk, but run fixCssImportOrder as a final guarantee.
