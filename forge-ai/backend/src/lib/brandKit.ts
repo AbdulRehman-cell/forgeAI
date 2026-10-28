@@ -6,6 +6,8 @@
 // hero and the taste rules every page prompt carries. The brand layer CSS is
 // appended LAST to every stylesheet, so no AI-written rule can undo it.
 
+import { BLOCKS_CSS, applyKitExtras, blocksBrief, findWhatsApp, pickPlaybook, type Playbook } from './blocks'
+
 export type BrandMode = 'light' | 'dark'
 type Shape = 'sharp' | 'soft' | 'round'
 
@@ -317,6 +319,12 @@ export interface BrandKit {
   palette: Record<string, string>
   fontsUrl: string
   heroPhoto: string
+  /** Which blocks the landing page uses, in order */
+  playbook: Playbook
+  /** The hero card's job, e.g. "Find a job: role, location → Search jobs" */
+  heroAction: string
+  /** International digits for the floating WhatsApp button, '' for none */
+  whatsapp: string
 }
 
 function fontsUrlFor(p: FontPairing): string {
@@ -361,11 +369,16 @@ export function buildBrandKit(opts: {
   const mode: BrandMode = opts.override?.mode ?? (/^dark/i.test(field(brief, 'MODE')) ? 'dark' : 'light')
   const name = field(brief, 'BRAND NAME').replace(/[<>{}`"]/g, '').slice(0, 40) || opts.fallbackName
   const descriptor = field(brief, 'DESCRIPTOR').replace(/[<>{}`"]/g, '').split(/\s+/).slice(0, 4).join(' ').slice(0, 32)
+  const playbook = pickPlaybook(`${descriptor}\n${prompt}`, field(brief, 'REFERENCE'))
+  const askedAction = field(brief, 'HERO ACTION')
   return {
     name, descriptor, initial: logoInitial(name), mode, brandHex, pairing,
     palette: buildPalette(brandHex, mode),
     fontsUrl: fontsUrlFor(pairing),
     heroPhoto: opts.heroPhoto || `https://picsum.photos/seed/${encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'))}-hero/1920/1080`,
+    playbook,
+    heroAction: askedAction && !/^none\b/i.test(askedAction) ? askedAction : playbook.heroAction,
+    whatsapp: findWhatsApp(prompt),
   }
 }
 
@@ -417,12 +430,12 @@ function heroRecipe(kit: BrandKit, flavour: 'jsx' | 'html'): string {
     </div>
     <aside ${c}="hero-aside">
       «optional: 1–2 live-feeling stat cards» <div ${c}="hero-glass"><span ${c}="hero-glass-icon">«inline SVG icon»</span><div><span ${c}="hero-glass-label">«New roles this week»</span><span ${c}="hero-glass-value">«+12»</span></div></div>
-      «the HERO ACTION as a working card» <div ${c}="hero-card"><h3>«Find a job»</h3><form ${c}="hero-form">«2–3 labelled fields»<button type="submit" ${c}="btn btn-primary">«Search jobs»</button></form></div>
+      «the HERO ACTION as a working card» <div ${c}="hero-card"><h3>«${esc(kit.heroAction.split(':')[0] || 'Find a job')}»</h3><form ${c}="hero-form">«2–3 labelled fields»<button type="submit" ${c}="btn btn-primary">«${esc(kit.heroAction.split('→')[1]?.trim() || 'Search jobs')}»</button></form></div>
     </aside>
     <div ${c}="hero-stats">«3–4 of» <div ${c}="hero-stat"><span ${c}="hero-stat-value">«50+»</span><span ${c}="hero-stat-label">«Active roles»</span></div></div>
   </div>
 </section>
-If the business has no form-like action, the aside holds two hero-glass cards instead of the hero-card. The stats come from HERO PROOF — believable for this business.
+If the business has no form-like action, the aside holds two hero-glass cards instead of the hero-card. The stats come from HERO PROOF — believable for this business. One phrase of the hero-lead may be a ROTATING WORD (see the block library).
 
 EVERY OTHER PAGE starts with:
 <section ${c}="page-hero"><img ${c}="hero-bg" src="«a photo from the PHOTO LIBRARY»" alt=""${close}<div ${c}="container"><span ${c}="eyebrow">«label»</span><h1>«page title»</h1><p>«one specific line»</p></div></section>`
@@ -443,10 +456,13 @@ FONTS (already loaded): headings "${h}"${kit.pairing.headingCase === 'uppercase'
 LOGO — use exactly this in the header (and the same inner markup for the footer logo):
 ${logo}
 HERO PHOTO: ${kit.heroPhoto}
+HERO ACTION: ${kit.heroAction || 'none — use two hero-glass cards'}
 
 ${TASTE_RULES}
 
 ${heroRecipe(kit, flavour)}
+
+${blocksBrief(kit, flavour)}
 ═══ END BRAND KIT ═══`
 }
 
@@ -501,7 +517,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text);
 h1 { line-height: var(--heading-leading); }
 h2 { line-height: calc(var(--heading-leading) + .06); }
 :is(.eyebrow, .section-label) { color: var(--primary-ink); }
-:where(p, li) > a:not([class]) { color: var(--primary-ink); text-decoration: underline; text-underline-offset: 3px; }
+:where(p, li):not(header *, nav *, footer *) > a:not([class]) { color: var(--primary-ink); text-decoration: underline; text-underline-offset: 3px; }
 
 /* Accent: solid brand colour — gradient text is banned */
 :is(.accent, .text-accent, .gradient-text, .text-gradient) {
@@ -625,6 +641,8 @@ ${OVER}.scrolled { background: color-mix(in srgb, var(--bg) 95%, transparent) !i
 .page-hero :is(h1, .page-title) { color: #fff !important; font-size: clamp(2.3rem, 5.2vw, 4rem); max-width: 20ch; margin: .2rem 0 1rem !important; }
 .page-hero p { color: rgba(255,255,255,.82) !important; max-width: 60ch; font-size: clamp(1.02rem, 1.4vw, 1.2rem); margin: 0 !important; }
 .page-hero :is(.eyebrow, .hero-eyebrow) { color: var(--accent-on-dark) !important; }
+
+${BLOCKS_CSS}
 ${LAYER_END}`
 }
 
@@ -634,13 +652,18 @@ const HEADING_SELECTOR = /(^|[\s>+~,(])h[1-6]\b|title|heading|headline|display|b
 
 /**
  * Lints AI-written CSS against the taste rules: gradient text becomes plain
- * text, large blurred decorations (colour blobs) are removed, and hard-coded
- * fonts are pointed at the kit's pairing.
+ * text, large blurred decorations (colour blobs) are removed, hard-coded fonts
+ * are pointed at the kit's pairing, and rules aimed at block-library (`kit-`)
+ * classes are dropped — the blocks' layout belongs to ForgeAI.
  */
 export function applyTasteGuard(css: string): string {
   return css.replace(/([^{}]+)\{([^{}]*)\}/g, (whole, selector: string, body: string) => {
     const sel = (selector.replace(/\/\*[\s\S]*?\*\//g, '').split(';').pop() ?? '').trim()
     if (!sel || /@font-face|@page/i.test(sel) || /^(from|to|[\d.]+%)(\s*,\s*([\d.]+%|from|to))*$/i.test(sel)) return whole
+    if (/\.kit-[\w-]/.test(sel)) {
+      const at = selector.lastIndexOf(sel)
+      return at >= 0 ? selector.slice(0, at) : ''
+    }
     let decls = body
     if (/background-clip\s*:\s*text|-webkit-text-fill-color\s*:\s*transparent/i.test(decls)) {
       decls = decls
@@ -712,5 +735,5 @@ export function applyBrandToHtml(html: string, kit: BrandKit): string {
     /(<header\b(?:(?!<\/header>)[\s\S])*?<a\b[^>]*class=["'][^"']*\b(?:nav-brand|logo|brand|navbar-brand|site-logo)\b[^"']*["'][^>]*>)((?:(?!<\/header>)[\s\S])*?)(<\/a>)/i,
     (m, open: string, inner: string, close: string) => (/<(img|svg)\b|brand-mark/i.test(inner) ? m : `${open}${logoInner(kit.name, kit.descriptor, 'html')}${close}`),
   )
-  return sizeInlineIcons(out)
+  return applyKitExtras(sizeInlineIcons(out), kit)
 }
