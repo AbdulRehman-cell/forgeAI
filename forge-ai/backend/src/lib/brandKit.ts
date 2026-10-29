@@ -6,7 +6,9 @@
 // hero and the taste rules every page prompt carries. The brand layer CSS is
 // appended LAST to every stylesheet, so no AI-written rule can undo it.
 
-import { BLOCKS_CSS, applyKitExtras, blocksBrief, findWhatsApp, pickPlaybook, type Playbook } from './blocks'
+import { BLOCKS_CSS, applyKitExtras, findWhatsApp, pickPlaybook, type Playbook } from './blocks'
+import { planSite, sectionsBrief, type SitePlan } from './sections/plan'
+import { pickSiteType, type SiteType } from './sections/siteTypes'
 
 export type BrandMode = 'light' | 'dark'
 type Shape = 'sharp' | 'soft' | 'round'
@@ -319,8 +321,14 @@ export interface BrandKit {
   palette: Record<string, string>
   fontsUrl: string
   heroPhoto: string
-  /** Which blocks the landing page uses, in order */
+  /** The PHOTO LIBRARY — sections without a named photo take the next one */
+  photos: string[]
+  /** The industry: its landing recipe and default hero action */
   playbook: Playbook
+  /** What the site does: which openers fit, and its own recipe when it is not a business */
+  siteType: SiteType
+  /** Opener, section variants and surface style, seeded by the brand name */
+  plan: SitePlan
   /** The hero card's job, e.g. "Find a job: role, location → Search jobs" */
   heroAction: string
   /** International digits for the floating WhatsApp button, '' for none */
@@ -355,6 +363,7 @@ export function buildBrandKit(opts: {
   prompt: string
   fallbackName: string
   heroPhoto?: string
+  photos?: string[]
   /** A palette preset the client picked in the Builder wins over the brief */
   override?: { brandHex: string; mode: BrandMode }
 }): BrandKit {
@@ -369,14 +378,19 @@ export function buildBrandKit(opts: {
   const mode: BrandMode = opts.override?.mode ?? (/^dark/i.test(field(brief, 'MODE')) ? 'dark' : 'light')
   const name = field(brief, 'BRAND NAME').replace(/[<>{}`"]/g, '').slice(0, 40) || opts.fallbackName
   const descriptor = field(brief, 'DESCRIPTOR').replace(/[<>{}`"]/g, '').split(/\s+/).slice(0, 4).join(' ').slice(0, 32)
-  const playbook = pickPlaybook(`${descriptor}\n${prompt}`, field(brief, 'REFERENCE'))
+  const playbook = pickPlaybook(`${descriptor}\n${prompt}`, field(brief, 'REFERENCE'), field(brief, 'INDUSTRY'))
+  const siteType = pickSiteType(field(brief, 'SITE TYPE'), playbook.id)
   const askedAction = field(brief, 'HERO ACTION')
+  const heroPhoto = opts.heroPhoto || `https://picsum.photos/seed/${encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'))}-hero/1920/1080`
   return {
     name, descriptor, initial: logoInitial(name), mode, brandHex, pairing,
     palette: buildPalette(brandHex, mode),
     fontsUrl: fontsUrlFor(pairing),
-    heroPhoto: opts.heroPhoto || `https://picsum.photos/seed/${encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'))}-hero/1920/1080`,
+    heroPhoto,
+    photos: opts.photos?.length ? opts.photos : [heroPhoto],
     playbook,
+    siteType,
+    plan: planSite(name, playbook, siteType),
     heroAction: askedAction && !/^none\b/i.test(askedAction) ? askedAction : playbook.heroAction,
     whatsapp: findWhatsApp(prompt),
   }
@@ -412,35 +426,6 @@ const TASTE_RULES = `TASTE RULES — what separates a designed site from an AI-m
 8. Headline 8 words or fewer, subhead 30 words or fewer. Buttons name the action ("Browse jobs", "Book a table") — never "Learn more" or "Click here".
 9. Never write font-family, @import, or colour hex codes yourself — use var(--font-heading), var(--font-body) and the colour variables.`
 
-function heroRecipe(kit: BrandKit, flavour: 'jsx' | 'html'): string {
-  const c = flavour === 'jsx' ? 'className' : 'class'
-  const link = (cls: string, label: string) => flavour === 'jsx'
-    ? `<Link ${c}="${cls}" to="«route»">${label}</Link>`
-    : `<a ${c}="${cls}" href="«page».html">${label}</a>`
-  const close = flavour === 'jsx' ? ' />' : '>'
-  return `LANDING HERO — build it EXACTLY in this structure. ForgeAI's stylesheet already styles every class below (layout, overlay, colours, responsive) — do NOT write CSS for them and do NOT add inline styles:
-<section ${c}="hero hero-photo">
-  <img ${c}="hero-bg" src="${kit.heroPhoto}" alt="«what the photo shows»"${close}
-  <div ${c}="hero-inner">
-    <div ${c}="hero-copy">
-      <span ${c}="hero-eyebrow">«3–5 word category label»</span>
-      <h1>«line one» <span ${c}="accent">«accent line»</span> «line three»</h1>
-      <p ${c}="hero-lead">«one or two specific sentences»</p>
-      <div ${c}="hero-actions">${link('btn btn-primary', '«primary action» →')}${link('btn btn-secondary', '«second action»')}</div>
-    </div>
-    <aside ${c}="hero-aside">
-      «optional: 1–2 live-feeling stat cards» <div ${c}="hero-glass"><span ${c}="hero-glass-icon">«inline SVG icon»</span><div><span ${c}="hero-glass-label">«New roles this week»</span><span ${c}="hero-glass-value">«+12»</span></div></div>
-      «the HERO ACTION as a working card» <div ${c}="hero-card"><h3>«${esc(kit.heroAction.split(':')[0] || 'Find a job')}»</h3><form ${c}="hero-form">«2–3 labelled fields»<button type="submit" ${c}="btn btn-primary">«${esc(kit.heroAction.split('→')[1]?.trim() || 'Search jobs')}»</button></form></div>
-    </aside>
-    <div ${c}="hero-stats">«3–4 of» <div ${c}="hero-stat"><span ${c}="hero-stat-value">«50+»</span><span ${c}="hero-stat-label">«Active roles»</span></div></div>
-  </div>
-</section>
-If the business has no form-like action, the aside holds two hero-glass cards instead of the hero-card. The stats come from HERO PROOF — believable for this business. One phrase of the hero-lead may be a ROTATING WORD (see the block library).
-
-EVERY OTHER PAGE starts with:
-<section ${c}="page-hero"><img ${c}="hero-bg" src="«a photo from the PHOTO LIBRARY»" alt=""${close}<div ${c}="container"><span ${c}="eyebrow">«label»</span><h1>«page title»</h1><p>«one specific line»</p></div></section>`
-}
-
 /** Appended to the design brief: the fixed identity + taste rules + hero recipe. */
 export function brandKitBrief(kit: BrandKit, flavour: 'jsx' | 'html'): string {
   const p = kit.palette
@@ -455,14 +440,10 @@ COLOUR VARIABLES (already defined — always use var(), never hex): --primary (t
 FONTS (already loaded): headings "${h}"${kit.pairing.headingCase === 'uppercase' ? ' — set in UPPERCASE with tight leading (the stylesheet does this)' : ''}; body "${kit.pairing.body.family}".
 LOGO — use exactly this in the header (and the same inner markup for the footer logo):
 ${logo}
-HERO PHOTO: ${kit.heroPhoto}
-HERO ACTION: ${kit.heroAction || 'none — use two hero-glass cards'}
 
 ${TASTE_RULES}
 
-${heroRecipe(kit, flavour)}
-
-${blocksBrief(kit, flavour)}
+${sectionsBrief(kit, flavour)}
 ═══ END BRAND KIT ═══`
 }
 
@@ -643,7 +624,23 @@ ${OVER}.scrolled { background: color-mix(in srgb, var(--bg) 95%, transparent) !i
 .page-hero :is(.eyebrow, .hero-eyebrow) { color: var(--accent-on-dark) !important; }
 
 ${BLOCKS_CSS}
+${siteStyleCss(kit)}
 ${LAYER_END}`
+}
+
+/** The seeded site-wide looks: how cards sit on the page, where headings align */
+function siteStyleCss(kit: BrandKit): string {
+  const { surface, head } = kit.plan.knobs
+  const cards = {
+    outline: ':root { --kit-card-bg: var(--bg); --kit-card-border: 1px solid var(--border); --kit-card-shadow: none; }',
+    raised: ':root { --kit-card-bg: var(--bg); --kit-card-border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); --kit-card-shadow: var(--shadow); }',
+    tinted: ':root { --kit-card-bg: var(--surface); --kit-card-border: 1px solid transparent; --kit-card-shadow: none; }\n.kit-alt { --kit-card-bg: var(--bg); }',
+  }[surface]
+  // Narrow centred bodies (accordion, vertical timelines, tables) keep a centred heading
+  const left = head === 'left'
+    ? '\n.kit-section:not(.kit-v-accordion, .kit-v-vertical, .kit-v-timeline, .kit-sec-comparison) > .container > .kit-head { text-align: left; margin-left: 0; }\n.kit-section:not(.kit-v-accordion, .kit-v-vertical, .kit-v-timeline, .kit-sec-comparison) > .container > .kit-head > * { margin-inline: 0; }'
+    : ''
+  return `/* Site style: ${surface} cards, ${head} headings */\n${cards}${left}`
 }
 
 // ─── Taste guard ─────────────────────────────────────────────────────────────
