@@ -91,7 +91,7 @@ export function sectionsBrief(kit: BrandKit, flavour: Flavour): string {
   const library = SECTIONS.map(typeLine).join('\n')
   const react = jsx ? `
 
-REACT PAGES: put the tags straight into your JSX exactly as above — ForgeAI turns them into JSX before the build and adds any imports they need.
+REACT PAGES: put the tags straight into your JSX exactly as above, with the plain JSON between them — ForgeAI replaces every tag before the JSX is compiled and adds any imports they need. So do NOT make the JSON "valid JSX": no {'{'} or &#123; escapes, no {…}, {{…}} or JSON.stringify wrapper.
 DATABASE CONTENT IS NOT A TAG. Rows from a table (products, jobs, rooms, posts, bookings) and every form that saves to the database (contact, booking, sign-up, newsletter) are JSX you write, with this markup so they match:
 <section className="kit-section kit-sec-cards kit-v-grid"><div className="container"><div className="kit-head"><span className="eyebrow">…</span><h2>…</h2><p>…</p></div><div className="kit-cards">{rows.map((r) => (<article className="kit-card" key={r.id}><div className="kit-card-media"><img src={…} alt={…} /><span className="kit-badge">…</span></div><div className="kit-card-body"><p className="kit-card-meta"><span>…</span><span>…</span></p><h3>…</h3><p>…</p><div className="kit-card-foot"><span className="kit-price">…</span><Link className="btn btn-secondary" to="…">…</Link></div></div></article>))}</div></div></section>
 (kit-v-grid, kit-v-list or kit-v-overlay on the section picks the card layout; leave out kit-card-media when rows have no photo.)

@@ -43,7 +43,9 @@ function freeStack(model?: string): AIProvider {
   // GitHub Models is dying but not fully dark — legacy fallback until users
   // migrate off. Delete once the service is fully decommissioned.
   if (process.env.GITHUB_AI_TOKEN) {
-    return new HybridProvider(gemini, new GitHubAIProvider(process.env.GITHUB_AI_TOKEN, model))
+    // sizeRoute=false: Gemini first, always. With size routing the big requests
+    // (whole page prompts) went to GitHub's small-context model first.
+    return new HybridProvider(gemini, new GitHubAIProvider(process.env.GITHUB_AI_TOKEN, model), false)
   }
   return gemini
 }

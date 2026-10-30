@@ -3555,7 +3555,7 @@ const STYLE_DIRECTIVES: Record<string, string> = {
  *  Gemini always has a complete script to follow instead of inventing content
  *  on the fly (which produces generic, "vibe-coded" output).
  *  Best-effort: falls back silently if Claude is unavailable. */
-async function generateContentPRD(
+export async function generateContentPRD(
   enhancer: AIProvider | null,
   provider: AIProvider,
   prompt: string,
@@ -4646,12 +4646,22 @@ async function wireSiteForms(root: string, repositoryId: string): Promise<number
   return withForms
 }
 
-/** React pages: the model's section content tags become JSX before any syntax check */
-async function renderJsxSections(jsx: string, file: string, kit: BrandKit | undefined, log: (m: string) => Promise<unknown>): Promise<string> {
-  if (!kit) return jsx
+/** React pages: the model's section content tags become JSX before any syntax
+ *  check. `retry` is the nudge to send when most tags were unreadable — asking
+ *  once more beats shipping a page with its sections missing. */
+async function renderJsxSections(jsx: string, file: string, kit: BrandKit | undefined, log: (m: string) => Promise<unknown>, canRetry: boolean): Promise<{ content: string; retry?: string }> {
+  if (!kit) return { content: jsx }
   const r = expandSections(jsx, kit, 'jsx')
-  if (r.failed.length) await log(`⚠️ ${file.split('/').pop()}: left out ${r.failed.length} section(s) the model wrote badly — ${r.failed.join('; ')}`)
-  return r.content
+  const name = file.split('/').pop()
+  if (canRetry && r.failed.length && r.failed.length >= r.rendered) {
+    await log(`🔁 ${name}: ${r.failed.length} section(s) came back unreadable — asking again for plain JSON (${r.failed[0]})`)
+    return {
+      content: r.content,
+      retry: `\n\nYOUR LAST REPLY'S SECTION TAGS COULD NOT BE READ (${r.failed.slice(0, 2).join('; ')}). Between every <forge-section> / <forge-hero> opening and closing tag write ONLY a plain JSON object exactly as in FORMAT: double-quoted keys and strings, no {'{'} escapes, no {…} or JSON.stringify wrapper, no comments, no trailing commas. ForgeAI replaces the tags before the JSX is compiled, so the JSON does not need to be valid JSX.`,
+    }
+  }
+  if (r.failed.length) await log(`⚠️ ${name}: left out ${r.failed.length} section(s) the model wrote badly — ${r.failed.join('; ')}`)
+  return { content: r.content }
 }
 
 // Default pages used to pad a plan up to the >= 4-page floor. PascalCase files
@@ -6553,8 +6563,14 @@ export async function generateSupabaseSite(
           await log(`🎨 ${label} used Tailwind — regenerating with semantic classes`)
           continue
         }
+        if (isJsx) {
+          const sections = await renderJsxSections(body, expectPath, kit, log, attempt === 0)
+          if (sections.retry) { nudge = sections.retry; continue }
+          if (p === claude && gemini) await log(`🤖 Claude wrote ${label} (Gemini unavailable)`)
+          return sanitizeJsx(sections.content)
+        }
         if (p === claude && gemini) await log(`🤖 Claude wrote ${label} (Gemini unavailable)`)
-        return isJsx ? sanitizeJsx(await renderJsxSections(body, expectPath, kit, log)) : body
+        return body
       }
     }
     return null
@@ -6807,7 +6823,12 @@ export async function generateMernSite(
           if (p !== provider) await log(`🤖 Claude stepped in for ${expectPath.split('/').pop()} (Gemini unavailable)`)
           // Sanitize JSX attribute quoting bugs (e.g. value="36.5\"") that
           // cause a hard esbuild parse error and a failed Render deploy
-          const content = isJsx ? sanitizeJsx(await renderJsxSections(file.content, expectPath, kit, log)) : file.content
+          let content = file.content
+          if (isJsx) {
+            const sections = await renderJsxSections(file.content, expectPath, kit, log, attempt < maxAttempts - 1)
+            if (sections.retry) { nudge = sections.retry; continue }
+            content = sanitizeJsx(sections.content)
+          }
           files.push({ path: expectPath, content })
           return true
         }

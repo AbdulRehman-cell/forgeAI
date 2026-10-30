@@ -29,6 +29,10 @@ const MAX_CONTINUATIONS = 3
 // corrupting generated files. Set GEMINI_THINKING_BUDGET to re-enable.
 const THINKING_BUDGET = Number(process.env.GEMINI_THINKING_BUDGET ?? 0)
 
+/** Tokens used per model since the process started (output includes thinking,
+ *  which is billed as output) — for cost reports; GEMINI_LOG_USAGE=1 also logs each call. */
+export const geminiUsage: Record<string, { calls: number; input: number; output: number }> = {}
+
 const CONTINUE_PROMPT =
   'Your previous reply was cut off by the output limit. Continue EXACTLY from the character where it stopped — do not repeat anything already sent, do not restart, no preamble, no code fences. Output the raw continuation only.'
 
@@ -301,6 +305,13 @@ export class GeminiProvider implements AIProvider {
       },
     )
 
+    const u = data.usageMetadata
+    if (u) {
+      const t = (geminiUsage[model] ??= { calls: 0, input: 0, output: 0 })
+      const out = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) // thinking is billed as output
+      t.calls++; t.input += u.promptTokenCount ?? 0; t.output += out
+      if (process.env.GEMINI_LOG_USAGE === '1') console.log(`[gemini-usage] ${model} in=${u.promptTokenCount ?? 0} out=${out}`)
+    }
     const cand = data.candidates?.[0]
     // Never include thought parts — reasoning text is not reply content
     const text = (cand?.content?.parts ?? [])
