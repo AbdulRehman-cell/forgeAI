@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3'
+import { publicApiBase } from './publicUrl'
 
 export const SITES_DIR = process.env.SITES_DIR ?? path.join(process.cwd(), 'sites')
 
@@ -410,8 +411,7 @@ function copyDir(src: string, dest: string): number {
 }
 
 function localUrl(slug: string): string {
-  const base = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
-  return `${base}/sites/${slug}/`
+  return `${publicApiBase()}/sites/${slug}/`
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

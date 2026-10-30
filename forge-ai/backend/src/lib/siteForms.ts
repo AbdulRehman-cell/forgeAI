@@ -6,10 +6,7 @@
 // Navigation forms (search, "check availability" → another page) are left
 // alone, and pages they lead to get their fields pre-filled from the URL.
 
-/** The public base URL of this ForgeAI backend, as deployed sites reach it */
-export function publicApiBase(): string {
-  return (process.env.SITES_BASE_URL ?? process.env.RENDER_EXTERNAL_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
-}
+import { publicApiBase } from './publicUrl'
 
 export const siteFormsEndpoint = (shareToken: string) => `${publicApiBase()}/site-forms/${encodeURIComponent(shareToken)}`
 

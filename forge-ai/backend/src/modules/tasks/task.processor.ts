@@ -38,6 +38,7 @@ import { applyKitExtras, PLAYBOOKS } from '../../lib/blocks'
 import { SITE_TYPES } from '../../lib/sections/siteTypes'
 import { expandSections, KIT_FORM_JSX } from '../../lib/sections/expand'
 import { applySiteForms, siteFormsEndpoint } from '../../lib/siteForms'
+import { publicApiBase } from '../../lib/publicUrl'
 import { randomUUID } from 'crypto'
 import { runVisualQa, servedStylesheets, visualQaEngine, photoUrlsIn, brokenImages } from '../../lib/visualQa'
 
@@ -1197,7 +1198,7 @@ async function blitzDeploy(job: Job) {
         if (hasMernLayout && backendRunDir && fs.existsSync(path.join(backendRunDir, 'package.json'))) {
           // Pre-compute the public proxy URL — we need it for VITE_API_URL before starting the
           // backend process, so we can install + build frontend first (lower peak memory).
-          const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
+          const publicBase = publicApiBase()
           viteApiUrl = `${publicBase}/sites-api/${deploySlug}`
 
           // ── Install backend deps (no other child processes running) ────────────
@@ -1524,7 +1525,7 @@ INSTRUCTIONS:
       // through ForgeAI's proxy even when the backend hasn't started yet or the project
       // doesn't use VITE_API_URL.  For plain static sites hasMernLayout is false and
       // mernProxyUrl stays undefined, so no interceptor is injected.
-      const publicBase = (process.env.SITES_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`).replace(/\/$/, '')
+      const publicBase = publicApiBase()
       const mernProxyUrl = hasMernLayout ? `${publicBase}/sites-api/${deploySlug}` : undefined
       // When GitHub Actions built the site, ghActionsTmpDir/dist/ holds the output.
       // findDeployRoot(ghActionsTmpDir) will discover dist/index.html there.
