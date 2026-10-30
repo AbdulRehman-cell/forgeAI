@@ -19,6 +19,7 @@ import fs from 'fs'
 import uploadRoutes, { UPLOADS_DIR } from './modules/uploads/upload.routes'
 import dashboardRoutes from './modules/dashboard/dashboard.routes'
 import leadsRoutes from './modules/leads/leads.routes'
+import siteFormsRoutes from './modules/leads/siteForms.routes'
 import outreachRoutes from './modules/outreach/outreach.routes'
 import gmailRoutes from './modules/outreach/gmail.routes'
 import whatsappRoutes from './modules/outreach/whatsapp.routes'
@@ -76,10 +77,12 @@ app.use(helmet({
 // different origin — allow any origin for that path only. Everything else
 // stays locked to the configured frontend origin.
 app.use('/sites-api', cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }))
-// General CORS — must skip /sites-api so the wildcard above is not overwritten
-// by this more restrictive rule (cors() uses res.setHeader which overwrites).
+// Forms on generated static sites post their messages here from any origin
+app.use('/site-forms', cors({ origin: '*', methods: ['POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }))
+// General CORS — must skip the public paths so the wildcards above are not
+// overwritten by this more restrictive rule (cors() uses res.setHeader which overwrites).
 app.use((req, res, next) => {
-  if (req.path.startsWith('/sites-api')) return next()
+  if (req.path.startsWith('/sites-api') || req.path.startsWith('/site-forms')) return next()
   return cors({ origin: FRONTEND_ORIGIN, credentials: true })(req, res, next)
 })
 app.use(rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false }))
@@ -106,6 +109,7 @@ app.use('/api/local', localRoutes)
 app.use('/api/uploads', uploadRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/leads', leadsRoutes)
+app.use('/site-forms', siteFormsRoutes)   // public — generated sites' forms → Leads
 app.use('/api/outreach', outreachRoutes)
 app.use('/api/gmail', gmailRoutes)
 app.use('/api/whatsapp', whatsappRoutes)

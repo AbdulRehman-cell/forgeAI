@@ -275,10 +275,10 @@ export const BLOCKS_CSS = `${SECTIONS_CSS}
 
 @media (prefers-reduced-motion: reduce) { .kit-rotate::after { animation: none; } .kit-card:hover, .kit-feature:hover { transform: none; } }`
 
-// ─── Page extras: count-up, rotating word, countdown, forms, WhatsApp ───────
+// ─── Page extras: count-up, rotating word, countdown, WhatsApp ──────────────
 
-/** Counts stats up when they scroll into view, cycles .kit-rotate words, runs
- *  event countdowns and thanks visitors for forms the page does not handle.
+/** Counts stats up when they scroll into view, cycles .kit-rotate words and runs
+ *  event countdowns (forms: lib/siteForms.ts sends them to the Leads inbox).
  *  Edits existing text nodes (never replaces them), so React keeps its
  *  references; MutationObserver picks up pages React renders later. */
 export const KIT_MOTION_JS = `(function(){
@@ -318,10 +318,6 @@ export const KIT_MOTION_JS = `(function(){
     document.querySelectorAll('.kit-rotate[data-words]').forEach(function(el){ if (el.__kit) return; el.__kit = 1; rotate(el); });
     document.querySelectorAll('[data-kit-countdown]').forEach(function(el){ if (el.__kit) return; el.__kit = 1; countdown(el); });
   }
-  // A ForgeAI form the page's own script did not take over gets a thank-you
-  document.addEventListener('submit', function(e){ var f = e.target; if (!f || !f.hasAttribute || !f.hasAttribute('data-kit-form') || e.defaultPrevented) return;
-    e.preventDefault(); var p = document.createElement('p'); p.className = 'kit-thanks'; p.setAttribute('role', 'status');
-    p.textContent = 'Thank you \\u2014 we have received your message and will be in touch soon.'; f.replaceWith(p); });
   function start(){ scan(); new MutationObserver(scan).observe(document.body, { childList: true, subtree: true }); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();`

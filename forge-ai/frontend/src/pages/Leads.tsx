@@ -20,7 +20,7 @@ type ViewMode = 'list' | 'kanban' | 'analytics'
 
 interface LeadActivity { type: ActivityType; body: string; createdAt: string }
 interface Lead {
-  _id: string; name: string; email: string; phone?: string; message?: string
+  _id: string; name: string; email?: string; phone?: string; message?: string
   source?: string; read: boolean; status: LeadStatus; priority: LeadPriority
   score: number; tags: string[]; dealValue?: number; company?: string
   jobTitle?: string; notes?: string; followUpAt?: string; followUpNote?: string
@@ -612,9 +612,11 @@ export default function Leads() {
 
                             {/* Contact + company */}
                             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                              <a href={`mailto:${lead.email}`} className="text-sm text-brand-400 hover:underline flex items-center gap-1">
-                                <Mail size={12} /> {lead.email}
-                              </a>
+                              {lead.email && (
+                                <a href={`mailto:${lead.email}`} className="text-sm text-brand-400 hover:underline flex items-center gap-1">
+                                  <Mail size={12} /> {lead.email}
+                                </a>
+                              )}
                               {lead.phone && (
                                 <a href={`tel:${lead.phone}`} className="text-sm text-zinc-400 hover:text-zinc-200 flex items-center gap-1">
                                   <Phone size={12} /> {lead.phone}
@@ -850,9 +852,14 @@ export default function Leads() {
                             )}
 
                             {/* Reply */}
-                            {gmailStatus?.connected ? (
+                            {!lead.email ? (lead.phone && (
+                              <a href={`tel:${lead.phone}`} title="Call"
+                                className="p-1.5 rounded-lg text-zinc-500 hover:text-green-400 hover:bg-green-500/10 transition-colors">
+                                <Phone size={14} />
+                              </a>
+                            )) : gmailStatus?.connected ? (
                               <button title="Quick reply via Gmail"
-                                onClick={() => gmailSendMutation.mutate({ to: lead.email, subject: 'Re: Your enquiry', body: `Hi ${lead.name},\n\n` })}
+                                onClick={() => gmailSendMutation.mutate({ to: lead.email ?? '', subject: 'Re: Your enquiry', body: `Hi ${lead.name},\n\n` })}
                                 className="p-1.5 rounded-lg text-zinc-500 hover:text-green-400 hover:bg-green-500/10 transition-colors">
                                 <Send size={14} />
                               </button>
@@ -938,7 +945,7 @@ export default function Leads() {
                                 </div>
                                 <ScoreBadge score={lead.score} />
                               </div>
-                              <p className="text-xs text-zinc-500 mt-2 truncate">{lead.email}</p>
+                              <p className="text-xs text-zinc-500 mt-2 truncate">{lead.email || lead.phone}</p>
                               {lead.dealValue != null && lead.dealValue > 0 && (
                                 <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
                                   <DollarSign size={10} /> {lead.dealValue.toLocaleString()}
@@ -1152,9 +1159,13 @@ export default function Leads() {
                 </div>
               </div>
               <div className="flex gap-2">
-                {gmailStatus?.connected ? (
+                {!smartReplyLead.email ? (
+                  <p className="flex-1 text-sm text-zinc-400 py-2">
+                    This lead left no email{smartReplyLead.phone ? ` — call or WhatsApp ${smartReplyLead.phone}` : ''}.
+                  </p>
+                ) : gmailStatus?.connected ? (
                   <button
-                    onClick={() => gmailSendMutation.mutate({ to: smartReplyLead.email, subject: smartReplyData.subject, body: smartReplyData.body })}
+                    onClick={() => gmailSendMutation.mutate({ to: smartReplyLead.email ?? '', subject: smartReplyData.subject, body: smartReplyData.body })}
                     disabled={gmailSendMutation.isPending}
                     className="flex-1 btn-primary py-2 flex items-center justify-center gap-2">
                     <Send size={14} /> {gmailSendMutation.isPending ? 'Sending…' : 'Send via Gmail'}

@@ -60,31 +60,41 @@ async function fireWebhook(url: string, payload: object) {
   }
 }
 
-// ─── Public: contact form submission ─────────────────────────
-router.post('/submit/:siteToken', async (req, res) => {
-  const { name, email, phone, message, source } = req.body
-  if (!name?.trim() || !email?.trim()) {
-    return res.status(400).json({ message: 'Name and email are required' })
-  }
+export interface LeadInput {
+  name: string
+  email?: string
+  phone?: string
+  message?: string
+  source?: string
+  utmSource?: string
+  utmMedium?: string
+  utmCampaign?: string
+}
 
-  const repo = await Repository.findOne({ shareToken: req.params.siteToken })
-  if (!repo) return res.status(404).json({ message: 'Site not found' })
+const escHtml = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
-  const utmSource = String(req.query.utm_source ?? req.body.utmSource ?? '').trim() || undefined
-  const utmMedium = String(req.query.utm_medium ?? req.body.utmMedium ?? '').trim() || undefined
-  const utmCampaign = String(req.query.utm_campaign ?? req.body.utmCampaign ?? '').trim() || undefined
+/** A new lead for a site's owner: saved, scored, emailed to the owner, auto-replied
+ *  (when Gmail is connected) and sent to their webhook. Visitor text is escaped
+ *  before it goes into any HTML. */
+export async function recordLead(repo: any, input: LeadInput) {
+  const name = input.name.trim()
+  const email = input.email?.trim().toLowerCase() || undefined
+  const phone = input.phone?.trim() || undefined
+  const message = input.message?.trim() || undefined
+  const source = input.source?.trim() || undefined
+  const { utmSource, utmMedium, utmCampaign } = input
 
-  const score = scoreLead(email.trim().toLowerCase(), phone, message)
+  const score = scoreLead(email ?? '', phone, message)
   const priority = priorityFromScore(score)
 
   const lead = await Lead.create({
     siteRepositoryId: repo._id,
     ownerId: repo.userId,
-    name: name.trim(),
-    email: email.trim().toLowerCase(),
-    phone: phone?.trim() || undefined,
-    message: message?.trim() || undefined,
-    source: source?.trim() || undefined,
+    name,
+    email,
+    phone,
+    message,
+    source,
     score,
     priority,
     utmSource,
@@ -104,20 +114,20 @@ router.post('/submit/:siteToken', async (req, res) => {
         await transport.sendMail({
           from: process.env.SMTP_FROM,
           to: owner.email,
-          subject: `New lead from ${repo.name}: ${name}`,
+          subject: `New lead from ${repo.name}: ${name.replace(/[\r\n]+/g, ' ')}`,
           html: `
             <div style="font-family:sans-serif;max-width:520px;margin:0 auto">
-              <h2 style="color:#6366f1">New lead — ${repo.name}</h2>
+              <h2 style="color:#6366f1">New lead — ${escHtml(repo.name)}</h2>
               <p style="margin:0 0 16px;font-size:13px;color:#888">
                 Score: <strong style="color:${priorityColor}">${score}/100</strong> &nbsp;·&nbsp;
                 Priority: <strong style="color:${priorityColor}">${priority.toUpperCase()}</strong>
               </p>
               <table style="width:100%;border-collapse:collapse">
-                <tr><td style="padding:8px 0;color:#888;width:100px">Name</td><td style="padding:8px 0;font-weight:600">${name}</td></tr>
-                <tr><td style="padding:8px 0;color:#888">Email</td><td style="padding:8px 0"><a href="mailto:${email}">${email}</a></td></tr>
-                ${phone ? `<tr><td style="padding:8px 0;color:#888">Phone</td><td style="padding:8px 0">${phone}</td></tr>` : ''}
-                ${message ? `<tr><td style="padding:8px 0;color:#888;vertical-align:top">Message</td><td style="padding:8px 0">${message.replace(/\n/g, '<br>')}</td></tr>` : ''}
-                ${utmSource ? `<tr><td style="padding:8px 0;color:#888">UTM Source</td><td style="padding:8px 0">${utmSource}</td></tr>` : ''}
+                <tr><td style="padding:8px 0;color:#888;width:100px">Name</td><td style="padding:8px 0;font-weight:600">${escHtml(name)}</td></tr>
+                ${email ? `<tr><td style="padding:8px 0;color:#888">Email</td><td style="padding:8px 0"><a href="mailto:${escHtml(email)}">${escHtml(email)}</a></td></tr>` : ''}
+                ${phone ? `<tr><td style="padding:8px 0;color:#888">Phone</td><td style="padding:8px 0">${escHtml(phone)}</td></tr>` : ''}
+                ${message ? `<tr><td style="padding:8px 0;color:#888;vertical-align:top">Message</td><td style="padding:8px 0">${escHtml(message).replace(/\n/g, '<br>')}</td></tr>` : ''}
+                ${utmSource ? `<tr><td style="padding:8px 0;color:#888">UTM Source</td><td style="padding:8px 0">${escHtml(utmSource)}</td></tr>` : ''}
               </table>
               <a href="${process.env.FRONTEND_URL}/leads" style="display:inline-block;margin-top:20px;background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">View in ForgeAI</a>
             </div>`,
@@ -135,7 +145,7 @@ router.post('/submit/:siteToken', async (req, res) => {
       '+gmailRefreshToken gmailEmail leadAutoReply leadAutoReplyTemplate leadWebhookUrl',
     )
 
-    if (owner?.leadAutoReply && owner.gmailRefreshToken) {
+    if (email && owner?.leadAutoReply && owner.gmailRefreshToken) {
       const oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID!,
         process.env.GOOGLE_CLIENT_SECRET!,
@@ -171,7 +181,7 @@ router.post('/submit/:siteToken', async (req, res) => {
         event: 'lead.created',
         lead: {
           id: String(lead._id),
-          name, email, phone: phone || null, message: message || null,
+          name, email: email || null, phone: phone || null, message: message || null,
           score, priority, source: source || null,
           site: repo.name,
           utmSource: utmSource || null,
@@ -185,6 +195,25 @@ router.post('/submit/:siteToken', async (req, res) => {
     console.error('[leads] Post-create actions failed:', err?.message)
   }
 
+  return lead
+}
+
+// ─── Public: contact form submission ─────────────────────────
+router.post('/submit/:siteToken', async (req, res) => {
+  const { name, email, phone, message, source } = req.body
+  if (!name?.trim() || !email?.trim()) {
+    return res.status(400).json({ message: 'Name and email are required' })
+  }
+
+  const repo = await Repository.findOne({ shareToken: req.params.siteToken })
+  if (!repo) return res.status(404).json({ message: 'Site not found' })
+
+  const lead = await recordLead(repo, {
+    name, email, phone, message, source,
+    utmSource: String(req.query.utm_source ?? req.body.utmSource ?? '').trim() || undefined,
+    utmMedium: String(req.query.utm_medium ?? req.body.utmMedium ?? '').trim() || undefined,
+    utmCampaign: String(req.query.utm_campaign ?? req.body.utmCampaign ?? '').trim() || undefined,
+  })
   res.status(201).json({ success: true, id: lead._id })
 })
 

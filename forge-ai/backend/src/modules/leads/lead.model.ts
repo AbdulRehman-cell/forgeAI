@@ -13,7 +13,8 @@ export interface ILead extends Document {
   siteRepositoryId: Types.ObjectId
   ownerId: Types.ObjectId
   name: string
-  email: string
+  /** Booking forms often ask for a phone number only */
+  email?: string
   phone?: string
   message?: string
   source?: string
@@ -49,7 +50,7 @@ const leadSchema = new Schema<ILead>(
     siteRepositoryId: { type: Schema.Types.ObjectId, ref: 'Repository', required: true },
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     name: { type: String, required: true },
-    email: { type: String, required: true, lowercase: true },
+    email: { type: String, lowercase: true },
     phone: String,
     message: String,
     source: String,

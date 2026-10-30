@@ -37,6 +37,8 @@ import {
 import { applyKitExtras, PLAYBOOKS } from '../../lib/blocks'
 import { SITE_TYPES } from '../../lib/sections/siteTypes'
 import { expandSections, KIT_FORM_JSX } from '../../lib/sections/expand'
+import { applySiteForms, siteFormsEndpoint } from '../../lib/siteForms'
+import { randomUUID } from 'crypto'
 import { runVisualQa, servedStylesheets, visualQaEngine, photoUrlsIn, brokenImages } from '../../lib/visualQa'
 
 const PYTHON_SERVICE = process.env.PYTHON_SERVICE_URL ?? 'http://localhost:5001'
@@ -1527,6 +1529,16 @@ INSTRUCTIONS:
       // When GitHub Actions built the site, ghActionsTmpDir/dist/ holds the output.
       // findDeployRoot(ghActionsTmpDir) will discover dist/index.html there.
       const deploySourcePath = ghActionsTmpDir ?? localPath
+      // Static sites have no server: their forms go to the owner's Leads inbox.
+      // Sites built before this existed get it on their next deploy.
+      if (!hasMernLayout && repositoryId && !fs.existsSync(path.join(deploySourcePath, 'package.json'))) {
+        try {
+          const wired = await wireSiteForms(deploySourcePath, repositoryId)
+          if (wired) await updateTask(task, {}, `📨 Forms on ${wired} page(s) now send messages to your Leads inbox`)
+        } catch (e: any) {
+          console.warn('[deploy] could not wire site forms:', e?.message)
+        }
+      }
       const result = await selfHostedDeploy({
         localPath: deploySourcePath,
         name: repoName ?? 'site',
@@ -3941,7 +3953,7 @@ SITE SUMMARY: one sentence describing the site`,
   await updateTask(task, { progress: 50 }, '⚙️ Generating script.js…')
   await sleep(1500)
   if (!(await genFile(
-    `Here are the site's pages:\n\n${allPagesHtml()}\n\nGenerate the COMPLETE script.js: wire up every interactive element referenced in ANY page above (nav toggle, forms with validation feedback, tabs, smooth scrolling) PLUS tasteful dynamic effects — scroll-reveal animations as sections enter the viewport (an IntersectionObserver that adds a visible class), and any animated counters or tabs the markup calls for. Vanilla JS only.${kit ? ' ForgeAI\'s own script already animates .kit-stat-value, .hero-stat-value and .hero-glass-value numbers, .kit-rotate words and [data-kit-countdown] timers, and thanks visitors on [data-kit-form] forms — write NO code for those.' : ''} Every page loads this same file, so guard every selector against missing elements.`,
+    `Here are the site's pages:\n\n${allPagesHtml()}\n\nGenerate the COMPLETE script.js: wire up every interactive element referenced in ANY page above (nav toggle, forms with validation feedback, tabs, smooth scrolling) PLUS tasteful dynamic effects — scroll-reveal animations as sections enter the viewport (an IntersectionObserver that adds a visible class), and any animated counters or tabs the markup calls for. Vanilla JS only.${kit ? ' ForgeAI\'s own script already animates .kit-stat-value, .hero-stat-value and .hero-glass-value numbers, .kit-rotate words and [data-kit-countdown] timers — write NO code for those.' : ''} ForgeAI also sends every contact, booking and newsletter form to the site owner and shows the confirmation — you may add field validation, but never send a form anywhere, fake a submission, show your own "sent" message or pre-fill form fields from the URL (ForgeAI does that too). Every page loads this same file, so guard every selector against missing elements.`,
     'script.js',
   ))) {
     await updateTask(task, {}, '⚠️ Could not generate script.js after retrying', 'warn')
@@ -4600,6 +4612,37 @@ function sanitizeJsx(src: string): string {
     }
     return `${attr}='${fixed}'`
   })
+}
+
+/** A site's share token — the address its forms post to (older repositories may lack one) */
+async function siteToken(repo: any): Promise<string> {
+  if (!repo.shareToken) {
+    repo.shareToken = randomUUID()
+    await Repository.updateOne({ _id: repo._id }, { $set: { shareToken: repo.shareToken } })
+  }
+  return repo.shareToken
+}
+
+/** Adds the forms script to every page of a static site on disk; returns how many pages have a form. */
+async function wireSiteForms(root: string, repositoryId: string): Promise<number> {
+  const repo = await Repository.findById(repositoryId)
+  if (!repo) return 0
+  const endpoint = siteFormsEndpoint(await siteToken(repo))
+  let withForms = 0
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) { walk(full); continue }
+      if (!/\.html?$/i.test(entry.name)) continue
+      const html = fs.readFileSync(full, 'utf8')
+      const next = applySiteForms(html, endpoint)
+      if (next !== html) fs.writeFileSync(full, next, 'utf8')
+      if (/<form\b/i.test(html)) withForms++
+    }
+  }
+  walk(root)
+  return withForms
 }
 
 /** React pages: the model's section content tags become JSX before any syntax check */
@@ -7877,7 +7920,9 @@ async function buildSite(job: Job) {
       const css = generated.find((f) => f.path === cssPath)
       if (css) css.content = finalizeBrandCss(css.content, brandKit, { fontImport: stack === 'mern' || stack === 'supabase' })
       if (stack !== 'mern' && stack !== 'supabase') {
-        for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applyBrandToHtml(f.content, brandKit)
+        // Forms send their messages to the owner's Leads inbox (a static site has no server)
+        const forms = siteFormsEndpoint(await siteToken(repo))
+        for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applySiteForms(applyBrandToHtml(f.content, brandKit), forms)
       } else {
         for (const f of generated.filter((g) => g.path.endsWith('.jsx'))) f.content = sizeInlineIcons(f.content)
         // Count-ups, rotating word and the WhatsApp button live outside React
