@@ -52,6 +52,9 @@ export interface IRepository extends Document {
   }
   /** Public share token — set when the user generates a shareable client report link */
   shareToken?: string
+  /** The private preview on R2, and the folder it lives in */
+  previewUrl?: string
+  previewSlug?: string
   /** Client approval workflow */
   approvalToken?: string
   approvalStatus?: 'pending' | 'approved' | 'rejected'
@@ -100,6 +103,8 @@ const repositorySchema = new Schema<IRepository>(
     deployState: { type: Schema.Types.Mixed, default: {} },
     builderEnv: { type: Schema.Types.Mixed, select: false },
     shareToken: { type: String, index: { sparse: true } },
+    previewUrl: String,
+    previewSlug: String,
     approvalToken: { type: String, index: { sparse: true } },
     approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'] },
     approvalNote: String,

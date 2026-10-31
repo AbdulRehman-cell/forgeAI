@@ -13,17 +13,24 @@ export default function ScaledFrame({ width, children }: { width: number; childr
     measure()
     const watcher = new ResizeObserver(measure)
     watcher.observe(el)
-    return () => watcher.disconnect()
+    // Size changes can go unreported while a tab or panel is hidden
+    window.addEventListener('resize', measure)
+    document.addEventListener('visibilitychange', measure)
+    return () => {
+      watcher.disconnect()
+      window.removeEventListener('resize', measure)
+      document.removeEventListener('visibilitychange', measure)
+    }
   }, [])
 
+  // Not measured yet (a hidden panel): the page still shows, at full size, and never disappears
   const scale = size.w && size.w < width ? size.w / width : 1
+  const measured = size.w > 0 && size.h > 0
   return (
     <div ref={box} className="h-full w-full overflow-hidden flex justify-center">
-      {size.w > 0 && (
-        <div style={{ width: width * scale, height: size.h, flexShrink: 0 }}>
-          <div style={{ width, height: size.h / scale, transform: `scale(${scale})`, transformOrigin: 'top left' }}>{children}</div>
-        </div>
-      )}
+      <div style={{ width: measured ? width * scale : '100%', height: measured ? size.h : '100%', flexShrink: 0 }}>
+        <div style={measured ? { width, height: size.h / scale, transform: `scale(${scale})`, transformOrigin: 'top left' } : { width: '100%', height: '100%' }}>{children}</div>
+      </div>
     </div>
   )
 }

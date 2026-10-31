@@ -484,6 +484,11 @@ router.delete('/:id', async (req, res) => {
     try { fs.rmSync(repo.localPath, { recursive: true, force: true }) } catch {}
   }
 
+  if (repo.previewSlug) {
+    const { deleteFromR2 } = await import('../../lib/selfHostedDeploy')
+    await deleteFromR2(repo.previewSlug).catch(() => {})
+  }
+
   // Drop the repo's task history so it doesn't show up orphaned
   await Task.deleteMany({ repositoryId: repo._id, userId: getEffectiveUserId(req) }).catch(() => {})
 

@@ -13,7 +13,7 @@ import { api } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import CodeView from './CodeView'
 import ScaledFrame from './ScaledFrame'
-import { apiUrl, isRunning, type Conversation, type DesignOptions, type StudioMessage, type StudioQuestion, type StudioTask } from './studio'
+import { apiUrl, isRunning, type Conversation, type DesignOptions, type PreviewBundle, type StudioMessage, type StudioQuestion, type StudioTask } from './studio'
 
 const DEVICES = [
   { id: 'desktop', icon: Monitor, label: 'Desktop', width: 1280 },
@@ -123,14 +123,18 @@ function DesignCard({ options, hero, color, logo, locked, building, onChange, on
   )
 }
 
-function TaskLine({ task }: { task: StudioTask }) {
+function TaskLine({ task, onRetry }: { task: StudioTask; onRetry: () => void }) {
   const running = isRunning(task)
+  // A finished preview shows itself: only waiting and problems need a card
+  if (task.preview && task.status === 'completed') return null
   const words: Record<string, [string, string, string]> = {
     build_site: ['Building your site…', 'Your site is built. Check the preview, then deploy it when you are happy.', 'The build failed.'],
     blitz_deploy: ['Deploying…', 'Your site is live.', 'The deploy failed.'],
     agent: ['Making your change…', 'Your change is done.', 'That change could not be made.'],
   }
-  const [busy, done, bad] = words[task.type] ?? ['Working…', 'Done.', 'That did not work.']
+  const [busy, done, bad] = task.preview
+    ? ['Preparing your preview…', 'Your preview is ready.', 'The preview could not be prepared. Your site is fine.']
+    : words[task.type] ?? ['Working…', 'Done.', 'That did not work.']
   return (
     <div className="rounded-xl p-3 text-sm" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', color: 'var(--text)' }}>
       <p className="flex items-center gap-2 font-medium">
@@ -147,6 +151,7 @@ function TaskLine({ task }: { task: StudioTask }) {
         </>
       )}
       {task.status === 'failed' && task.error && <p className="mt-1 text-xs" style={{ color: 'var(--text-3)' }}>{task.error.slice(0, 240)}</p>}
+      {task.status === 'failed' && task.preview && <button onClick={onRetry} className="mt-1.5 text-xs text-brand-500 underline">Try again</button>}
       {task.status === 'completed' && task.deploymentUrl && <a href={task.deploymentUrl} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-brand-500 underline break-all">{task.deploymentUrl}</a>}
     </div>
   )
@@ -173,7 +178,7 @@ export default function BuildThread({ conversation }: { conversation: Conversati
   const tasks = conversation.tasks
   const active = tasks.find(isRunning)
   const buildDone = tasks.some((t) => t.type === 'build_site' && t.status === 'completed')
-  const live = [...tasks].reverse().find((t) => t.type === 'blitz_deploy' && t.status === 'completed' && t.deploymentUrl)?.deploymentUrl
+  const live = [...tasks].reverse().find((t) => t.type === 'blitz_deploy' && !t.preview && t.status === 'completed' && t.deploymentUrl)?.deploymentUrl
   const finishedCount = tasks.filter((t) => !isRunning(t)).length
   const repoId = conversation.repositoryId
 
@@ -204,21 +209,29 @@ export default function BuildThread({ conversation }: { conversation: Conversati
     opened.current = true
   }, [conversation.messages.length, tasks.length])
 
-  // The design preview: instant, from ForgeAI's own code, for whatever is chosen now
-  const showDesign = !live && !conversation.previewPath
-  const { data: preview, isFetching: previewLoading } = useQuery({
-    queryKey: ['studio-preview', id, hero, color, JSON.stringify(conversation.answers), conversation.photos.length, !!conversation.design.logo],
-    queryFn: () => api.post(`/studio/conversations/${id}/preview`, { hero, color }).then((r) => r.data as { html: string; options: DesignOptions }),
+  // The design preview: one package per conversation from ForgeAI's own code. After
+  // that, every choice is swapped inside the browser with no request and no AI.
+  const showDesign = !live && !conversation.previewUrl && !conversation.previewPath
+  const { data: bundle, isFetching: previewLoading } = useQuery({
+    queryKey: ['studio-preview', id, conversation.answers.name ?? '', conversation.answers.kind ?? '', conversation.photos.length],
+    queryFn: () => api.post(`/studio/conversations/${id}/preview`).then((r) => r.data as PreviewBundle),
     enabled: showDesign,
     staleTime: Infinity,
     gcTime: 300_000,
-    // The old look stays up until the new one arrives, so choosing never flashes blank
+    // The old look stays up until the new one arrives, so an answer never flashes blank
     placeholderData: keepPreviousData,
   })
 
-  const options = preview?.options
-  const shownHero = hero ?? options?.heroes[0]?.id ?? ''
+  const options = bundle?.options
+  const shownHero = hero && options?.heroes.some((h) => h.id === hero) ? hero : options?.heroes[0]?.id ?? ''
   const shownColor = color ?? 0
+  const frame = useRef<HTMLIFrameElement>(null)
+  const showChoice = () => {
+    if (!bundle) return
+    const middle = bundle.css.middles[shownColor] ?? bundle.css.middles[0]
+    frame.current?.contentWindow?.postMessage({ css: bundle.css.prefix + middle + bundle.css.suffix, main: bundle.pages[shownHero] ?? '', logo: conversation.design.logo ?? '' }, '*')
+  }
+  useEffect(showChoice)
 
   const answer = async (q: StudioQuestion, value: any, label?: string) => {
     setSending(true)
@@ -308,7 +321,7 @@ export default function BuildThread({ conversation }: { conversation: Conversati
     } catch (e: any) { toast.error(e.response?.data?.message ?? 'The deploy could not start') }
   }
 
-  const shareUrl = live ?? (conversation.previewPath ? apiUrl(conversation.previewPath) : '')
+  const shareUrl = live ?? conversation.previewUrl ?? (conversation.previewPath ? apiUrl(conversation.previewPath) : '')
   const share = async () => {
     if (!shareUrl) { toast('Deploy your site first to get a link you can share'); return }
     try {
@@ -326,10 +339,14 @@ export default function BuildThread({ conversation }: { conversation: Conversati
   }, [conversation.messages, tasks])
 
   const pendingQuestion = conversation.stage === 'questions' ? [...conversation.messages].reverse().find((m) => m.kind === 'question')?._id : undefined
-  const siteSrc = live ?? (conversation.previewPath ? `${apiUrl(conversation.previewPath)}?v=${finishedCount}` : '')
+  const siteSrc = live ?? (conversation.previewUrl || (conversation.previewPath ? apiUrl(conversation.previewPath) : ''))
+  // React apps need their own origin (module scripts, sign-in storage). Hosted sites have one, on another
+  // domain from this app. The API's fallback copy does not, so it stays fully walled off.
+  const siteOnOwnOrigin = !!(live || conversation.previewUrl)
   const placeholder = conversation.stage === 'built' ? 'Ask for a change…' : conversation.stage === 'design' ? 'Anything else the build should know?' : 'Type your answer…'
   const stripText = active?.type === 'build_site' ? 'Building your real site. This is the design you chose, with sample words.'
-    : !siteSrc && buildDone ? 'Built. This web service runs once deployed, so press Deploy to see the real app.' : ''
+    : active?.preview && !siteSrc ? 'Preparing your preview. It appears here in a moment.'
+    : conversation.stack === 'supabase' && conversation.previewUrl && !live ? 'This preview uses your real database: anything added here stays when the site goes live.' : ''
 
   return (
     <div className="h-full flex flex-col lg:flex-row min-h-0">
@@ -344,7 +361,7 @@ export default function BuildThread({ conversation }: { conversation: Conversati
       <div className={clsx('lg:w-[400px] lg:shrink-0 min-h-0 flex-col border-r flex-1 lg:flex-none', pane === 'chat' ? 'flex' : 'hidden lg:flex')} style={{ borderColor: 'var(--border)' }}>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {timeline.map(({ message: m, task }) => {
-            if (task) return <TaskLine key={task._id} task={task} />
+            if (task) return <TaskLine key={task._id} task={task} onRetry={() => api.post(`/studio/conversations/${id}/preview-refresh`).then(refresh).catch(() => toast.error('Could not try again just now'))} />
             if (!m) return null
             if (m.role === 'user') return <Bubble key={m._id} text={m.content} />
             return (
@@ -427,9 +444,9 @@ export default function BuildThread({ conversation }: { conversation: Conversati
           ) : (
             <ScaledFrame width={DEVICES.find((d) => d.id === device)!.width}>
                 {siteSrc ? (
-                  <iframe key={siteSrc} src={siteSrc} title="Your site" sandbox="allow-scripts allow-forms allow-popups" className="w-full h-full border-0 bg-white" />
-                ) : preview ? (
-                  <iframe title="Design preview" srcDoc={preview.html} sandbox="allow-scripts" className="w-full h-full border-0 bg-white" />
+                  <iframe key={siteSrc} src={siteSrc} title="Your site" sandbox={siteOnOwnOrigin ? 'allow-scripts allow-same-origin allow-forms allow-popups' : 'allow-scripts allow-forms allow-popups'} className="w-full h-full border-0 bg-white" />
+                ) : bundle ? (
+                  <iframe ref={frame} title="Design preview" srcDoc={bundle.shell} onLoad={showChoice} sandbox="allow-scripts" className="w-full h-full border-0 bg-white" />
                 ) : (
                   <div className="h-full grid place-items-center" style={{ color: 'var(--text-3)' }}>
                     {previewLoading ? <Loader2 size={18} className="animate-spin" /> : 'The preview could not load.'}

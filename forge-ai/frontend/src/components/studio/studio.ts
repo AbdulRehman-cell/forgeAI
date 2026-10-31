@@ -30,6 +30,7 @@ export interface StudioTask {
   summary?: string
   error?: string
   deploymentUrl?: string
+  preview?: boolean
   lastLog?: string
   createdAt: string
 }
@@ -48,7 +49,15 @@ export interface Conversation {
   repositoryId?: string
   repository?: { _id: string; name: string; status: string } | null
   previewPath?: string
+  previewUrl?: string
   updatedAt: string
+}
+
+export interface PreviewBundle {
+  shell: string
+  css: { prefix: string; suffix: string; middles: string[] }
+  pages: Record<string, string>
+  options: DesignOptions
 }
 
 export const getConversation = (id: string) =>

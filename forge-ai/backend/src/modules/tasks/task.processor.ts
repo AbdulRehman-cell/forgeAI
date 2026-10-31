@@ -1,3 +1,4 @@
+import os from 'os'
 import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
@@ -1130,6 +1131,36 @@ function extractErrorFilePaths(errorText: string, buildCwd: string): string[] {
   return [...found].slice(0, 10)
 }
 
+// One compile at a time: each takes ~200 MB, and a second at once could sink the server
+let compileTail: Promise<void> = Promise.resolve()
+let compilesWaiting = 0
+function waitForCompile(): Promise<() => void> {
+  let done = () => {}
+  const mine = new Promise<void>((resolve) => { done = resolve })
+  const turn = compileTail
+  compileTail = turn.then(() => mine)
+  compilesWaiting++
+  return turn.then(() => {
+    let released = false
+    return () => { if (!released) { released = true; compilesWaiting--; done() } }
+  })
+}
+
+const PREVIEW_MARK = '.forge-preview-fresh'
+/** The preview's compile is still good for a deploy when nothing changed since it ran */
+function compiledForPreview(buildCwd: string): boolean {
+  const mark = path.join(buildCwd, 'dist', PREVIEW_MARK)
+  if (!fs.existsSync(mark)) return false
+  const since = fs.statSync(mark).mtimeMs
+  const changed = (p: string): boolean => {
+    if (!fs.existsSync(p)) return false
+    const st = fs.statSync(p)
+    if (st.isDirectory()) return fs.readdirSync(p).some((f) => changed(path.join(p, f)))
+    return st.mtimeMs > since
+  }
+  return !['src', 'public', 'index.html', 'package.json', 'vite.config.js', '.env.local'].some((f) => changed(path.join(buildCwd, f)))
+}
+
 async function blitzDeploy(job: Job) {
   const { taskId, localPath, platform, aiProvider, deployToken, repoName, branch, isLocal, needsGitHubPush, repositoryId, envVars } = job.data
   let { repoFullName } = job.data
@@ -1138,7 +1169,9 @@ async function blitzDeploy(job: Job) {
 
   // ── Self-hosted deploy (no GitHub / no third-party service needed) ──────────
   if (platform === 'self-hosted') {
-    await updateTask(task, { status: 'running', progress: 10 }, '🚀 Starting ForgeAI deploy…')
+    const isPreview = job.data.preview === true
+    await updateTask(task, { status: 'running', progress: 10 }, isPreview ? 'Preparing your preview…' : '🚀 Starting ForgeAI deploy…')
+    let releaseCompile: (() => void) | null = null
     let pausedBackends: Array<{ slug: string; serverDir: string }> = []
     let _resumeBackends: ((backends: Array<{ slug: string; serverDir: string }>) => void) | null = null
     // Frontend-only builds (Supabase/static React) pause other sites' backends
@@ -1154,11 +1187,12 @@ async function blitzDeploy(job: Job) {
       // the slug NOW (before the build) so VITE_API_URL can be baked in correctly.
       const repo = repositoryId ? await (await import('../repository/repository.model')).Repository.findById(repositoryId) : null
       const existingSlug = repo?.deployState?.['self-hosted']?.slug as string | undefined
-      const deploySlug = existingSlug ?? makeSlug(repoName ?? 'site')
+      // A preview gets a fresh folder each time: its files are cached for a year by name
+      const deploySlug = isPreview ? `preview-${repo?.shareToken ?? taskId}-${String(taskId).slice(-6)}` : existingSlug ?? makeSlug(repoName ?? 'site')
 
       // Persist slug immediately so retry deploys reuse the same workspace path
       // (and therefore the same node_modules, skipping the npm install entirely).
-      if (!existingSlug && repo) {
+      if (!isPreview && !existingSlug && repo) {
         repo.deployState = { ...(repo.deployState ?? {}), 'self-hosted': { slug: deploySlug, url: '' } }
         await repo.save()
       }
@@ -1206,7 +1240,16 @@ async function blitzDeploy(job: Job) {
       // selfHostedDeploy will use this as localPath so findDeployRoot finds dist/index.html.
       let ghActionsTmpDir: string | null = null
 
-      if (needsBuild) {
+      // Deploying what the preview just compiled: no second compile
+      const reuseCompile = needsBuild && !isPreview && !hasMernLayout && compiledForPreview(buildCwdCheck)
+      if (reuseCompile) {
+        fs.rmSync(path.join(buildCwdCheck, 'dist', PREVIEW_MARK), { force: true })
+        await updateTask(task, { progress: 55 }, '✅ Using the build from your preview — nothing has changed since')
+      }
+
+      if (needsBuild && !reuseCompile) {
+        if (compilesWaiting > 0) await updateTask(task, {}, 'Waiting for another site to finish compiling…')
+        releaseCompile = await waitForCompile()
         // Detect where to run the frontend build:
         // split MERN → client/ or frontend/  |  monolith / plain SPA → root
         const buildCwd = hasSplitMern
@@ -1599,7 +1642,40 @@ INSTRUCTIONS:
         }
 
         releaseBuildHold?.()
+        releaseCompile?.()
         await updateTask(task, { progress: 60 }, '✅ Build complete — uploading to ForgeAI…')
+      }
+
+      if (isPreview) {
+        // Published from a copy: publishing rewrites paths in place, and this
+        // folder still has to be deployed for real later
+        const root = findDeployRoot(ghActionsTmpDir ?? localPath)
+        const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-preview-'))
+        const LEAVE = new Set(['node_modules', '.git', '.env', '.env.local', PREVIEW_MARK])
+        fs.cpSync(root, copy, { recursive: true, filter: (src) => !LEAVE.has(path.basename(src)) })
+        let published
+        try {
+          published = await selfHostedDeploy({ localPath: copy, name: repoName ?? 'site', existingSlug: deploySlug })
+        } finally {
+          fs.rmSync(copy, { recursive: true, force: true })
+          if (ghActionsTmpDir) fs.rmSync(ghActionsTmpDir, { recursive: true, force: true })
+        }
+        if (!ghActionsTmpDir && root !== localPath) fs.writeFileSync(path.join(root, PREVIEW_MARK), '')
+        const old = repo?.previewSlug
+        if (repo) {
+          repo.previewSlug = published.slug
+          repo.previewUrl = published.url
+          await repo.save()
+        }
+        if (old && old !== published.slug) {
+          const { deleteFromR2, SITES_DIR } = await import('../../lib/selfHostedDeploy')
+          await deleteFromR2(old).catch(() => {})
+          if (!published.siteDir) { /* hosted on R2 */ } else fs.rmSync(path.join(SITES_DIR, old), { recursive: true, force: true })
+        }
+        task.metadata = { ...(task.metadata as object), previewUrl: published.url }
+        task.markModified('metadata')
+        await updateTask(task, { status: 'completed', progress: 100 }, 'Your preview is ready')
+        return
       }
 
       // Always inject the fetch/XHR interceptor for MERN apps so /api/ calls route
@@ -1728,6 +1804,9 @@ INSTRUCTIONS:
         await repo.save()
       }
 
+      task.metadata = { ...(task.metadata as object), deploymentUrl: result.url }
+      task.markModified('metadata')
+
       const providerNote = result.provider === 'r2'
         ? 'Frontend served globally via Cloudflare R2.'
         : 'Frontend running directly on your ForgeAI server.'
@@ -1745,7 +1824,9 @@ INSTRUCTIONS:
         try { _resumeBackends(pausedBackends) } catch {}
       }
       try { releaseBuildHold?.() } catch {}
+      releaseCompile?.()
       task.status = 'failed'
+      task.error = err.message
       task.summary = `## ❌ Self-hosted deploy failed\n\n${err.message}`
       await task.save()
       emitTaskUpdate(taskId, task.toObject())
@@ -8502,6 +8583,8 @@ async function buildSite(job: Job) {
     ].join('\n')
     await task.save()
     emitTaskUpdate(taskId, task.toObject())
+    // Home page conversations show the real site from Cloudflare, not this server
+    if (design) await (await import('../studio/preview.queue')).queuePreview(String(repo._id), String(userId)).catch((e: any) => console.warn('[preview] could not start:', e?.message))
 
     // Resume paused backends AFTER saving the completed task — so a memory spike
     // from restarting child processes can't prevent the task result from landing

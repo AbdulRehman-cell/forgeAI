@@ -188,7 +188,6 @@ export interface PreviewInput {
   answers: Record<string, any>
   hero?: string
   color?: number
-  logo?: string
   photos?: string[]
 }
 
@@ -210,20 +209,62 @@ function previewKit(input: PreviewInput): { kit: BrandKit; name: string; kindId:
   return { kit, name, kindId, layout }
 }
 
-/** A whole page the browser can show straight away, built with no AI */
-export function renderPreview(input: PreviewInput): string {
-  const { kit, name, kindId, layout } = previewKit(input)
-  const css = mirrorForRtl(finalizeBrandCss(getPackCss(kit.mode === 'dark' ? 'dark' : 'clean'), kit, { fontImport: true }), kit)
-  const tags = [
-    `<forge-hero layout="${layout}">${JSON.stringify(heroSample(layout, kindId, name, input.prompt, kit.photos))}</forge-hero>`,
-    ...kit.plan.sections.slice(0, 5).map((s) => ({ s, c: sampleSection(s.type, name) })).filter((x) => x.c).map(({ s, c }) => `<forge-section type="${s.type}" variant="${s.variant}">${JSON.stringify(c)}</forge-section>`),
-  ].join('\n')
-  // Links go nowhere here: the preview is one page, and a real click would leave it
-  const stay = "<script>document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a,button[type=submit]');if(a)e.preventDefault()});document.addEventListener('submit',function(e){e.preventDefault()})</script>"
-  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title><style>${css}
-@media (max-width: 820px) { .site-header .nav-links { display: none !important; } }</style></head><body><header class="site-header"><a href="#" class="nav-brand" aria-label="${name}">x</a><nav class="nav-links"><a href="#">Home</a><a href="#">About</a><a href="#">Services</a><a href="#">Contact</a></nav><a class="nav-cta" href="#">Get started</a></header><main>${expandSections(tags, kit, 'html').content}</main><footer class="site-footer"><div class="container"><p>© ${new Date().getFullYear()} ${name}</p></div></footer>${stay}</body></html>`
-  const branded = applyBrandToHtml(page.replace('aria-label', 'data-a').replace('>x</a>', '></a>'), kit)
-  return input.logo ? branded.replace(/<span class="brand-mark"[^>]*>[^<]*<\/span>/g, `<span class="brand-mark has-logo" aria-hidden="true"><img src="${input.logo}" alt=""></span>`) : branded
+export interface PreviewBundle {
+  /** The page around the content, loaded once */
+  shell: string
+  /** Each colour scheme's stylesheet is prefix + middles[i] + suffix: only the colours differ */
+  css: { prefix: string; suffix: string; middles: string[] }
+  /** Each home page's content */
+  pages: Record<string, string>
+  options: DesignOptions
+}
+
+// Links go nowhere here: the preview is one page, and a real click would leave it.
+// The conversation swaps colours, home pages and the logo by message, with no request at all.
+const PREVIEW_SCRIPT = `<script>
+document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a,button[type=submit]');if(a)e.preventDefault()});
+document.addEventListener('submit',function(e){e.preventDefault()});
+var shown={};
+addEventListener('message',function(e){var d=e.data||{};
+  if(d.css!=null&&d.css!==shown.css){document.getElementById('kit-css').textContent=d.css;shown.css=d.css}
+  if(d.main!=null&&d.main!==shown.main){document.querySelector('main').innerHTML=d.main;shown.main=d.main}
+  if(d.logo!==shown.logo){shown.logo=d.logo;document.querySelectorAll('.brand-mark').forEach(function(m){
+    if(m.__t==null)m.__t=m.textContent;
+    if(d.logo){var i=new Image();i.alt='';i.src=d.logo;m.textContent='';m.appendChild(i);m.classList.add('has-logo')}
+    else{m.textContent=m.__t;m.classList.remove('has-logo')}})}
+});
+</script>`
+
+function sharedEdges(parts: string[]): { prefix: string; suffix: string; middles: string[] } {
+  const first = parts[0]
+  let start = 0
+  while (start < first.length && parts.every((c) => c[start] === first[start])) start++
+  let end = 0
+  while (end < first.length - start && parts.every((c) => c.length - end - 1 >= start && c[c.length - end - 1] === first[first.length - end - 1])) end++
+  return { prefix: first.slice(0, start), suffix: end ? first.slice(first.length - end) : '', middles: parts.map((c) => c.slice(start, c.length - end)) }
+}
+
+/** Everything the preview needs for every choice, built once with no AI. The browser does the rest. */
+export function renderPreviewBundle(input: PreviewInput): PreviewBundle {
+  const options = designOptions(input.prompt, input.answers)
+  const branded = (hero: string) => {
+    const { kit, name, kindId, layout } = previewKit({ ...input, hero, color: 0 })
+    const tags = [
+      `<forge-hero layout="${layout}">${JSON.stringify(heroSample(layout, kindId, name, input.prompt, kit.photos))}</forge-hero>`,
+      ...kit.plan.sections.slice(0, 5).map((s) => ({ s, c: sampleSection(s.type, name) })).filter((x) => x.c).map(({ s, c }) => `<forge-section type="${s.type}" variant="${s.variant}">${JSON.stringify(c)}</forge-section>`),
+    ].join('\n')
+    const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title><style id="kit-css"></style><style>@media (max-width: 820px) { .site-header .nav-links { display: none !important; } }</style></head><body><header class="site-header"><a href="#" class="nav-brand"></a><nav class="nav-links"><a href="#">Home</a><a href="#">About</a><a href="#">Services</a><a href="#">Contact</a></nav><a class="nav-cta" href="#">Get started</a></header><main>${expandSections(tags, kit, 'html').content}</main><footer class="site-footer"><div class="container"><p>© ${new Date().getFullYear()} ${name}</p></div></footer>${PREVIEW_SCRIPT}</body></html>`
+    return applyBrandToHtml(page, kit)
+  }
+  const MAIN = /<main>([\s\S]*)<\/main>/
+  const pagesHtml = options.heroes.map((h) => ({ id: h.id, html: branded(h.id) }))
+  const pages: Record<string, string> = {}
+  for (const { id, html } of pagesHtml) pages[id] = MAIN.exec(html)?.[1] ?? ''
+  const css = options.colors.map((_c, i) => {
+    const { kit } = previewKit({ ...input, hero: options.heroes[0].id, color: i })
+    return mirrorForRtl(finalizeBrandCss(getPackCss(kit.mode === 'dark' ? 'dark' : 'clean'), kit, { fontImport: true }), kit)
+  })
+  return { shell: pagesHtml[0].html.replace(MAIN, () => '<main></main>'), css: sharedEdges(css), pages, options }
 }
 
 /** The request the AI receives: the first message plus everything the client chose */

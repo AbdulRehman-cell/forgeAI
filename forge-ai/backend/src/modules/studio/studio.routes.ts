@@ -5,6 +5,8 @@
 
 import path from 'path'
 import fs from 'fs'
+import { gzip } from 'zlib'
+import { promisify } from 'util'
 import { Router } from 'express'
 import { requireAuth } from '../../middleware/auth.middleware'
 import { resolveTeamOwner, getEffectiveUserId } from '../../middleware/teamContext.middleware'
@@ -13,9 +15,11 @@ import { Task } from '../tasks/task.model'
 import { generalChatReply } from '../ai/ai.routes'
 import { fetchImagePool } from '../tasks/task.processor'
 import { Conversation, IConversation } from './conversation.model'
-import { designOptions, displayName, includeQuestion, questionsFor, renderPreview, type Question } from '../../lib/studio'
+import { designOptions, displayName, includeQuestion, questionsFor, renderPreviewBundle, type Question } from '../../lib/studio'
+import { queuePreview } from './preview.queue'
 
 const router = Router()
+const gzipped = promisify(gzip)
 
 // ── The built site, before it is deployed ──
 // Public by its unguessable token. The sandbox header gives every page a throwaway
@@ -64,12 +68,13 @@ const withStatus = async (conv: IConversation) => {
   const plain = conv.toObject() as any
   const repoId = conv.repositoryId
   if (!repoId) return { ...plain, tasks: [] }
-  const repo = await Repository.findById(repoId).select('shareToken status name')
-  const tasks = await Task.find({ repositoryId: repoId }).sort({ createdAt: 1 }).limit(30).select('type status progress summary error metadata.deploymentUrl logs createdAt updatedAt').lean()
-  const light = tasks.map((t: any) => ({ _id: t._id, type: t.type, status: t.status, progress: t.progress, summary: t.summary, error: t.error, deploymentUrl: t.metadata?.deploymentUrl, lastLog: t.logs?.[t.logs.length - 1]?.message, createdAt: t.createdAt }))
+  const repo = await Repository.findById(repoId).select('shareToken status name previewUrl')
+  const tasks = await Task.find({ repositoryId: repoId }).sort({ createdAt: 1 }).limit(30).select('type status progress summary error metadata.deploymentUrl metadata.preview logs createdAt updatedAt').lean()
+  const light = tasks.map((t: any) => ({ _id: t._id, type: t.type, status: t.status, progress: t.progress, summary: t.summary, error: t.error, deploymentUrl: t.metadata?.deploymentUrl, preview: !!t.metadata?.preview, lastLog: t.logs?.[t.logs.length - 1]?.message, createdAt: t.createdAt }))
   const built = light.some((t) => t.type === 'build_site' && t.status === 'completed')
-  const onDisk = repo && built && conv.stack === 'static' ? `/studio/site/${repo.shareToken}/index.html` : ''
-  return { ...plain, tasks: light, repository: repo ? { _id: repo._id, name: repo.name, status: repo.status } : null, previewPath: onDisk }
+  // The server's own copy only fills the moment before the Cloudflare preview is ready
+  const onDisk = repo && built && conv.stack === 'static' && !repo.previewUrl ? `/studio/site/${repo.shareToken}/index.html` : ''
+  return { ...plain, tasks: light, repository: repo ? { _id: repo._id, name: repo.name, status: repo.status } : null, previewPath: onDisk, previewUrl: repo?.previewUrl ?? '' }
 }
 
 router.get('/conversations', async (req, res) => {
@@ -191,20 +196,27 @@ router.patch('/conversations/:id/design', async (req, res) => {
   res.json({ conversation: await withStatus(conv) })
 })
 
-// The preview, rebuilt instantly for any choice. Uses no AI.
+// Everything the preview needs for every choice, once. Uses no AI; the browser swaps
+// colours, home pages and the logo by itself after this.
 router.post('/conversations/:id/preview', async (req, res) => {
   const conv = await owned(req)
   if (!conv) return res.status(404).json({ message: 'Conversation not found' })
-  const { hero, color } = req.body ?? {}
-  const html = renderPreview({
-    prompt: firstPrompt(conv),
-    answers: conv.answers,
-    hero: typeof hero === 'string' ? hero : conv.design?.hero,
-    color: typeof color === 'number' ? color : conv.design?.color,
-    logo: conv.design?.logo,
-    photos: conv.photos,
-  })
-  res.json({ html, options: designOptions(firstPrompt(conv), conv.answers) })
+  const bundle = renderPreviewBundle({ prompt: firstPrompt(conv), answers: conv.answers, photos: conv.photos })
+  const body = await gzipped(JSON.stringify(bundle))
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.setHeader('Content-Encoding', 'gzip')
+  res.send(body)
+})
+
+// Prepares the preview again: after one failed, or to refresh it by hand
+router.post('/conversations/:id/preview-refresh', async (req, res) => {
+  const conv = await owned(req)
+  if (!conv) return res.status(404).json({ message: 'Conversation not found' })
+  if (!conv.repositoryId) return res.status(409).json({ message: 'Your site has not been built yet' })
+  const running = await Task.exists({ repositoryId: conv.repositoryId, status: { $in: ['pending', 'running'] } })
+  if (running) return res.status(409).json({ message: 'Your site is still being worked on' })
+  await queuePreview(String(conv.repositoryId), String(conv.userId))
+  res.status(202).json({ conversation: await withStatus(conv) })
 })
 
 export default router

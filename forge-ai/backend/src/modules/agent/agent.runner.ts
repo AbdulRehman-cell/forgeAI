@@ -479,6 +479,11 @@ Begin now. Reply with your first tool call(s) — a reply without a tool call do
   task.summary = finalSummary
   await task.save()
   emitTaskUpdate(taskId, task.toObject())
+  // A change made from a home page conversation refreshes its preview
+  if ((task.metadata as any)?.patchMode && task.changes.length && job.data.repositoryId) {
+    const { queuePreview } = await import('../studio/preview.queue')
+    await queuePreview(String(job.data.repositoryId), String(job.data.userId)).catch((e: any) => console.warn('[preview] could not start:', e?.message))
+  }
 }
 
 /**
