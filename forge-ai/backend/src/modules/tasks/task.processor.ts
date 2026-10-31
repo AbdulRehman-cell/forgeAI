@@ -39,6 +39,7 @@ import { SITE_TYPES } from '../../lib/sections/siteTypes'
 import { expandSections, KIT_FORM_JSX } from '../../lib/sections/expand'
 import { applySiteForms, siteFormsEndpoint } from '../../lib/siteForms'
 import { publicApiBase } from '../../lib/publicUrl'
+import { repairCss, cssErrorFile } from '../../lib/cssRepair'
 import { randomUUID } from 'crypto'
 import { runVisualQa, servedStylesheets, visualQaEngine, photoUrlsIn, brokenImages } from '../../lib/visualQa'
 
@@ -994,21 +995,89 @@ function pageSources(root: string): string[] {
   return out.sort((a, b) => home(a.name) - home(b.name)).slice(0, 12).map((f) => f.text)
 }
 
-function applyBuildFixes(fixes: ParsedChange[], cwd: string): number {
+/** How much of each file the build-fix AI is shown */
+const FIX_CONTEXT_CHARS = 16_000
+
+/** The files a build error names, as the fixer sees them — a cut file says so */
+function buildFixContext(paths: string[], cwd: string): string {
+  return paths.map((p) => {
+    try {
+      const content = fs.readFileSync(p, 'utf-8')
+      const cut = content.length > FIX_CONTEXT_CHARS
+      return `<file path="${path.relative(cwd, p).replace(/\\/g, '/')}"${cut ? ` truncated="showing ${FIX_CONTEXT_CHARS} of ${content.length} characters — return a fix for this file only if you can return it COMPLETE"` : ''}>\n${content.slice(0, FIX_CONTEXT_CHARS)}\n</file>`
+    } catch { return '' }
+  }).filter(Boolean).join('\n\n')
+}
+
+/**
+ * Writes the AI's build fixes, refusing the ones that do damage: anything outside
+ * src/, an existing file the AI was never shown (it rewrites it blind), a file cut
+ * to under half its size (the model only saw part of it), and Tailwind (these
+ * projects have none). A gym site once deployed with its 170 KB stylesheet
+ * replaced by 58 characters this way.
+ */
+export function applyBuildFixes(fixes: ParsedChange[], cwd: string, shown: string[]): number {
+  const seen = new Set(shown.map((p) => path.resolve(p)))
   let applied = 0
   for (const fix of fixes) {
     const rel = path.normalize(fix.path.replace(/\\/g, '/')).replace(/\\/g, '/').replace(/^\.\//, '')
     const abs = path.resolve(cwd, rel)
     const inside = abs.startsWith(path.resolve(cwd) + path.sep)
-    if (!inside || !/^src\//.test(rel) || !/\.(jsx?|tsx?|mjs|css)$/.test(rel) || !fix.content.trim()) {
-      console.warn(`[deploy] refused AI build fix to "${fix.path}" (only src/ source files may be changed)`)
-      continue
+    const refuse = (why: string) => console.warn(`[deploy] refused AI build fix to "${fix.path}" (${why})`)
+    if (!inside || !/^src\//.test(rel) || !/\.(jsx?|tsx?|mjs|css)$/.test(rel) || !fix.content.trim()) { refuse('only src/ source files may be changed'); continue }
+    if (/@tailwind\b|@import\s+(url\()?["']tailwindcss/i.test(fix.content)) { refuse('adds Tailwind, which the project does not have'); continue }
+    if (fs.existsSync(abs)) {
+      if (!seen.has(abs)) { refuse('the fixer was not shown this file'); continue }
+      const before = fs.readFileSync(abs, 'utf-8').length
+      if (before > 1500 && fix.content.length < before * 0.5) { refuse(`would cut it from ${before} to ${fix.content.length} characters`); continue }
     }
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, fix.content, 'utf-8')
     applied++
   }
   return applied
+}
+
+/** A CSS syntax error fixed without an AI: the lines the parser rejects are
+ *  removed from the stylesheet the error names. Returns what was removed, or null. */
+export function repairCssFromBuildError(errorText: string, cwd: string): { file: string; removed: string[] } | null {
+  const named = cssErrorFile(errorText)
+  if (!named) return null
+  // The error may carry another machine's absolute path (GitHub Actions): find the
+  // same file under this project by its path from the last "src" folder down
+  const parts = named.split(/[\\/]/)
+  const from = parts.lastIndexOf('src')
+  const local = from >= 0 ? path.join(cwd, ...parts.slice(from)) : ''
+  const abs = local && fs.existsSync(local) ? local : named
+  if (!fs.existsSync(abs)) return null
+  const fixed = repairCss(fs.readFileSync(abs, 'utf-8'))
+  if (!fixed.ok || !fixed.removed.length) return null
+  fs.writeFileSync(abs, fixed.css, 'utf-8')
+  return { file: path.relative(cwd, abs).replace(/\\/g, '/'), removed: fixed.removed }
+}
+
+/** Undoes damage an earlier build fix left behind: a source file now under half
+ *  its committed size is restored from the last commit before building again. */
+export async function restoreGuttedFiles(cwd: string): Promise<string[]> {
+  try {
+    const git = simpleGit(cwd)
+    if (!(await git.checkIsRepo())) return []
+    const changed = (await git.raw(['diff', '--name-only', '--relative', 'HEAD'])).split('\n').map((s) => s.trim())
+      .filter((f) => /^src\/.+\.(css|jsx?|tsx?)$/.test(f))
+    const restored: string[] = []
+    for (const f of changed) {
+      const committed = await git.show([`HEAD:./${f}`]).catch(() => '')
+      const abs = path.join(cwd, f)
+      const now = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf-8') : ''
+      if (committed.length > 1500 && now.length < committed.length * 0.5) {
+        fs.writeFileSync(abs, committed, 'utf-8')
+        restored.push(f)
+      }
+    }
+    return restored
+  } catch {
+    return []
+  }
 }
 
 function extractErrorFilePaths(errorText: string, buildCwd: string): string[] {
@@ -1387,14 +1456,15 @@ async function blitzDeploy(job: Job) {
             onProgress: async (msg) => { await updateTask(task, {}, msg) },
             maxAttempts: 3,
             onBuildError: async (jobLog, fixCwd) => {
+              // A CSS syntax error is fixed by rule, never by rewriting the stylesheet
+              const css = repairCssFromBuildError(jobLog, fixCwd)
+              if (css) {
+                await updateTask(task, {}, `🧹 Removed ${css.removed.length} unreadable line(s) from ${css.file} — ${css.removed.slice(0, 3).join('; ')} — retrying build on GitHub Actions…`)
+                return true
+              }
               // Use AI to fix source files from the build error log
               const errorFilePaths = extractErrorFilePaths(jobLog, fixCwd)
-              const fileContext = errorFilePaths.map(p => {
-                try {
-                  const content = fs.readFileSync(p, 'utf-8').slice(0, 4000)
-                  return `<file path="${path.relative(fixCwd, p)}">\n${content}\n</file>`
-                } catch { return '' }
-              }).filter(Boolean).join('\n\n')
+              const fileContext = buildFixContext(errorFilePaths, fixCwd)
 
               const fixProvider = createProvider(resolveProvider(aiProvider))
               try {
@@ -1412,7 +1482,7 @@ INSTRUCTIONS:
 - Return COMPLETE corrected file content for every file you change or create.
 - Format: <file path="src/components/ui.jsx">...complete content...</file>` }])
 
-                const applied = applyBuildFixes(parseAIChanges(fixResult.content), fixCwd)
+                const applied = applyBuildFixes(parseAIChanges(fixResult.content), fixCwd, errorFilePaths)
                 await updateTask(task, {}, `🔧 AI applied ${applied} fix(es) — retrying build on GitHub Actions…`)
                 return applied > 0
               } catch {
@@ -1438,6 +1508,10 @@ INSTRUCTIONS:
             ? `"${process.execPath}" "${viteEntry}" build --minify=false`
             : 'npm run build'
 
+          // A file an earlier fix gutted comes back from the last commit
+          const restored = await restoreGuttedFiles(buildCwd)
+          if (restored.length) await updateTask(task, {}, `♻️ Restored ${restored.join(', ')} — an earlier automatic fix had cut it down`)
+
           for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
             try {
               await execAsync(buildCmd, {
@@ -1457,6 +1531,14 @@ INSTRUCTIONS:
                 await updateTask(task, { progress: 40 + attempt * 8 }, `⚠️ Vite ran out of memory — retrying with a ${viteHeapMb} MB heap…`)
                 continue
               }
+              // A CSS syntax error is fixed by rule: the unreadable lines go, the
+              // stylesheet stays (the AI once replaced 170 KB of CSS with 58 characters)
+              const css = repairCssFromBuildError(lastBuildError, buildCwd)
+              if (css) {
+                await updateTask(task, { progress: 40 + attempt * 8 },
+                  `🧹 Build failed on unreadable CSS — removed ${css.removed.length} line(s) from ${css.file}: ${css.removed.slice(0, 3).join('; ')} — retrying…`)
+                continue
+              }
               const errorFilePaths = extractErrorFilePaths(lastBuildError, buildCwd)
               // Only a real code error (one that names a source file) goes to the AI —
               // given a tooling error it "fixes" by rewriting the project (it once
@@ -1469,12 +1551,7 @@ INSTRUCTIONS:
 
               await updateTask(task, { progress: 40 + attempt * 8 },
                 `⚠️ Build failed (attempt ${attempt}/${MAX_FIX_ATTEMPTS}) — asking AI to fix…\n\`\`\`\n${lastBuildError.slice(0, 600)}\n\`\`\``)
-              const fileContext = errorFilePaths.map(p => {
-                try {
-                  const content = fs.readFileSync(p, 'utf-8').slice(0, 4000)
-                  return `<file path="${path.relative(buildCwd, p)}">\n${content}\n</file>`
-                } catch { return '' }
-              }).filter(Boolean).join('\n\n')
+              const fileContext = buildFixContext(errorFilePaths, buildCwd)
 
               const fixProvider = createProvider(resolveProvider(aiProvider))
               const fixPrompt = `You are fixing a JavaScript/React build error. Return ONLY the corrected files using <file path="relative/path"> tags. No explanations, no markdown fences around the file tags.
@@ -1495,7 +1572,7 @@ INSTRUCTIONS:
 
               try {
                 const fixResult = await fixProvider.chat([{ role: 'user', content: fixPrompt }])
-                const applied = applyBuildFixes(parseAIChanges(fixResult.content), buildCwd)
+                const applied = applyBuildFixes(parseAIChanges(fixResult.content), buildCwd, errorFilePaths)
                 await updateTask(task, { progress: 40 + attempt * 8 + 4 },
                   `🔧 AI applied ${applied} fix(es) — retrying build…`)
               } catch {
@@ -7941,6 +8018,14 @@ async function buildSite(job: Job) {
       const cssPath = stack === 'mern' ? 'client/src/index.css' : stack === 'supabase' ? 'src/index.css' : 'styles.css'
       const css = generated.find((f) => f.path === cssPath)
       if (css) css.content = finalizeBrandCss(css.content, brandKit, { fontImport: stack === 'mern' || stack === 'supabase' })
+      if (css && (stack === 'mern' || stack === 'supabase')) {
+        // Vite fails the whole build over one unreadable line — catch it now, not at deploy
+        const checked = repairCss(css.content)
+        if (checked.ok && checked.removed.length) {
+          css.content = checked.css
+          await updateTask(task, {}, `🧹 Removed ${checked.removed.length} unreadable line(s) from the stylesheet: ${checked.removed.slice(0, 3).join('; ')}`)
+        }
+      }
       if (stack !== 'mern' && stack !== 'supabase') {
         // Forms send their messages to the owner's Leads inbox (a static site has no server)
         const forms = siteFormsEndpoint(await siteToken(repo))
