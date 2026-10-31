@@ -174,7 +174,7 @@ export const HEROES: HeroDef[] = [
     render(c, x) {
       const stories = list(c.stories, 4).filter((s) => plain(s?.title))
       const leadStory = `<article${x.cls('kit-story-lead')}><figure${x.cls('kit-story-media')}>${x.img(x.photo(c.photo), c.title, '', true)}</figure>${plain(c.tag) ? `<span${x.cls('kit-badge')}>${x.text(c.tag)}</span>` : ''}${h1(c, x)}${lead(c, x, 'kit-intro-lead')}${x.link(c.primary, 'kit-story-link')}</article>`
-      const side = stories.length ? `<div${x.cls('kit-story-list')}><p${x.cls('kit-story-list-title')}>${x.text(c.eyebrow || t(x.lang, 'latest'))}</p>${stories.map((s) => `<article${x.cls('kit-story')}><figure>${x.img(x.photo(s.photo), s.title)}</figure><div>${plain(s.tag) ? `<span${x.cls('kit-story-tag')}>${x.text(s.tag)}</span>` : ''}<h3${x.cls('kit-story-title')}>${x.link({ label: s.title, href: s.href }, '')}</h3></div></article>`).join('')}</div>` : ''
+      const side = stories.length ? `<div${x.cls('kit-story-list')}><p${x.cls('kit-story-list-title')}>${x.text(c.eyebrow || t(x.lang, 'latest'))}</p>${stories.map((s) => `<article${x.cls('kit-story')}${x.localPage(s.href) ? ` data-kit-page="${x.localPage(s.href)}"` : ''}><figure>${x.img(x.photo(s.photo), s.title)}</figure><div>${plain(s.tag) ? `<span${x.cls('kit-story-tag')}>${x.text(s.tag)}</span>` : ''}<h3${x.cls('kit-story-title')}>${x.link({ label: s.title, href: s.href }, '')}</h3></div></article>`).join('')}</div>` : ''
       return intro('kit-intro-editorial', x, `${leadStory}${side}`)
     },
   },

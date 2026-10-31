@@ -32,6 +32,7 @@ function siteFormsJs(endpoint: string, lang: string): string {
     for (var i = 0; i < all.length; i++) { var el = all[i]; if (!SKIP.test(el.type || '') && el.name !== '_gotcha') out.push(el); } return out; }
   // A message form saves what the visitor wrote; a navigation form opens another page with it
   function isMessage(form){
+    if (form.hasAttribute('data-kit-post')) return false; // RSVP and quiz forms send themselves (sections/engines.ts)
     if (form.hasAttribute('data-kit-form')) return true;
     if (form.getAttribute('role') === 'search' || form.querySelector('input[type=search]')) return false;
     var action = (form.getAttribute('action') || '').trim();

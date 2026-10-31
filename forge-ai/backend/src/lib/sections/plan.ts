@@ -102,7 +102,18 @@ DATABASE CONTENT IS NOT A TAG. Rows from a table (products, jobs, rooms, posts, 
 <section className="kit-section kit-sec-cards kit-v-grid"><div className="container"><div className="kit-head"><span className="eyebrow">…</span><h2>…</h2><p>…</p></div><div className="kit-cards">{rows.map((r) => (<article className="kit-card" key={r.id}><div className="kit-card-media"><img src={…} alt={…} /><span className="kit-badge">…</span></div><div className="kit-card-body"><p className="kit-card-meta"><span>…</span><span>…</span></p><h3>…</h3><p>…</p><div className="kit-card-foot"><span className="kit-price">…</span><Link className="btn btn-secondary" to="…">…</Link></div></div></article>))}</div></div></section>
 (kit-v-grid, kit-v-list or kit-v-overlay on the section picks the card layout; leave out kit-card-media when rows have no photo.)
 <section className="kit-section kit-sec-contact"><div className="container"><div className="kit-contact"><div><span className="eyebrow">…</span><h2>…</h2><p>…</p></div><form className="kit-form" onSubmit={…}><div className="kit-form-row"><div className="kit-field"><label htmlFor="…">…</label><input id="…" … /></div><div className="kit-field">…</div></div><div className="kit-field"><label htmlFor="…">…</label><textarea id="…" … /></div><button type="submit" className="btn btn-primary">…</button></form></div></div></section>
-A page that a hero form or search links to reads its URL search params (useSearchParams) to pre-fill its own filters or form.` : ''
+A page that a hero form or search links to reads its URL search params (useSearchParams) to pre-fill its own filters or form.
+A TAG'S JSON IS FIXED TEXT, read once when the site is built: it can never hold a variable, a {…} expression or a field of a row. Anything that shows a row — a list from a table, or a page for one story or event — is JSX written by hand, with this markup:
+Stories: <div className="kit-posts">{rows.map(…<article className="kit-post" key={…}><div className="kit-post-media"><img … /></div><div className="kit-post-body"><span className="kit-post-cat">…</span><h3><Link to="…">…</Link></h3><p>…</p><p className="kit-post-meta"><span>…</span></p></div></article>)}</div>
+One story: <section className="kit-section kit-sec-article"><div className="container"><article className="kit-article"><div className="kit-article-top"><span className="kit-post-cat">…</span><h1>…</h1><p className="kit-article-lead">…</p></div><figure className="kit-article-cover"><img … /></figure><div className="kit-article-main"><div className="kit-prose"><p>…</p></div></div></article></div></section>
+Events: <div className="kit-events">{rows.map(…<article className="kit-event" key={…}><div className="kit-event-tile"><strong>day</strong><span>month</span></div><div className="kit-event-body"><span className="kit-post-cat">…</span><h3><Link to="…">…</Link></h3><p className="kit-event-when">date · time<span>venue</span></p><p>…</p></div><div className="kit-event-side"><span className="kit-event-price">…</span><Link className="btn btn-primary" to="…">…</Link></div></article>)}</div> — show upcoming rows only, soonest first.
+One event: <section className="kit-section kit-sec-event-detail kit-v-split"><div className="container"><div className="kit-eventd-top"><div><span className="eyebrow">…</span><h1>…</h1><p className="kit-article-lead">…</p><ul className="kit-contact-list kit-eventd-facts"><li><div><strong>Date</strong><span>…</span></div></li></ul><div className="kit-actions kit-eventd-actions">…</div></div><div className="kit-eventd-photo"><img … /></div></div></div></section>
+quiz and rsvp tags need no database and no wiring: their replies go to the owner's Leads inbox, so use those tags unless the app must save the replies itself. A blog-index, events-list or cards tag links only to routes this app really has.` : ''
+  // Every story and event promises a page, and the model has no calendar of its own
+  const engines = `
+
+TODAY is ${new Date().toISOString().slice(0, 10)}: event dates are after it, story dates on or before it.
+DETAIL PAGES: a page that opens with an article or event-detail section has no <forge-hero> and is not a nav link — people reach it from its list. Every story in a blog-index and every event with an "href" links to a page you really write${jsx ? ' (a route in this app)' : ` — one page per story, never a shared page like articles.html. The site has 5 stories at most: use the SAME stories, with the same titles, in the opener and in every list. ForgeAI writes their pages, so leave them out of EXTRA PAGES`}.`
   return `═══ SECTIONS — written by you as content, rendered by ForgeAI ═══
 You write each section's CONTENT as JSON inside a tag; ForgeAI renders the markup and its stylesheet styles it (layout, colours, spacing, phone layout). Write NO CSS for these sections, no markup inside a tag, and nothing else between a tag's lines.
 FORMAT:
@@ -132,5 +143,5 @@ ${recipe}
 OTHER PAGES: ${plan.pages} Build every page from the SECTION TYPES below (any listed variant; vary them). Every page ends with a cta section.
 
 SECTION TYPES — type (variants): content — use
-${library}${quran}${react}`
+${library}${engines}${quran}${react}`
 }

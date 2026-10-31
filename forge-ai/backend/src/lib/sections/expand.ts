@@ -7,7 +7,7 @@ import type { BrandKit } from '../brandKit'
 import { Backdrop, Content, Ctx, Flavour, Shape } from './markup'
 import { heroByLayout } from './heroes'
 import { ownsTone, sectionByType } from './registry'
-import { chooseVariant } from './plan'
+import { chooseVariant, seed } from './plan'
 import { quranFigure } from './blocks/quran'
 import { openQuran, type QuranText } from '../quran/pack'
 import { translationFor } from '../quran/editions'
@@ -74,6 +74,85 @@ export function parseLooseJson(raw: string): Content | null {
   return null
 }
 
+export interface ListedPage { page: string; title: string; text: string; photo: string; post: Content; rank: number }
+
+// Models send every story to "articles.html", name pages they never write and invent
+// new stories on every page, so a static site's stories are ForgeAI's job: one page
+// per title for the whole build, and once the set is chosen, lists show only those
+const storyPages = new WeakMap<BrandKit, Map<string, ListedPage>>()
+const sealedStories = new WeakSet<BrandKit>()
+const LIST_PAGE = /^(index|articles?|blog|stories|news|posts|journal|recipes|guides|events?|calendar|whats-?on|shows|programme|schedule|about|contact)\.html$/i
+const storyKey = (title: unknown) => String(title ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+
+/** rank 1: the lead story and the lists, which get their pages first; rank 2: the opener's side stories */
+function pageForStory(kit: BrandKit, item: Content, title: string, href: unknown, rank = 1): string {
+  const pages = storyPages.get(kit) ?? new Map<string, ListedPage>()
+  storyPages.set(kit, pages)
+  const key = storyKey(title)
+  const known = pages.get(key)
+  if (known) { known.rank = Math.min(known.rank, rank); return known.page }
+  const taken = (p: string) => [...pages.values()].some((v) => v.page === p)
+  const own = String(href ?? '').replace(/^\.?\/+/, '').split(/[?#]/)[0]
+  const asked = /\.html$/i.test(own) ? own : own && /^[\w-]+$/.test(own) ? `${own}.html` : ''
+  let page = asked && /^[\w-]+\.html$/.test(asked) && !LIST_PAGE.test(asked) && !taken(asked) ? asked : ''
+  if (!page) {
+    // Urdu and Arabic titles have no Latin letters to make a file name from
+    const words = key.replace(/[^a-z0-9 ]/g, '').trim().split(/\s+/).filter(Boolean).slice(0, 6).join('-')
+    page = `${words || `story-${seed(key).toString(36)}`}.html`
+    for (let n = 2; taken(page); n++) page = `${words || `story-${seed(key).toString(36)}`}-${n}.html`
+  }
+  const text = String(item.text ?? item.lead ?? '')
+  const post = { title, href: page, photo: item.photo, category: item.category ?? item.tag, date: item.date, readTime: item.readTime, author: item.author, text }
+  pages.set(key, { page, title, text, photo: String(item.photo ?? ''), post, rank })
+  return page
+}
+
+/** These stories are the site's whole set: from now on lists show only them */
+export function sealStoryPages(kit: BrandKit, keep: string[]): void {
+  const pages = storyPages.get(kit)
+  if (!pages) return
+  for (const [key, l] of pages) if (!keep.includes(l.page)) pages.delete(key)
+  sealedStories.add(kit)
+}
+
+/** Gives the stories (and events with their own page) in this tag their one true page */
+function assignStoryPages(data: Content, kind: 'section' | 'hero', type: string, kit: BrandKit, thisStory: string): void {
+  const isOutside = (h: unknown) => /^(https?:|mailto:|tel:|\/\/)/i.test(String(h ?? ''))
+  const sealed = sealedStories.has(kit)
+  const pages = storyPages.get(kit)
+  if (kind === 'hero') {
+    if (type !== 'editorial' || sealed) return
+    if (data.primary && typeof data.primary === 'object' && data.title && !isOutside(data.primary.href)) data.primary.href = pageForStory(kit, data, String(data.title), data.primary.href)
+    for (const s of Array.isArray(data.stories) ? data.stories : []) if (s?.title && !isOutside(s.href)) s.href = pageForStory(kit, s, String(s.title), s.href, 2)
+    return
+  }
+  if (type === 'blog-index') {
+    const posts: Content[] = (Array.isArray(data.posts) ? data.posts : Array.isArray(data.items) ? data.items : []).filter((p: Content) => p?.title)
+    if (!sealed) {
+      for (const p of posts) if (!isOutside(p.href ?? p.url)) p.href = pageForStory(kit, p, String(p.title), p.href ?? p.url)
+      return
+    }
+    // Real stories only, and never a list left short because the model made new ones up
+    const real = posts.filter((p) => pages?.has(storyKey(p.title)) && storyKey(p.title) !== thisStory)
+    for (const p of real) { p.href = pages!.get(storyKey(p.title))!.page; delete p.url }
+    const others = [...(pages?.entries() ?? [])].filter(([k]) => k !== thisStory && !real.some((p) => storyKey(p.title) === k)).map(([, l]) => ({ ...l.post }))
+    data.posts = thisStory ? [...real, ...others].slice(0, 3) : [...real, ...others]
+    delete data.items
+  } else if (type === 'events-list') {
+    for (const e of Array.isArray(data.events) ? data.events : Array.isArray(data.items) ? data.items : []) {
+      const title = e?.title ?? e?.name
+      if (!title || !e.href || isOutside(e.href)) continue
+      // An event with no page of its own keeps its listing and loses the link
+      if (sealed && !pages?.has(storyKey(title))) delete e.href
+      else e.href = pageForStory(kit, e, String(title), e.href)
+      // "Tickets" that lead back to the calendar go nowhere: its own page has them
+      const ticketPage = String(e.ticket?.href ?? '').replace(/^\.?\/+/, '').split(/[?#]/)[0]
+      const asPage = /\.html$/i.test(ticketPage) ? ticketPage : `${ticketPage}.html`
+      if (e.href && e.ticket && typeof e.ticket === 'object' && !isOutside(e.ticket.href) && LIST_PAGE.test(asPage)) e.ticket.href = e.href
+    }
+  }
+}
+
 /** The first characters of a body that could not be read, for the build log */
 const preview = (body: string) => JSON.stringify(body.trim().replace(/\s+/g, ' ').slice(0, 48))
 
@@ -102,6 +181,8 @@ export function expandSections(src: string, kit: BrandKit, flavour: Flavour): Ex
   let backdrop: Backdrop = 'dark'
   let prevShape: Shape | '' = ''
   let index = 0
+  /** The story this page is about: its "related stories" list leaves it out */
+  let thisStory = ''
   const sections = src.replace(TAG, (whole, kind: string, attrs: string, body: string) => {
     const data = parseLooseJson(body)
     if (kind.toLowerCase() === 'hero') {
@@ -111,6 +192,15 @@ export function expandSections(src: string, kit: BrandKit, flavour: Flavour): Ex
       if (!data) { failed.push(`hero ${layout}: unreadable JSON ${preview(body)}`); return '' }
       // The landing opener's photo is the kit's hero photo unless the model named one
       if (!/^page/.test(layout) && !/^https?:/i.test(String(data.photo ?? ''))) data.photo = kit.heroPhoto
+      if (flavour === 'html' && layout === 'editorial') {
+        // The front page's side column shows the page's real stories, not ones invented for the opener
+        const list = [...src.matchAll(TAG)].find((m) => m[1].toLowerCase() === 'section' && attr(m[2], 'type') === 'blog-index')
+        const listed = list ? parseLooseJson(list[3]) : null
+        const posts: Content[] = Array.isArray(listed?.posts) ? listed!.posts : Array.isArray(listed?.items) ? listed!.items : []
+        const side = posts.filter((p) => p?.title && storyKey(p.title) !== storyKey(data.title)).slice(0, 3)
+        if (side.length >= 2) data.stories = side.map((p) => ({ tag: p.category ?? p.tag, title: p.title, href: p.href ?? p.url, photo: p.photo, text: p.text }))
+      }
+      if (flavour === 'html') assignStoryPages(data, 'hero', layout, kit, '')
       rendered++
       backdrop = hero.dark ? 'dark' : layout === 'product' || layout === 'page-plain' ? 'alt' : 'bg'
       prevShape = hero.dark ? 'band' : 'split'
@@ -120,6 +210,8 @@ export function expandSections(src: string, kit: BrandKit, flavour: Flavour): Ex
     const def = sectionByType(type)
     if (!def) { failed.push(`${type || 'section'}: unknown type`); return '' }
     if (!data) { failed.push(`${type}: unreadable JSON ${preview(body)}`); return '' }
+    if (type === 'article') thisStory = storyKey(data.title)
+    if (flavour === 'html') assignStoryPages(data, 'section', type, kit, thisStory)
     const asked = attr(attrs, 'variant')
     const variant = asked in def.variants ? asked : chooseVariant(def, undefined, prevShape, `${kit.name}|${type}|${index}`)
     index++
@@ -152,6 +244,44 @@ export function expandSections(src: string, kit: BrandKit, flavour: Flavour): Ex
     rendered,
     failed,
   }
+}
+
+/** The stories and events a static site's pages promise a page of their own, so those
+ *  pages get written, and written to match. */
+export const listedPages = (kit: BrandKit): ListedPage[] => [...(storyPages.get(kit)?.values() ?? [])].sort((a, b) => a.rank - b.rank)
+
+/** Pages that open from a list rather than the menu */
+export const isDetailPage = (html: string) => /\bdata-kit="(?:article|event-detail)"/.test(html)
+
+/** A page that never got written: its story leaves the list, its event keeps its
+ *  listing but loses the link. Nobody should click through to a missing page. */
+export function dropDeadListings(html: string, pages: string[]): string {
+  const alive = (p: string) => pages.some((x) => x.toLowerCase() === p.toLowerCase())
+  return html
+    .replace(/<article\b[^>]*\bdata-kit-page="([^"]+)"[^>]*>[\s\S]*?<\/article>/g, (card, p: string) => (alive(p) ? card : ''))
+    .replace(/<article\b[^>]*\bdata-kit-event-page="([^"]+)"[^>]*>[\s\S]*?<\/article>/g, (card, p: string) => (alive(p) ? card : card.replace(/<h3><a\b[^>]*>([\s\S]*?)<\/a><\/h3>/, '<h3>$1</h3>')))
+    // Nothing left to list: the heading goes too
+    .replace(/<div class="kit-story-list"><p[^>]*>[^<]*<\/p><\/div>/g, '')
+    .replace(/<section\b[^>]*\bkit-sec-blog-index\b[^>]*>(?:(?!<\/section>)[\s\S])*?<div class="kit-posts"><\/div>[\s\S]*?<\/section>/g, '')
+}
+
+/** A button or link to a page that was never written ("rsvp.html") goes somewhere real:
+ *  the RSVP form when this page has one, else the contact page, else home. */
+export function repairDeadLinks(html: string, pages: string[]): { html: string; repaired: string[] } {
+  const repaired: string[] = []
+  const alive = (p: string) => pages.some((x) => x.toLowerCase() === p.toLowerCase())
+  const form = /\bid="kit-rsvp"/.test(html)
+  const out = html.replace(/(<a\b[^>]*\bhref=")\.?\/?([\w-]+\.html)(?:[?#][^"]*)?(")/g, (link, before: string, page: string, after: string) => {
+    if (alive(page)) return link
+    repaired.push(page)
+    return `${before}${form ? '#kit-rsvp' : alive('contact.html') ? 'contact.html' : 'index.html'}${after}`
+  })
+  return { html: out, repaired }
+}
+
+/** Article and event pages open from their lists, whatever the model put in the top menu */
+export function dropDetailNavLinks(html: string, detailPages: string[]): string {
+  return html.replace(/<nav\b[\s\S]*?<\/nav>/i, (nav) => nav.replace(/\s*<a\b[^>]*\bhref="\.?\/?([\w-]+\.html)"[^>]*>[\s\S]*?<\/a>/g, (link, p: string) => (detailPages.includes(p) ? '' : link)))
 }
 
 /** The scaffold component behind hero search and booking forms in React apps */

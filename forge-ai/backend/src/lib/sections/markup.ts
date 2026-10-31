@@ -119,6 +119,23 @@ export class Ctx {
     return `<a${this.cls(cls)} href="${esc(href)}"${out}>${esc(label)}</a>`
   }
 
+  /** A link around ready-made markup — a router <Link> for this site's own React routes */
+  anchor(to: unknown, cls: string, inner: string): string {
+    const href = this.href(to)
+    if (this.jsx && href.startsWith('/') && !href.startsWith('//')) {
+      this.needsLink = true
+      return `<Link${this.cls(cls)} to="${esc(href)}">${inner}</Link>`
+    }
+    return `<a${this.cls(cls)} href="${esc(href)}">${inner}</a>`
+  }
+
+  /** The static page a link leads to ("about.html"), for checking it exists; '' for anything else */
+  localPage(to: unknown): string {
+    if (this.jsx || !plain(to)) return ''
+    const href = this.href(to).split(/[?#]/)[0]
+    return /^[\w-]+\.html$/i.test(href) ? href : ''
+  }
+
   icon(name: unknown, cls = 'kit-icon'): string {
     return `<span${this.cls(cls)}>${iconSvg(name, this.flavour)}</span>`
   }
@@ -162,7 +179,7 @@ export class Ctx {
     const type = options.length ? 'select' : (/^(email|tel|date|number|time|textarea)$/.exec(plain(o.type).toLowerCase())?.[0] ?? 'text')
     const id = `kf${++formSeq}-${name}`
     const ph = plain(o.placeholder)
-    const phAttr = ph ? ` placeholder="${esc(ph)}"` : ''
+    const phAttr = `${ph ? ` placeholder="${esc(ph)}"` : ''}${o.required === true ? ' required' : ''}`
     const control = type === 'select'
       ? `<select id="${id}" name="${name}">${options.map((op) => `<option>${esc(op)}</option>`).join('')}</select>`
       : type === 'textarea'

@@ -47,5 +47,6 @@ export const FOUNDATION_CSS = `/* ── Sections: foundation ── */
 .kit-credits a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 /* The floating WhatsApp button must not sit on top of the credit at the end of the page */
 body:has(.kit-wa) .kit-credits { padding-bottom: 92px; }
+[data-kit-engine][hidden], [data-kit-engine] [hidden], [data-kit-thanks][hidden] { display: none !important; }
 .kit-thanks { margin: 0; padding: 1rem 1.2rem; border-radius: var(--radius); background: color-mix(in srgb, var(--primary) 12%, var(--bg)); color: var(--text); font-weight: 600; }
 `

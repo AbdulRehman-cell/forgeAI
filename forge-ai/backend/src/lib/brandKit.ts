@@ -657,6 +657,16 @@ ${TOP_HEADER} > :is(nav, div, .container):has(.nav-brand, .brand-mark) { flex: 1
   /* The header owns the background; a frosted panel on the inner nav reads as a stray box */
   ${TOP_HEADER} :is(nav, .nav-links, .nav-menu) { background: transparent !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; box-shadow: none !important; border: 0 !important; position: static !important; }
 }
+/* Laptops and tablets: long menu labels ("Community Workshops") must not push the button off the edge */
+@media (min-width: 821px) and (max-width: 1240px) {
+  ${TOP_HEADER} .brand-tag { display: none !important; }
+  ${TOP_HEADER} :is(nav, .nav-links, .nav-menu):not(:has(.nav-brand, .brand-mark)) { gap: .85rem !important; }
+  ${TOP_HEADER} :is(nav, .nav-links, .nav-menu) a:not(.nav-cta):not(.nav-brand):not(.brand-mark) { font-size: .88rem !important; white-space: nowrap !important; }
+  :is(header, .site-header) .nav-cta:not(#_) { padding: .55rem .9rem !important; font-size: .86rem !important; white-space: nowrap !important; }
+}
+@media (min-width: 821px) and (max-width: 1040px) {
+  ${TOP_HEADER} .nav-cta:not(#_) { display: none !important; }
+}
 /* :not(#_) only lifts specificity above the packs' !important "nav a" colour rules */
 :is(header, .site-header) .nav-cta:not(#_) { background: var(--primary) !important; color: var(--on-primary) !important; padding: .7rem 1.25rem !important; font-size: .92rem !important; border: 0 !important; }
 :is(header, .site-header) .nav-cta:not(#_):hover { background: var(--primary-hover) !important; color: var(--on-primary) !important; }

@@ -37,7 +37,8 @@ import {
 } from '../../lib/brandKit'
 import { applyKitExtras, PLAYBOOKS } from '../../lib/blocks'
 import { SITE_TYPES } from '../../lib/sections/siteTypes'
-import { expandSections, KIT_FORM_JSX } from '../../lib/sections/expand'
+import { dropDeadListings, dropDetailNavLinks, expandSections, isDetailPage, KIT_FORM_JSX, listedPages, repairDeadLinks, sealStoryPages } from '../../lib/sections/expand'
+import { applyEngineExtras, usesEngines } from '../../lib/sections/engines'
 import { applySiteForms, siteFormsEndpoint } from '../../lib/siteForms'
 import { publicApiBase } from '../../lib/publicUrl'
 import { repairCss, cssErrorFile } from '../../lib/cssRepair'
@@ -3834,7 +3835,7 @@ export async function fetchImagePool(subjects: string[]): Promise<string[]> {
 }
 
 // ─── Static site generation (HTML/CSS/JS) ──────────────────
-async function generateStaticSite(
+export async function generateStaticSite(
   provider: AIProvider,
   prompt: string,
   siteName: string,
@@ -3981,6 +3982,19 @@ SITE SUMMARY: one sentence describing the site`,
     if (extraPages.length >= 3) break
     if (!extraPages.includes(d)) extraPages.push(d)
   }
+  // Stories and events on the home page each promise a page of their own
+  const maxPages = Number(process.env.BUILDER_MAX_PAGES ?? 8)
+  const promised = kit ? listedPages(kit) : []
+  if (promised.length) {
+    // Room for the menu pages first; at most 5 stories, and lists drop whatever has no page
+    const menu = extraPages.filter((p) => !promised.some((l) => l.page === p)).slice(0, 4)
+    extraPages.splice(0, extraPages.length, ...menu, ...promised.slice(0, 5).map((l) => l.page))
+    sealStoryPages(kit!, extraPages)
+  }
+  const listed = promised.filter((l) => extraPages.includes(l.page))
+  const siteMap = listed.length
+    ? `\n\nPAGES OF THE SITE: ${extraPages.join(', ')}.\nSTORIES AND EVENTS ALREADY LISTED ON THE HOME PAGE — keep each one's title, photo and link the same everywhere:\n${listed.map((l) => `- ${l.page}: ${l.title}${l.text ? ` — ${l.text}` : ''}${l.photo ? ` (photo ${l.photo})` : ''}`).join('\n')}`
+    : ''
 
   // 2. extra pages FIRST — styles.css must see EVERY page's markup before
   // it is written, or page-specific elements render browser-default
@@ -3988,8 +4002,11 @@ SITE SUMMARY: one sentence describing the site`,
   for (const page of extraPages) {
     await updateTask(task, { progress: 20 }, `📄 Generating ${page}…`)
     await sleep(1500)
+    const detail = listed.find((l) => l.page === page)
     const ok = await genFile(
-      `Here is the site's index.html for reference (reuse its exact header, nav, footer, and linked styles.css/script.js):\n\`\`\`html\n${indexHtml.slice(0, 6000)}\n\`\`\`\n\nGenerate the COMPLETE ${page} page for this site (original request: ${prompt.slice(0, 300)}). Full, polished content — no placeholders.${kit ? ' Start the page with the BRAND KIT\'s page <forge-hero> tag, build the rest from <forge-section> tags as the OTHER PAGES line says, and end with a cta section.' : ''}`,
+      `Here is the site's index.html for reference (reuse its exact header, nav, footer, and linked styles.css/script.js):\n\`\`\`html\n${indexHtml.slice(0, 6000)}\n\`\`\`${siteMap}\n\nGenerate the COMPLETE ${page} page for this site (original request: ${prompt.slice(0, 300)}). Full, polished content — no placeholders.${kit ? (detail
+        ? ` This page is the full page for "${detail.title}": open it straight with its article or event-detail <forge-section> tag (no <forge-hero>), follow the OTHER PAGES line for what comes after it, and end with a cta section.`
+        : ' Start the page with the BRAND KIT\'s page <forge-hero> tag, build the rest from <forge-section> tags as the OTHER PAGES line says, and end with a cta section.') : ''}`,
       page,
     )
     if (ok) {
@@ -4002,8 +4019,18 @@ SITE SUMMARY: one sentence describing the site`,
   // Guarantee responsiveness (viewport meta) and that EVERY GENERATED page is
   // reachable from the nav. Only include pages that were actually generated —
   // failed pages are excluded so they never appear as broken nav links.
+  // Article and event pages are reached from their lists, not the menu.
   ensureViewport(generated)
-  ensureNavLinks(generated, ['index.html', ...generatedPages])
+  const realPages = ['index.html', ...generatedPages]
+  for (const f of generated.filter((g) => g.path.endsWith('.html'))) {
+    const links = repairDeadLinks(dropDeadListings(f.content, realPages), realPages)
+    f.content = links.html
+    if (links.repaired.length) await updateTask(task, {}, `🔗 ${f.path}: pointed ${links.repaired.length} link(s) to pages that were never written somewhere real (${[...new Set(links.repaired)].slice(0, 3).join(', ')})`)
+  }
+  const menuPages = generatedPages.filter((p) => !isDetailPage(generated.find((g) => g.path === p)?.content ?? ''))
+  const detailPages = generatedPages.filter((p) => !menuPages.includes(p))
+  for (const f of generated) if (f.path.endsWith('.html')) f.content = dropDetailNavLinks(f.content, detailPages)
+  ensureNavLinks(generated, ['index.html', ...menuPages])
 
   // All pages' markup — the context for styles.css and script.js. This is
   // a long input: the hybrid provider routes it to Gemini automatically.
@@ -4737,11 +4764,12 @@ async function renderJsxSections(jsx: string, file: string, kit: BrandKit | unde
   if (!kit) return { content: jsx }
   const r = expandSections(jsx, kit, 'jsx')
   const name = file.split('/').pop()
-  if (canRetry && r.failed.length && r.failed.length >= r.rendered) {
+  // A lost section can be the whole point of the page, so one unreadable tag is worth asking again
+  if (canRetry && r.failed.some((f) => /unreadable JSON/.test(f))) {
     await log(`🔁 ${name}: ${r.failed.length} section(s) came back unreadable — asking again for plain JSON (${r.failed[0]})`)
     return {
       content: r.content,
-      retry: `\n\nYOUR LAST REPLY'S SECTION TAGS COULD NOT BE READ (${r.failed.slice(0, 2).join('; ')}). Between every <forge-section> / <forge-hero> opening and closing tag write ONLY a plain JSON object exactly as in FORMAT: double-quoted keys and strings, no {'{'} escapes, no {…} or JSON.stringify wrapper, no comments, no trailing commas. ForgeAI replaces the tags before the JSX is compiled, so the JSON does not need to be valid JSX.`,
+      retry: `\n\nYOUR LAST REPLY'S SECTION TAGS COULD NOT BE READ (${r.failed.slice(0, 2).join('; ')}). Between every <forge-section> / <forge-hero> opening and closing tag write ONLY a plain JSON object exactly as in FORMAT: double-quoted keys and strings, no {'{'} escapes, no {…} or JSON.stringify wrapper, no comments, no trailing commas. ForgeAI replaces the tags before the JSX is compiled, so the JSON does not need to be valid JSX. It is fixed text: no variables or row fields. Whatever shows a row from a table is JSX written by hand with the markup in the REACT PAGES notes, not a tag.`,
     }
   }
   if (r.failed.length) await log(`⚠️ ${name}: left out ${r.failed.length} section(s) the model wrote badly — ${r.failed.join('; ')}`)
@@ -8031,7 +8059,12 @@ async function buildSite(job: Job) {
       const quranAudio = pageCode.some((g) => usesQuranAudio(g.content))
       // A site the designer did not see as a Quran site still gets the Quran typeface and styles
       if (quranSite && !brandKit.quran) enableQuran(brandKit)
-      const extras = (html: string) => (quranSite ? applyQuranExtras(html, brandKit.lang, quranAudio) : html)
+      // Blog filters, quizzes, event calendars and RSVP replies (on every stack: replies go to the Leads inbox)
+      const engineUrl = pageCode.some((g) => usesEngines(g.content)) ? siteFormsEndpoint(await siteToken(repo)) : ''
+      const extras = (html: string) => {
+        const out = quranSite ? applyQuranExtras(html, brandKit.lang, quranAudio) : html
+        return engineUrl ? applyEngineExtras(out, engineUrl, brandKit.lang) : out
+      }
       const cssPath = stack === 'mern' ? 'client/src/index.css' : stack === 'supabase' ? 'src/index.css' : 'styles.css'
       const css = generated.find((f) => f.path === cssPath)
       if (css) css.content = finalizeBrandCss(css.content, brandKit, { fontImport: stack === 'mern' || stack === 'supabase' })

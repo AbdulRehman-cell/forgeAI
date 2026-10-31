@@ -23,11 +23,15 @@ import { comparison } from './blocks/comparison'
 import { contact } from './blocks/contact'
 import { newsletter } from './blocks/newsletter'
 import { cta } from './blocks/cta'
+import { blogIndex, article } from './blocks/blog'
+import { quiz } from './blocks/quiz'
+import { EVENT_SECTIONS } from './blocks/events'
 import { QURAN_SECTIONS } from './blocks/quran'
 
 export const SECTIONS: SectionDef[] = [
   trust, logos, features, steps, split, cards, stats, gallery, quotes, faq,
   duo, pricing, menu, team, timeline, comparison, contact, newsletter, cta,
+  blogIndex, article, quiz, ...EVENT_SECTIONS,
   ...QURAN_SECTIONS,
 ]
 
@@ -43,6 +47,7 @@ const MARKERS = [
     ...SECTIONS.flatMap((s) => [`kit-sec-${s.type}`, ...Object.keys(s.variants).map((v) => `kit-v-${v}`)]),
     ...HEROES.map((h) => `kit-hero-${h.layout}`),
     'kit-intro-split', 'kit-intro-collage', 'kit-intro-copy', 'kit-story-lead', 'kit-person', 'kit-feature-body', 'kit-stat', 'kit-menu-group', 'hero-stat',
+    'kit-article', 'kit-post-list', 'kit-events-wrap', 'kit-rsvp-form', 'kit-quiz-q',
   ]),
 ].map((c) => `.${c}`)
 
