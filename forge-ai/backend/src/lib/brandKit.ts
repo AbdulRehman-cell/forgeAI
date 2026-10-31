@@ -9,6 +9,7 @@
 import { BLOCKS_CSS, applyKitExtras, findWhatsApp, pickPlaybook, type Playbook } from './blocks'
 import { planSite, sectionsBrief, seed, type SitePlan } from './sections/plan'
 import { pickSiteType, type SiteType } from './sections/siteTypes'
+import { heroByLayout } from './sections/heroes'
 import { QURAN_CSS } from './sections/registry'
 
 export type BrandMode = 'light' | 'dark'
@@ -350,6 +351,42 @@ const COLORWAYS: Record<string, string[]> = {
 }
 export const ALL_COLORWAYS = [...new Set(Object.values(COLORWAYS).flat())]
 
+export interface ColorOption extends ColorScheme { label: string; brandHex: string; bg: string; ink: string }
+
+const hueName = (hex: string): string => {
+  const [L, C, H] = rgbToOklch(parseHex(hex)!)
+  if (C < 0.04) return L < 0.35 ? 'Ink' : 'Slate'
+  if (H < 20 || H >= 345) return 'Rose'
+  if (H < 45) return 'Crimson'
+  if (H < 70) return 'Copper'
+  if (H < 100) return 'Amber'
+  if (H < 140) return 'Olive'
+  if (H < 175) return 'Green'
+  if (H < 215) return 'Teal'
+  if (H < 250) return 'Ocean'
+  if (H < 285) return 'Blue'
+  if (H < 315) return 'Violet'
+  return 'Plum'
+}
+
+/** Three colour schemes for the client to choose from, spread across the industry's list */
+export function colorOptions(industry: string, key: string): ColorOption[] {
+  const list = COLORWAYS[industry] ?? COLORWAYS.general
+  const start = seed(`${key}|color`) % list.length
+  const looks: ColorScheme[] = [
+    { page: 'white', bands: 'neutral' }, { page: 'paper', bands: 'deep' }, { page: 'tint', bands: 'deep' },
+  ]
+  return [0, 1, 2].map((i) => {
+    const brandHex = list[(start + i * Math.max(1, Math.floor(list.length / 3))) % list.length]
+    const look = looks[(seed(`${key}|look`) + i) % 3]
+    const p = buildPalette(brandHex, 'light', look)
+    return { ...look, label: hueName(brandHex), brandHex, bg: p.bg, ink: p.ink }
+  })
+}
+
+/** What the client chose in the home page conversation; wins over every other choice */
+export interface ClientDesign { name?: string; siteType?: string; hero?: string; brandHex?: string; page?: ColorScheme['page']; bands?: ColorScheme['bands'] }
+
 /** The request itself names a colour ("in navy and gold", "#0a3d62") */
 const ASKS_FOR_COLOR = /#[0-9a-f]{3,6}\b|\b(?:colou?rs?|red|blue|green|teal|turquoise|orange|purple|violet|pink|yellow|black|white|gold|golden|silver|navy|maroon|burgundy|beige|brown|terracotta|emerald|crimson|indigo)\b/i
 
@@ -441,6 +478,17 @@ function fontsUrlFor(p: FontPairing, quran = false): string {
 
 const QURAN_TOPIC = /\b(?:qur'?an|quranic|koran|tafs[ie]e?r|tajw[ie]e?d|hifz|hifdh|hafiz|surahs?|ayahs?|ayat|mosques?|masjids?|madrass?as?|islamic (?:centre|center|school|studies|learning|education|academy|institute|society))\b|قرآن|مسجد|تفسیر|تفسير|سورة|سورہ|مدرسہ|مدرسة/i
 
+/** The opener the client picked; inner pages follow its light or dark look */
+function withHero(plan: SitePlan, hero?: string): SitePlan {
+  const def = hero ? heroByLayout(hero) : undefined
+  return def ? { ...plan, hero: def.layout, pageHero: def.dark ? 'page' : plan.pageHero } : plan
+}
+
+/** Swaps the monogram for the client's logo, in pages and React components */
+export function applyClientLogo(code: string, src: string): string {
+  return code.replace(/<span (class|className)="brand-mark"([^>]*)>[^<]*<\/span>/g, (_m, attr: string, rest: string) => `<span ${attr}="brand-mark has-logo"${rest}><img src="${src}" alt=""${attr === 'className' ? ' />' : '>'}</span>`)
+}
+
 /** Turns on the Quran sections for a site that turned out to quote the Quran after all */
 export function enableQuran(kit: BrandKit): void {
   kit.quran = true
@@ -472,6 +520,7 @@ export function buildBrandKit(opts: {
   override?: { brandHex: string; mode: BrandMode }
   /** Rebuilding a real brand's site: the brief's colour is theirs and stays */
   realBrand?: boolean
+  design?: ClientDesign
 }): BrandKit {
   const { brief, prompt } = opts
   const text = `${prompt}\n${field(brief, 'DESCRIPTOR')}\n${field(brief, 'REFERENCE')}`
@@ -487,7 +536,8 @@ export function buildBrandKit(opts: {
     ?? FONT_PAIRINGS.find((p) => p.id === DEFAULT_PAIRING)!
   const briefColor = /#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/i.exec(field(brief, 'BRAND COLOU?R'))?.[0]
   const mode: BrandMode = opts.override?.mode ?? (/^dark/i.test(field(brief, 'MODE')) ? 'dark' : 'light')
-  const name = field(brief, 'BRAND NAME').replace(/[<>{}`"]/g, '').slice(0, 40) || opts.fallbackName
+  const design = opts.design ?? {}
+  const name = (design.name || field(brief, 'BRAND NAME')).replace(/[<>{}`"]/g, '').slice(0, 40) || opts.fallbackName
   const descriptor = field(brief, 'DESCRIPTOR').replace(/[<>{}`"]/g, '').split(/\s+/).slice(0, 4).join(' ').slice(0, 32)
   const playbook = pickPlaybook(`${descriptor}\n${prompt}`, field(brief, 'REFERENCE'), field(brief, 'INDUSTRY'))
   // The owner's choice, a colour the request names or a real brand's own colour wins;
@@ -495,15 +545,15 @@ export function buildBrandKit(opts: {
   const seedName = name.toLowerCase().trim() || 'site'
   const colorway = COLORWAYS[playbook.id] ?? COLORWAYS.general
   const modelColor = briefColor && parseHex(briefColor) ? briefColor.toLowerCase() : ''
-  const brandHex = opts.override?.brandHex
+  const brandHex = design.brandHex ?? opts.override?.brandHex
     ?? (modelColor && (opts.realBrand || ASKS_FOR_COLOR.test(prompt)) ? modelColor : colorway[seed(`${seedName}|color`) % colorway.length])
   // A colour someone chose stays on a plain page, so it reads exactly as they meant it
   const chosen = !!opts.override || !!opts.realBrand
-  const scheme: ColorScheme = chosen ? { page: 'white', bands: 'neutral' } : {
+  const scheme: ColorScheme = design.brandHex ? { page: design.page ?? 'white', bands: design.bands ?? 'neutral' } : chosen ? { page: 'white', bands: 'neutral' } : {
     page: (['white', 'paper', 'tint'] as const)[seed(`${seedName}|page`) % 3],
     bands: (['neutral', 'deep'] as const)[seed(`${seedName}|bands`) % 2],
   }
-  const siteType = pickSiteType(field(brief, 'SITE TYPE'), playbook.id)
+  const siteType = pickSiteType(design.siteType || field(brief, 'SITE TYPE'), playbook.id)
   const askedAction = field(brief, 'HERO ACTION')
   const heroPhoto = opts.heroPhoto || `https://picsum.photos/seed/${encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'))}-hero/1920/1080`
   const quran = QURAN_TOPIC.test(text)
@@ -515,7 +565,7 @@ export function buildBrandKit(opts: {
     photos: opts.photos?.length ? opts.photos : [heroPhoto],
     playbook,
     siteType,
-    plan: planSite(name, playbook, siteType),
+    plan: withHero(planSite(name, playbook, siteType), design.hero),
     heroAction: askedAction && !/^none\b/i.test(askedAction) ? askedAction : playbook.heroAction,
     whatsapp: findWhatsApp(prompt),
     lang,
@@ -713,6 +763,8 @@ ${TOP_HEADER} > :is(nav, div, .container):has(.nav-brand, .brand-mark) { flex: 1
   ${TOP_HEADER} .nav-cta:not(#_) { display: none !important; }
 }
 /* :not(#_) only lifts specificity above the packs' !important "nav a" colour rules */
+.brand-mark.has-logo:not(#_) { background: transparent !important; box-shadow: none !important; border: 0 !important; padding: 0 !important; overflow: hidden; }
+.brand-mark.has-logo img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 0; }
 :is(header, .site-header) .nav-cta:not(#_) { background: var(--primary) !important; color: var(--on-primary) !important; padding: .7rem 1.25rem !important; font-size: .92rem !important; border: 0 !important; }
 :is(header, .site-header) .nav-cta:not(#_):hover { background: var(--primary-hover) !important; color: var(--on-primary) !important; }
 /* ForgeAI injects the one working menu button (.nav-toggle); hide model-made extras.

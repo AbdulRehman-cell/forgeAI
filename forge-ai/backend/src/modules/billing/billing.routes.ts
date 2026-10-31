@@ -122,6 +122,8 @@ router.post('/upgrade', (req, res, next) => {
 // Called by the frontend when the user has exhausted their monthly free builds.
 // Returns a Stripe Checkout URL; the user pays and is redirected back to /builder.
 router.post('/create-build-checkout', async (req, res) => {
+  // Back to the conversation that asked, or the AI Builder page
+  const back = /^\/dashboard\/c\/[a-f0-9]{24}$/.test(String(req.body?.returnTo ?? '')) ? String(req.body.returnTo) : '/builder'
   const authed = req.user as any
   const user = await User.findById(authed._id)
   if (!user) return res.status(404).json({ message: 'Not found' })
@@ -152,8 +154,8 @@ router.post('/create-build-checkout', async (req, res) => {
         quantity: 1,
       },
     ],
-    success_url: `${process.env.FRONTEND_URL}/builder?build_paid=1&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.FRONTEND_URL}/builder`,
+    success_url: `${process.env.FRONTEND_URL}${back}?build_paid=1&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.FRONTEND_URL}${back}`,
     metadata: { userId: authed._id.toString(), type: 'site_build' },
   })
 

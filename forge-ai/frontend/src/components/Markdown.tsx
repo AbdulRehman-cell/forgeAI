@@ -99,21 +99,21 @@ export default function Markdown({ content, className }: Props) {
 }
 
 const MDX_STYLES = `
-.mdx-root { color:#d4d4d8; font-size:13px; line-height:1.7; }
+.mdx-root { color:var(--text); font-size:13px; line-height:1.7; }
 .mdx-p { margin:0 0 10px; }
 .mdx-p:last-child { margin-bottom:0; }
-.mdx-h1 { font-size:18px; font-weight:700; color:#f4f4f5; margin:18px 0 8px; }
-.mdx-h2 { font-size:15px; font-weight:600; color:#f4f4f5; margin:16px 0 6px; padding-bottom:4px; border-bottom:1px solid #27272a; }
-.mdx-h3 { font-size:13.5px; font-weight:600; color:#e4e4e7; margin:12px 0 5px; }
-.mdx-h4 { font-size:12.5px; font-weight:600; color:#d4d4d8; margin:10px 0 4px; }
+.mdx-h1 { font-size:18px; font-weight:700; color:var(--text); margin:18px 0 8px; }
+.mdx-h2 { font-size:15px; font-weight:600; color:var(--text); margin:16px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--border); }
+.mdx-h3 { font-size:13.5px; font-weight:600; color:var(--text); margin:12px 0 5px; }
+.mdx-h4 { font-size:12.5px; font-weight:600; color:var(--text); margin:10px 0 4px; }
 .mdx-ul, .mdx-ol { padding-left:18px; margin:6px 0; }
 .mdx-ul { list-style:disc; }
 .mdx-ol { list-style:decimal; }
-.mdx-li, .mdx-oli { margin:3px 0; color:#c4c4cc; }
-.mdx-hr { border:none; border-top:1px solid #27272a; margin:14px 0; }
-.mdx-root strong { color:#f4f4f5; font-weight:600; }
-.mdx-root em { color:#a1a1aa; }
-.mdx-inline { background:#27272a; border:1px solid #3a3a42; color:#a78bfa; padding:1px 5px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:11.5px; }
+.mdx-li, .mdx-oli { margin:3px 0; color:var(--text); }
+.mdx-hr { border:none; border-top:1px solid var(--border); margin:14px 0; }
+.mdx-root strong { color:var(--text); font-weight:600; }
+.mdx-root em { color:var(--text-2); }
+.mdx-inline { background:var(--bg-raised); border:1px solid var(--border); color:#7c3aed; padding:1px 5px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:11.5px; }
 .mdx-code { background:#111114; border:1px solid #26262c; border-radius:8px; padding:30px 12px 12px; margin:10px 0; overflow-x:auto; font-family:'JetBrains Mono',monospace; font-size:11.5px; line-height:1.6; color:#c9c9d1; position:relative; white-space:pre; }
 .mdx-copy { position:absolute; top:6px; right:8px; background:#1e1e24; border:1px solid #2e2e36; color:#71717a; font-size:10px; padding:2px 8px; border-radius:5px; cursor:pointer; transition:color .15s; }
 .mdx-copy:hover { color:#d4d4d8; }

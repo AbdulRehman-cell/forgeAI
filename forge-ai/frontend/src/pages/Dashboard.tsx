@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate, useParams } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { api } from '@/lib/api'
 import {
@@ -11,6 +12,9 @@ import {
 import clsx from 'clsx'
 
 import UsageWidget from '@/components/UsageWidget'
+import BuildThread from '@/components/studio/BuildThread'
+import ChatThread from '@/components/studio/ChatThread'
+import { getConversation } from '@/components/studio/studio'
 
 const BUILD_PLACEHOLDERS = [
   'a portfolio site with a photo gallery and contact form',
@@ -30,11 +34,28 @@ const CHAT_PLACEHOLDERS = [
 
 type Mode = 'build' | 'chat'
 
+/** A saved conversation, on the same page as the box that started it */
+function ConversationView({ id }: { id: string }) {
+  const { data, isLoading } = useQuery({ queryKey: ['conversation', id], queryFn: () => getConversation(id), retry: false })
+  if (isLoading) return <div className="h-full grid place-items-center"><Loader2 size={18} className="animate-spin" style={{ color: 'var(--text-3)' }} /></div>
+  if (!data) return <div className="h-full grid place-items-center text-sm" style={{ color: 'var(--text-3)' }}>This conversation could not be found.</div>
+  // Each conversation starts clean: no choices or drafts carry across from another
+  return data.mode === 'build' ? <BuildThread key={id} conversation={data} /> : <ChatThread key={id} conversation={data} />
+}
+
 export default function Dashboard() {
+  const { conversationId } = useParams()
+  return conversationId ? <ConversationView id={conversationId} /> : <Home />
+}
+
+function Home() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [mode, setMode] = useState<Mode>('build')
   const [prompt, setPrompt] = useState('')
+  const [stack, setStack] = useState<'static' | 'supabase'>('static')
+  const [starting, setStarting] = useState(false)
   const [placeholderIdx] = useState(() => Math.floor(Math.random() * BUILD_PLACEHOLDERS.length))
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -58,14 +79,18 @@ export default function Dashboard() {
     { label: 'Success Rate', value: `${successRate}%`,     icon: Target },
   ]
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const value = prompt.trim()
-    if (mode === 'build') {
-      if (value) sessionStorage.setItem('forge_pending_prompt', value)
-      navigate('/builder')
-    } else {
-      if (value) sessionStorage.setItem('forge_pending_chat', value)
-      navigate('/chat')
+    if (!value || starting) return
+    setStarting(true)
+    try {
+      const { data } = await api.post('/studio/conversations', { mode, message: value, stack })
+      qc.setQueryData(['conversation', data.conversation._id], data.conversation)
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+      navigate(`/dashboard/c/${data.conversation._id}`)
+    } catch (e: any) {
+      toast.error(e.response?.data?.message ?? 'Could not start that. Please try again')
+      setStarting(false)
     }
   }
 
@@ -144,18 +169,37 @@ export default function Dashboard() {
               className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm outline-none text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
             />
             <div className="flex items-center justify-between px-4 pb-3 pt-1">
-              <span className="text-[11px] text-zinc-400 dark:text-zinc-600">
+              <span className="text-[11px] text-zinc-400 dark:text-zinc-600 hidden sm:inline">
                 Press Enter to submit · Shift+Enter for new line
               </span>
+              <div className="flex items-center gap-2 ml-auto">
+              {mode === 'build' && (
+                <div className="relative">
+                  <label htmlFor="site-kind" className="sr-only">Type of site</label>
+                  <select
+                    id="site-kind"
+                    value={stack}
+                    onChange={(e) => setStack(e.target.value as 'static' | 'supabase')}
+                    title={stack === 'static' ? 'Pages only: portfolios, landing pages, blogs, quizzes' : 'With a database and sign-in: bookings, shops, apps'}
+                    className="appearance-none rounded-xl pl-3 pr-8 py-2 text-xs font-medium outline-none cursor-pointer"
+                    style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-strong)', color: 'var(--text)' }}
+                  >
+                    <option value="static">Static site</option>
+                    <option value="supabase">Web service</option>
+                  </select>
+                  <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-3)' }} />
+                </div>
+              )}
               <button
                 onClick={handleSubmit}
-                disabled={!prompt.trim()}
+                disabled={!prompt.trim() || starting}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ background: prompt.trim() ? '#4f46e5' : 'rgba(79, 70, 229, 0.4)' }}
               >
                 {mode === 'build' ? 'Build' : 'Ask'}
-                <ArrowRight size={14} />
+                {starting ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
               </button>
+              </div>
             </div>
           </div>
         </div>

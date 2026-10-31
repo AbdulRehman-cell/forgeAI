@@ -1,3 +1,4 @@
+import studioRoutes from './modules/studio/studio.routes'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
@@ -116,6 +117,7 @@ app.use('/api/whatsapp', whatsappRoutes)
 app.use('/api/audit', auditRoutes)  // public — no auth
 app.use('/api/whitelabel', whiteLabelRoutes)
 app.use('/api/hosting', hostingRoutes)
+app.use('/api/studio', studioRoutes)
 
 // ─── Proxy: managed MERN backends ─────────────────────────────────────────────
 // When a MERN app is self-hosted, we spawn its server/ directory as a child

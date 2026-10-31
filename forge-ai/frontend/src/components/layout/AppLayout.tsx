@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useTheme } from '@/hooks/useTheme'
 import {
-  LayoutDashboard, GitBranch, Clock, Settings, LogOut, Zap, CreditCard,
-  Sparkles, BarChart3, Search, Inbox, Users, Send, Menu, X, Lock, Sun, Moon, MessageSquare,
+  GitBranch, Clock, Settings, LogOut, Zap, CreditCard,
+  Sparkles, BarChart3, Search, Inbox, Users, Send, Menu, X, Lock, Sun, Moon, MessageSquare, Plus, Hammer, Trash2,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -26,8 +26,57 @@ function LeadsUnreadBadge() {
   )
 }
 
+/** Every conversation, build or chat, newest first */
+function ChatHistory({ onPick }: { onPick: () => void }) {
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  // The layout sits above the route that holds the id, so it reads the address itself
+  const conversationId = /^\/dashboard\/c\/([^/]+)/.exec(useLocation().pathname)?.[1]
+  const { data } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: () => api.get('/studio/conversations').then((r) => r.data.conversations as { _id: string; title: string; mode: 'build' | 'chat' }[]),
+    staleTime: 30_000,
+    retry: false,
+  })
+  const remove = async (id: string) => {
+    await api.delete(`/studio/conversations/${id}`)
+    qc.invalidateQueries({ queryKey: ['conversations'] })
+    if (id === conversationId) navigate('/dashboard')
+  }
+  if (!data?.length) return null
+  return (
+    <div className="px-3 pb-3">
+      <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Chats</p>
+      <div className="space-y-0.5">
+        {data.map((c) => (
+          <div key={c._id} className="group relative">
+            <NavLink
+              to={`/dashboard/c/${c._id}`}
+              onClick={onPick}
+              title={c.title}
+              className={() => clsx('flex items-center gap-2.5 pl-3 pr-7 py-1.5 rounded-lg text-[13px] transition-colors hover:bg-black/5 dark:hover:bg-white/5', c._id === conversationId && 'font-medium bg-black/5 dark:bg-white/10')}
+              style={{ color: c._id === conversationId ? 'var(--text)' : 'var(--text-2)' }}
+            >
+              {c.mode === 'build' ? <Hammer size={13} className="shrink-0" /> : <MessageSquare size={13} className="shrink-0" />}
+              <span className="truncate">{c.title}</span>
+            </NavLink>
+            <button
+              onClick={() => remove(c._id)}
+              aria-label={`Delete ${c.title}`}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-500 transition-opacity"
+              style={{ color: 'var(--text-3)' }}
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const nav = [
-  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/dashboard',    icon: Plus,            label: 'New chat', end: true },
   { to: '/chat',         icon: MessageSquare,   label: 'AI Chat',          badge: 'NEW' },
   { to: '/builder',      icon: Sparkles,        label: 'AI Builder' },
   { to: '/dashboards',   icon: BarChart3,        label: 'Data Dashboards',  locked: true },
@@ -39,7 +88,7 @@ const nav = [
   { to: '/team',         icon: Users,            label: 'Team',             locked: true },
   { to: '/pricing',      icon: CreditCard,       label: 'Pricing' },
   { to: '/settings',     icon: Settings,         label: 'Settings' },
-] as { to: string; icon: any; label: string; badge?: string; dynamicBadge?: boolean; locked?: boolean }[]
+] as { to: string; icon: any; label: string; badge?: string; dynamicBadge?: boolean; locked?: boolean; end?: boolean }[]
 
 export default function AppLayout() {
   const { user, clearAuth } = useAuthStore()
@@ -85,15 +134,16 @@ export default function AppLayout() {
           </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-1 relative min-h-0">
-          {nav.map(({ to, icon: Icon, label, badge, dynamicBadge, locked }) => {
+        {/* Services on top, the chat history below them, scrolling together */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+        <nav className="px-3 py-3 space-y-0.5 relative">
+          {nav.map(({ to, icon: Icon, label, badge, dynamicBadge, locked, end }) => {
             if (locked) {
               return (
                 <div
                   key={to}
                   title="Coming soon"
-                  className="nav-link opacity-40 cursor-not-allowed select-none pointer-events-none"
+                  className="nav-link !py-1.5 opacity-40 cursor-not-allowed select-none pointer-events-none"
                 >
                   <Icon size={17} />
                   {label}
@@ -105,8 +155,9 @@ export default function AppLayout() {
               <NavLink
                 key={to}
                 to={to}
+                end={end}
                 onClick={closeSidebar}
-                className={({ isActive }) => clsx('nav-link', isActive && 'active')}
+                className={({ isActive }) => clsx('nav-link !py-1.5', isActive && 'active')}
               >
                 <Icon size={17} />
                 {label}
@@ -120,6 +171,8 @@ export default function AppLayout() {
             )
           })}
         </nav>
+        <ChatHistory onPick={closeSidebar} />
+        </div>
 
         {/* Team membership badge */}
         {user?.teamOwnerId && (

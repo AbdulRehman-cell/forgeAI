@@ -1,3 +1,5 @@
+import { Conversation } from '../studio/conversation.model'
+import { composePrompt, designOptions, displayName, siteKind } from '../../lib/studio'
 import { Router } from 'express'
 import archiver from 'archiver'
 import path from 'path'
@@ -305,6 +307,30 @@ function autoSiteSlug(prompt: string): string {
 router.post('/build-site', checkQuota('fixes'), async (req, res) => {
   const user = req.user as any
   let { prompt, name, stack, mongoUri, style, paletteId, importUrl, mode, analyticsProvider, analyticsId, addons, buildCheckoutSessionId } = req.body
+  // From the home page: the conversation holds the request, answers and design choices
+  const conversation = req.body.conversationId
+    ? await Conversation.findOne({ _id: req.body.conversationId, userId: getEffectiveUserId(req), mode: 'build' })
+    : null
+  let clientDesign: Record<string, any> | undefined
+  let clientLogo: string | undefined
+  if (req.body.conversationId && !conversation) return res.status(404).json({ message: 'Conversation not found' })
+  if (conversation) {
+    if (conversation.repositoryId) return res.status(409).json({ message: 'This site has already been built' })
+    const first = conversation.messages.find((m) => m.role === 'user')?.content ?? ''
+    const options = designOptions(first, conversation.answers)
+    // What was on screen when Build was pressed wins over a save still on its way
+    const chosen = req.body.design ?? {}
+    const color = options.colors[typeof chosen.color === 'number' ? chosen.color : conversation.design?.color ?? 0] ?? options.colors[0]
+    prompt = composePrompt(first, conversation.answers, conversation.notes)
+    stack = conversation.stack
+    clientDesign = {
+      name: displayName(first, conversation.answers) || undefined,
+      siteType: siteKind(first, conversation.answers),
+      hero: (typeof chosen.hero === 'string' ? chosen.hero : conversation.design?.hero) ?? options.heroes[0].id,
+      brandHex: color.brandHex, page: color.page, bands: color.bands,
+    }
+    clientLogo = conversation.design?.logo
+  }
   prompt += ' Generate a complete website with all necessary files Ensure the code is well-structured and ready for deployment and the ui and styling should be outstanding.The website should have atleast four pages and the home page should atleast ahve five sections.'
 
   if (!prompt?.trim()) return res.status(400).json({ message: 'Describe the website you want to build' })
@@ -460,7 +486,15 @@ router.post('/build-site', checkQuota('fixes'), async (req, res) => {
     analyticsId: analyticsId || undefined,
     aiProvider: user.aiProvider,
     type: 'build_site',
+    design: clientDesign,
+    logo: clientLogo, // job data only — never in task.metadata
   })
+
+  if (conversation) {
+    conversation.repositoryId = repo._id
+    conversation.stage = 'built'
+    await conversation.save()
+  }
 
   res.status(201).json({ task, repository: repo })
 })

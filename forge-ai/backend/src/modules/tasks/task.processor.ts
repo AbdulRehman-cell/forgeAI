@@ -32,7 +32,7 @@ import { selectPack, getPackCss, getPackPromptNote, PALETTE_PRESETS, type PackNa
 import { getReactPackFiles, getReactPackCss, getReactPackPromptNote } from '../../lib/reactPack'
 import {
   FONT_PAIRINGS, buildBrandKit, brandKitBrief, brandLayerCss, finalizeBrandCss, applyBrandToHtml, sizeInlineIcons, kitFavicon, faviconHref, logoInner,
-  mirrorForRtl, setHtmlLang, languageName, enableQuran,
+  mirrorForRtl, setHtmlLang, languageName, enableQuran, applyClientLogo,
   type BrandKit,
 } from '../../lib/brandKit'
 import { applyKitExtras, PLAYBOOKS } from '../../lib/blocks'
@@ -7718,7 +7718,7 @@ async function validateAndHeal(
 }
 
 async function buildSite(job: Job) {
-  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, paletteId, importUrl, mode } = job.data
+  const { taskId, repositoryId, userId, siteName, aiProvider, stack, mongoUri, style, paletteId, importUrl, mode, design, logo } = job.data
   let { prompt } = job.data
   const task = await Task.findById(taskId)
   if (!task) throw new Error('Task not found')
@@ -7869,9 +7869,11 @@ async function buildSite(job: Job) {
       photos: imagePool,
       override: preset ? { brandHex: preset.primaryColor, mode: preset.isDark ? 'dark' : 'light' } : undefined,
       realBrand: !!importUrl,
+      design,
     })
     // Every later prompt reads the brief: it must not still name a colour the kit replaced
     designBrief = designBrief.replace(/^(\s*BRAND COLOU?R\s*:).*$/im, `$1 ${brandKit.brandHex}`)
+    if (design?.name) designBrief = designBrief.replace(/^(\s*BRAND NAME\s*:).*$/im, `$1 ${brandKit.name}`)
     designBrief += `\n\n${brandKitBrief(brandKit, stack === 'mern' || stack === 'supabase' ? 'jsx' : 'html')}`
     await updateTask(task, {}, `🎨 Brand kit: ${brandKit.name} — ${brandKit.brandHex}, ${brandKit.pairing.heading.family} + ${brandKit.pairing.body.family}, ${brandKit.mode} mode`)
     if (brandKit.lang !== 'en') await updateTask(task, {}, `🌐 Language: ${languageName(brandKit.lang)}${brandKit.dir === 'rtl' ? ' — right-to-left' : ''}`)
@@ -8146,6 +8148,22 @@ async function buildSite(job: Job) {
       if (!pack) await updateTask(task, {}, '⚠️ This site shows Quran text, but the Quran data pack is missing on the server — its reader pages will be empty', 'warn')
       else await updateTask(task, {}, `📖 Quran data pack: ${pack.editions.join(' + ')} (${pack.files} files, verified)`
         + (pack.skipped.length ? ` — left out because they failed the check: ${pack.skipped.join(', ')}` : ''), pack.skipped.length ? 'warn' : 'info')
+    }
+
+    // The client's logo replaces the monogram everywhere, and travels with the site
+    const logoMatch = typeof logo === 'string' ? /^data:image\/(png|jpeg|webp);base64,(.+)$/.exec(logo) : null
+    if (logoMatch) {
+      const file = `logo.${logoMatch[1] === 'jpeg' ? 'jpg' : logoMatch[1]}`
+      const dir = path.join(sitePath, stack === 'mern' ? 'client/public' : stack === 'supabase' ? 'public' : '')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, file), Buffer.from(logoMatch[2], 'base64'))
+      for (const f of generated.filter((g) => /\.(html|jsx)$/.test(g.path))) {
+        const next = applyClientLogo(f.content, `./${file}`)
+        if (next === f.content) continue
+        f.content = next
+        fs.writeFileSync(path.join(sitePath, f.path), next)
+      }
+      await updateTask(task, {}, '🖼️ Added your logo')
     }
 
     // ── SEO injection (static sites only) ──

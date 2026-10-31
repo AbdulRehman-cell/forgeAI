@@ -46,6 +46,7 @@ export default function App() {
 
         <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard/c/:conversationId" element={<Dashboard />} />
           <Route path="/chat" element={<GeneralChat />} />
           <Route path="/builder" element={<Builder />} />
           <Route path="/repositories" element={<Repositories />} />
