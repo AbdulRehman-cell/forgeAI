@@ -7868,7 +7868,10 @@ async function buildSite(job: Job) {
       heroPhoto: imagePool[0],
       photos: imagePool,
       override: preset ? { brandHex: preset.primaryColor, mode: preset.isDark ? 'dark' : 'light' } : undefined,
+      realBrand: !!importUrl,
     })
+    // Every later prompt reads the brief: it must not still name a colour the kit replaced
+    designBrief = designBrief.replace(/^(\s*BRAND COLOU?R\s*:).*$/im, `$1 ${brandKit.brandHex}`)
     designBrief += `\n\n${brandKitBrief(brandKit, stack === 'mern' || stack === 'supabase' ? 'jsx' : 'html')}`
     await updateTask(task, {}, `🎨 Brand kit: ${brandKit.name} — ${brandKit.brandHex}, ${brandKit.pairing.heading.family} + ${brandKit.pairing.body.family}, ${brandKit.mode} mode`)
     if (brandKit.lang !== 'en') await updateTask(task, {}, `🌐 Language: ${languageName(brandKit.lang)}${brandKit.dir === 'rtl' ? ' — right-to-left' : ''}`)

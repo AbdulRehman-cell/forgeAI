@@ -7,7 +7,7 @@
 // appended LAST to every stylesheet, so no AI-written rule can undo it.
 
 import { BLOCKS_CSS, applyKitExtras, findWhatsApp, pickPlaybook, type Playbook } from './blocks'
-import { planSite, sectionsBrief, type SitePlan } from './sections/plan'
+import { planSite, sectionsBrief, seed, type SitePlan } from './sections/plan'
 import { pickSiteType, type SiteType } from './sections/siteTypes'
 import { QURAN_CSS } from './sections/registry'
 
@@ -327,7 +327,33 @@ const WHITE = '#ffffff'
 const OVERLAY = '#16181c'
 
 /** Every colour token the packs, the base CSS and the brand layer read. */
-export function buildPalette(brandHex: string, mode: BrandMode): Record<string, string> {
+/** How a light site wears its colour: the page behind the content, and the dark bands */
+export interface ColorScheme { page: 'white' | 'paper' | 'tint'; bands: 'neutral' | 'deep' }
+
+/** Left alone, models give almost every site the same terracotta, whatever the business
+ *  (8 of 12 sites measured on 31 Oct 2026). So ForgeAI picks: each list spans several
+ *  families that suit the industry, and the brand name chooses one. */
+const COLORWAYS: Record<string, string[]> = {
+  recruitment: ['#1746a2', '#0f766e', '#c2410c', '#4338ca', '#0e7490', '#166534'],
+  beauty: ['#9d174d', '#7e22ce', '#b4536a', '#0f766e', '#a16207', '#be123c', '#6d28d9'],
+  health: ['#0e7490', '#0f766e', '#1d4ed8', '#15803d', '#0369a1', '#4f46e5'],
+  trades: ['#1d4ed8', '#b91c1c', '#ca8a04', '#15803d', '#c2410c', '#0f4c81'],
+  food: ['#b91c1c', '#166534', '#a16207', '#9f1239', '#115e59', '#4d7c0f', '#1e3a5f', '#6b21a8'],
+  hospitality: ['#0f4c81', '#115e59', '#854d0e', '#7f1d1d', '#0e7490', '#3f6212'],
+  professional: ['#1e3a8a', '#0f172a', '#14532d', '#7f1d1d', '#334155', '#115e59'],
+  property: ['#0f766e', '#1e40af', '#92400e', '#166534', '#0f172a', '#7c2d12'],
+  education: ['#1d4ed8', '#b91c1c', '#15803d', '#7c3aed', '#0e7490', '#ca8a04'],
+  fitness: ['#dc2626', '#16a34a', '#2563eb', '#ea580c', '#7c3aed', '#0f172a'],
+  retail: ['#db2777', '#2563eb', '#059669', '#7c3aed', '#dc2626', '#0f172a', '#d97706'],
+  saas: ['#4f46e5', '#2563eb', '#0891b2', '#059669', '#7c3aed', '#db2777'],
+  general: ['#2563eb', '#0f766e', '#7c3aed', '#be123c', '#15803d', '#0e7490', '#a16207', '#c2410c', '#4338ca', '#9d174d'],
+}
+export const ALL_COLORWAYS = [...new Set(Object.values(COLORWAYS).flat())]
+
+/** The request itself names a colour ("in navy and gold", "#0a3d62") */
+const ASKS_FOR_COLOR = /#[0-9a-f]{3,6}\b|\b(?:colou?rs?|red|blue|green|teal|turquoise|orange|purple|violet|pink|yellow|black|white|gold|golden|silver|navy|maroon|burgundy|beige|brown|terracotta|emerald|crimson|indigo)\b/i
+
+export function buildPalette(brandHex: string, mode: BrandMode, scheme: ColorScheme = { page: 'white', bands: 'neutral' }): Record<string, string> {
   const brand = toHex(parseHex(brandHex) ?? parseHex('#e85d04')!)
   const [, C, H] = rgbToOklch(parseHex(brand)!)
   // Neutrals carry a whisper of the brand hue so greys never look borrowed
@@ -348,13 +374,17 @@ export function buildPalette(brandHex: string, mode: BrandMode): Record<string, 
       ink: oklch(0.13, n * 0.6, H),
     }
   }
-  const surface = oklch(0.975, n * 0.35, H)
+  // Paper is a warm off-white whatever the brand; tint carries a breath of the brand's own hue
+  const bg = scheme.page === 'paper' ? oklch(0.985, 0.008, 85) : scheme.page === 'tint' ? oklch(0.985, Math.min(C, 0.008), H) : WHITE
+  const surface = scheme.page === 'paper' ? oklch(0.96, 0.014, 85) : scheme.page === 'tint' ? oklch(0.96, Math.min(C, 0.018), H) : oklch(0.975, n * 0.35, H)
   // Bold white button labels need 3:1 — vivid oranges/reds get nudged just past it
   // (they keep their punch); light brands (yellows) keep their colour and get dark text.
   const vsWhite = contrast(brand, WHITE)
   const primary = vsWhite < 3 && vsWhite >= 2.2 ? darkenTo(brand, WHITE, 3) : brand
+  // Deep bands read as the brand's own dark shade rather than near-black
+  const ink = scheme.bands === 'deep' ? oklch(0.25, Math.min(C, 0.07), H) : oklch(0.19, Math.min(C, 0.025), H)
   return {
-    bg: WHITE, surface, 'surface-2': oklch(0.952, n * 0.5, H),
+    bg, surface, 'surface-2': scheme.page === 'white' ? oklch(0.952, n * 0.5, H) : shift(surface, -0.025),
     text: oklch(0.21, n * 0.8, H),
     muted: withContrast(oklch(0.5, n * 0.7, H), surface, 4.5, 'darker'),
     border: oklch(0.905, n * 0.6, H), 'border-strong': oklch(0.84, n * 0.7, H),
@@ -362,8 +392,9 @@ export function buildPalette(brandHex: string, mode: BrandMode): Record<string, 
     'primary-ink': withContrast(primary, surface, 4.5, 'darker'),
     'on-primary': contrast(primary, WHITE) >= 3 ? WHITE : oklch(0.18, n, H),
     // On the dark photo overlay the untouched brand colour is at its most vivid
-    'accent-on-dark': withContrast(brand, OVERLAY, 4.5, 'lighter'),
-    ink: oklch(0.19, Math.min(C, 0.025), H),
+    // ...and it must also read on this site's dark bands, which can be lighter than the overlay
+    'accent-on-dark': withContrast(withContrast(brand, OVERLAY, 4.5, 'lighter'), ink, 4.5, 'lighter'),
+    ink,
   }
 }
 
@@ -439,6 +470,8 @@ export function buildBrandKit(opts: {
   photos?: string[]
   /** A palette preset the client picked in the Builder wins over the brief */
   override?: { brandHex: string; mode: BrandMode }
+  /** Rebuilding a real brand's site: the brief's colour is theirs and stays */
+  realBrand?: boolean
 }): BrandKit {
   const { brief, prompt } = opts
   const text = `${prompt}\n${field(brief, 'DESCRIPTOR')}\n${field(brief, 'REFERENCE')}`
@@ -453,18 +486,30 @@ export function buildBrandKit(opts: {
     ?? fit[0]
     ?? FONT_PAIRINGS.find((p) => p.id === DEFAULT_PAIRING)!
   const briefColor = /#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/i.exec(field(brief, 'BRAND COLOU?R'))?.[0]
-  const brandHex = opts.override?.brandHex ?? (briefColor && parseHex(briefColor) ? briefColor.toLowerCase() : pairing.defaultColor)
   const mode: BrandMode = opts.override?.mode ?? (/^dark/i.test(field(brief, 'MODE')) ? 'dark' : 'light')
   const name = field(brief, 'BRAND NAME').replace(/[<>{}`"]/g, '').slice(0, 40) || opts.fallbackName
   const descriptor = field(brief, 'DESCRIPTOR').replace(/[<>{}`"]/g, '').split(/\s+/).slice(0, 4).join(' ').slice(0, 32)
   const playbook = pickPlaybook(`${descriptor}\n${prompt}`, field(brief, 'REFERENCE'), field(brief, 'INDUSTRY'))
+  // The owner's choice, a colour the request names or a real brand's own colour wins;
+  // otherwise the brand name picks from colours that suit the industry
+  const seedName = name.toLowerCase().trim() || 'site'
+  const colorway = COLORWAYS[playbook.id] ?? COLORWAYS.general
+  const modelColor = briefColor && parseHex(briefColor) ? briefColor.toLowerCase() : ''
+  const brandHex = opts.override?.brandHex
+    ?? (modelColor && (opts.realBrand || ASKS_FOR_COLOR.test(prompt)) ? modelColor : colorway[seed(`${seedName}|color`) % colorway.length])
+  // A colour someone chose stays on a plain page, so it reads exactly as they meant it
+  const chosen = !!opts.override || !!opts.realBrand
+  const scheme: ColorScheme = chosen ? { page: 'white', bands: 'neutral' } : {
+    page: (['white', 'paper', 'tint'] as const)[seed(`${seedName}|page`) % 3],
+    bands: (['neutral', 'deep'] as const)[seed(`${seedName}|bands`) % 2],
+  }
   const siteType = pickSiteType(field(brief, 'SITE TYPE'), playbook.id)
   const askedAction = field(brief, 'HERO ACTION')
   const heroPhoto = opts.heroPhoto || `https://picsum.photos/seed/${encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'))}-hero/1920/1080`
   const quran = QURAN_TOPIC.test(text)
   return {
     name, descriptor, initial: logoInitial(name), mode, brandHex, pairing,
-    palette: buildPalette(brandHex, mode),
+    palette: buildPalette(brandHex, mode, scheme),
     fontsUrl: fontsUrlFor(pairing, quran),
     heroPhoto,
     photos: opts.photos?.length ? opts.photos : [heroPhoto],
