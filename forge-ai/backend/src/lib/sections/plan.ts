@@ -88,7 +88,13 @@ export function sectionsBrief(kit: BrandKit, flavour: Flavour): string {
     const byHand = jsx && def.dataForm
     return `${i + 1}. <forge-section type="${s.type}" variant="${s.variant}"> — ${s.note}${byHand ? ' (React: this form saves to the database — write it by hand, see DATABASE CONTENT)' : ''}${jsx && s.type === 'cards' ? ' (React: when a table holds these, write them by hand from its rows — see DATABASE CONTENT)' : ''}`
   }).join('\n')
-  const library = SECTIONS.map(typeLine).join('\n')
+  const library = SECTIONS.filter((s) => !s.quran || kit.quran).map(typeLine).join('\n')
+  const quran = kit.quran ? `
+
+QURAN — NEVER write Quranic text yourself: no verse, phrase or Basmala, in Arabic or in translation. ForgeAI fills in the verified text (Tanzil) from a reference:
+- a verse anywhere on a page: <forge-quran ref="2:255"></forge-quran> — or a range "2:255-257" (up to 10 ayahs), or a short surah "112". It renders as a framed quote with its translation and reference.
+- the quran-* section types above: quran-verse (a highlighted verse, or a verse of the day), quran-surahs (all 114 surahs, each opening the reader), quran-reader (alone on its own page, ${page('reader')}), quran-bookmarks (its own page, ${page('bookmarks')}), quran-search (its own page, ${page('search')}).
+Write ABOUT verses in your own words ("Ayat al-Kursi, the Throne Verse, 2:255"), but put a verse itself on the page only through these tags. ForgeAI adds the credits for the text, translation and recitation.` : ''
   const react = jsx ? `
 
 REACT PAGES: put the tags straight into your JSX exactly as above, with the plain JSON between them — ForgeAI replaces every tag before the JSX is compiled and adds any imports they need. So do NOT make the JSON "valid JSX": no {'{'} or &#123; escapes, no {…}, {{…}} or JSON.stringify wrapper.
@@ -126,5 +132,5 @@ ${recipe}
 OTHER PAGES: ${plan.pages} Build every page from the SECTION TYPES below (any listed variant; vary them). Every page ends with a cta section.
 
 SECTION TYPES — type (variants): content — use
-${library}${react}`
+${library}${quran}${react}`
 }

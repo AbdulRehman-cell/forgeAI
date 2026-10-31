@@ -32,7 +32,7 @@ import { selectPack, getPackCss, getPackPromptNote, PALETTE_PRESETS, type PackNa
 import { getReactPackFiles, getReactPackCss, getReactPackPromptNote } from '../../lib/reactPack'
 import {
   FONT_PAIRINGS, buildBrandKit, brandKitBrief, brandLayerCss, finalizeBrandCss, applyBrandToHtml, sizeInlineIcons, kitFavicon, faviconHref, logoInner,
-  mirrorForRtl, setHtmlLang, languageName,
+  mirrorForRtl, setHtmlLang, languageName, enableQuran,
   type BrandKit,
 } from '../../lib/brandKit'
 import { applyKitExtras, PLAYBOOKS } from '../../lib/blocks'
@@ -41,7 +41,8 @@ import { expandSections, KIT_FORM_JSX } from '../../lib/sections/expand'
 import { applySiteForms, siteFormsEndpoint } from '../../lib/siteForms'
 import { publicApiBase } from '../../lib/publicUrl'
 import { repairCss, cssErrorFile } from '../../lib/cssRepair'
-import { applyQuranCredits, usesQuran, usesQuranAudio, writeSitePack } from '../../lib/quran/pack'
+import { usesQuran, usesQuranAudio, usesQuranPack, writeSitePack } from '../../lib/quran/pack'
+import { applyQuranExtras } from '../../lib/quran/client'
 import { randomUUID } from 'crypto'
 import { runVisualQa, servedStylesheets, visualQaEngine, photoUrlsIn, brokenImages } from '../../lib/visualQa'
 
@@ -8024,6 +8025,13 @@ async function buildSite(job: Job) {
     // The brand layer goes back to the very end — QA polish was appended after
     // it — and the taste guard re-lints whatever the QA passes wrote.
     {
+      // Quran text comes from the verified pack, and Tanzil's licence wants a credit on every page
+      const pageCode = generated.filter((g) => /\.(html|jsx)$/.test(g.path))
+      quranSite = pageCode.some((g) => usesQuran(g.content))
+      const quranAudio = pageCode.some((g) => usesQuranAudio(g.content))
+      // A site the designer did not see as a Quran site still gets the Quran typeface and styles
+      if (quranSite && !brandKit.quran) enableQuran(brandKit)
+      const extras = (html: string) => (quranSite ? applyQuranExtras(html, brandKit.lang, quranAudio) : html)
       const cssPath = stack === 'mern' ? 'client/src/index.css' : stack === 'supabase' ? 'src/index.css' : 'styles.css'
       const css = generated.find((f) => f.path === cssPath)
       if (css) css.content = finalizeBrandCss(css.content, brandKit, { fontImport: stack === 'mern' || stack === 'supabase' })
@@ -8037,20 +8045,15 @@ async function buildSite(job: Job) {
       }
       // A right-to-left site's whole sheet is mirrored, once, after every AI pass
       if (css) css.content = mirrorForRtl(css.content, brandKit)
-      // Quran text comes from the verified pack, and Tanzil's licence wants a credit on every page
-      const pageCode = generated.filter((g) => /\.(html|jsx)$/.test(g.path))
-      quranSite = pageCode.some((g) => usesQuran(g.content))
-      const quranAudio = pageCode.some((g) => usesQuranAudio(g.content))
-      const credit = (html: string) => (quranSite ? applyQuranCredits(html, brandKit.lang, quranAudio) : html)
       if (stack !== 'mern' && stack !== 'supabase') {
         // Forms send their messages to the owner's Leads inbox (a static site has no server)
         const forms = siteFormsEndpoint(await siteToken(repo))
-        for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applySiteForms(credit(applyBrandToHtml(f.content, brandKit)), forms)
+        for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applySiteForms(extras(applyBrandToHtml(f.content, brandKit)), forms)
       } else {
         for (const f of generated.filter((g) => g.path.endsWith('.jsx'))) f.content = sizeInlineIcons(f.content)
-        // Count-ups, rotating word and the WhatsApp button live outside React
+        // Count-ups, rotating word, WhatsApp button and the Quran reader script live outside React
         const shell = generated.find((f) => f.path === (stack === 'mern' ? 'client/index.html' : 'index.html'))
-        if (shell) shell.content = credit(setHtmlLang(applyKitExtras(shell.content, brandKit), brandKit))
+        if (shell) shell.content = extras(setHtmlLang(applyKitExtras(shell.content, brandKit), brandKit))
       }
     }
 
@@ -8098,7 +8101,9 @@ async function buildSite(job: Job) {
       task.logs.push({ level: 'info', message: `✨ Created ${file.path} (${file.content.length} chars)`, timestamp: new Date() })
     }
     await updateTask(task, {}, `💾 Wrote ${allChanges.length} file(s) to the workspace`)
-    if (quranSite) {
+    // The reader, bookmarks and search load the site's own copy of the pack; a
+    // site that only quotes verses has them in its pages already
+    if (quranSite && generated.some((g) => /\.(html|jsx)$/.test(g.path) && usesQuranPack(g.content))) {
       // Written straight to disk, not into `generated` — 230 files of scripture
       // have no place in the task's before/after record
       const pack = writeSitePack(path.join(sitePath, stack === 'mern' ? 'client/public' : stack === 'supabase' ? 'public' : ''), brandKit.lang)

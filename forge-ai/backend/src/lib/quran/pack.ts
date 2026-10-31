@@ -150,6 +150,8 @@ export function findSurah(name: string, surahs: SurahInfo[]): number | null {
  * a wrong ayah number is never quietly moved to a nearby one.
  */
 export function parseRef(input: string, surahs: SurahInfo[]): QuranRef | null {
+  // The one verse people name more often than they number
+  if (/^ayat?[-\s]*(?:al|ul)[-\s]*kursi$/i.test(input.trim())) return { surah: 2, from: 255, to: 255 }
   const s = toLatinDigits(input.normalize('NFC')).replace(/\s+/g, ' ').trim().replace(SURAH_WORD, '')
   let surah: number | null = null
   let from: number | undefined, to: number | undefined
@@ -225,6 +227,21 @@ export function openQuran(translations: string[] = []): QuranText | null {
   }
 }
 
+/**
+ * Tanzil's text opens ayah 1 of every surah but 1 and 9 with the Basmala.
+ * Returns that opening and the rest of the ayah — both cut from the ayah's own
+ * text, so not a letter changes (in 95 and 97 Tanzil marks its first letter
+ * with a shadda, which 1:1 does not have). Null when the ayah does not open with it.
+ */
+export function splitBasmala(ayah: string, basmala: string): [string, string] | null {
+  if (!basmala) return null
+  const words = ayah.split(' ')
+  if (words.length < 5) return null
+  const head = words.slice(0, 4).join(' ')
+  const bare = (s: string) => s.replace(/ّ/g, '')
+  return bare(head) === bare(basmala) ? [head, ayah.slice(head.length + 1)] : null
+}
+
 // ── What a site carries ──
 
 export interface SitePackResult { files: number; editions: string[]; skipped: string[] }
@@ -244,6 +261,7 @@ export function writeSitePack(root: string, lang: string, dir = 'quran'): SitePa
   const ids = ['quran-uthmani', ...(translation ? [translation.id] : [])]
   const result: SitePackResult = { files: 0, editions: [], skipped: [] }
   const notices: string[] = []
+  let basmala = ''
   const write = (rel: string, content: string) => {
     fs.mkdirSync(path.dirname(path.join(out, rel)), { recursive: true })
     fs.writeFileSync(path.join(out, rel), content, 'utf8')
@@ -263,6 +281,7 @@ export function writeSitePack(root: string, lang: string, dir = 'quran'): SitePa
     }
     result.editions.push(id)
     notices.push(e.notice.trim())
+    if (id === 'quran-uthmani') basmala = e.surahs[1]?.[0] ?? ''
   }
   const name = (c: Record<string, string>) => c[lang] ?? c.en
   write('surahs.json', JSON.stringify({
@@ -271,6 +290,8 @@ export function writeSitePack(root: string, lang: string, dir = 'quran'): SitePa
       return { id, kind: def.kind, lang: def.lang, name: name(def.credit) }
     }),
     reciters: QURAN_RECITERS.map((r) => ({ id: r.id, name: name(r.credit), audio: r.audio })),
+    // Tanzil's text opens ayah 1 of every surah but 1 and 9 with it; the reader sets it on its own line
+    basmala,
     surahs: manifest.metadata.surahs,
     juz: manifest.metadata.juz,
     sajda: manifest.metadata.sajda,
@@ -290,9 +311,11 @@ export function writeSitePack(root: string, lang: string, dir = 'quran'): SitePa
 
 // ── Credits ── Tanzil's licence requires a visible credit with a link
 
-/** Page code that shows pack text carries data-quran; pages that play recitations, data-quran-audio */
-export const usesQuran = (code: string) => /\bdata-quran\b/.test(code)
+/** Page code that shows pack text carries data-quran; pages that play recitations, data-quran-audio;
+ *  parts that load the pack in the browser (reader, bookmarks, search), data-quran-pack */
+export const usesQuran = (code: string) => /\bdata-quran\b(?!-)/.test(code)
 export const usesQuranAudio = (code: string) => /\bdata-quran-audio\b/.test(code)
+export const usesQuranPack = (code: string) => /\bdata-quran-pack\b/.test(code)
 
 export function quranCreditsHtml(lang: string, audio: boolean): string {
   const name = (c: Record<string, string>) => c[lang] ?? c.en

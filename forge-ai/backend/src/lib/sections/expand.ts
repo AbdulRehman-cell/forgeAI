@@ -8,6 +8,9 @@ import { Backdrop, Content, Ctx, Flavour, Shape } from './markup'
 import { heroByLayout } from './heroes'
 import { ownsTone, sectionByType } from './registry'
 import { chooseVariant } from './plan'
+import { quranFigure } from './blocks/quran'
+import { openQuran, type QuranText } from '../quran/pack'
+import { translationFor } from '../quran/editions'
 
 export interface ExpandResult {
   content: string
@@ -17,6 +20,18 @@ export interface ExpandResult {
 }
 
 const TAG = /<forge-(section|hero)\b([^>]*)>([\s\S]*?)<\/forge-\1\s*>/gi
+/** <forge-quran ref="2:255"></forge-quran> or self-closing — anything the model put inside is dropped */
+const QURAN_TAG = /<forge-quran\b([^>]*?)\s*(?:\/>|>[\s\S]*?<\/forge-quran\s*>)/gi
+
+// The pack is read once per build (per brand kit), and only when a page quotes it
+const quranTexts = new WeakMap<BrandKit, QuranText | null>()
+function quranFor(kit: BrandKit): QuranText | null {
+  if (!quranTexts.has(kit)) {
+    const tr = translationFor(kit.lang)
+    quranTexts.set(kit, openQuran(tr ? [tr.id] : []))
+  }
+  return quranTexts.get(kit) ?? null
+}
 
 /** The tag body with the ways models keep JSX valid undone: braces spelt
  *  {'{'} or &#123;, the whole object wrapped as {{ … }}, {( … )},
@@ -79,14 +94,15 @@ function ensureImports(src: string, needsLink: boolean, needsKitForm: boolean): 
 
 /** Every tag in a page, rendered in order. Idempotent: a page with no tags comes back unchanged. */
 export function expandSections(src: string, kit: BrandKit, flavour: Flavour): ExpandResult {
-  if (!/<forge-(section|hero)\b/i.test(src)) return { content: src, rendered: 0, failed: [] }
+  if (!/<forge-(section|hero|quran)\b/i.test(src)) return { content: src, rendered: 0, failed: [] }
   const x = new Ctx(flavour, kit.photos.length ? kit.photos : [kit.heroPhoto], [kit.heroPhoto], kit.lang)
+  x.quranText = () => quranFor(kit)
   const failed: string[] = []
   let rendered = 0
   let backdrop: Backdrop = 'dark'
   let prevShape: Shape | '' = ''
   let index = 0
-  const content = src.replace(TAG, (whole, kind: string, attrs: string, body: string) => {
+  const sections = src.replace(TAG, (whole, kind: string, attrs: string, body: string) => {
     const data = parseLooseJson(body)
     if (kind.toLowerCase() === 'hero') {
       let layout = attr(attrs, 'layout') || attr(attrs, 'type')
@@ -122,6 +138,14 @@ export function expandSections(src: string, kit: BrandKit, flavour: Flavour): Ex
       failed.push(`${type}: ${(e as Error).message}`)
       return ''
     }
+  })
+  // A verse anywhere on the page, filled in from the verified pack — never the model's text
+  const content = sections.replace(QURAN_TAG, (_whole, attrs: string) => {
+    const ref = attr(attrs, 'ref')
+    const figure = ref ? quranFigure(x, ref, { cls: 'kit-ayah-inline', translation: attr(attrs, 'translation') !== 'none' }) : null
+    if (!figure) { failed.push(`quran ${ref || '(no ref)'}: ${quranFor(kit) ? 'there is no such verse' : 'the Quran data pack is missing'}`); return '' }
+    rendered++
+    return figure
   })
   return {
     content: flavour === 'jsx' ? ensureImports(content, x.needsLink, x.needsKitForm) : content,

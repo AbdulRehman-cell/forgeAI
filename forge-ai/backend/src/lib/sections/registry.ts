@@ -23,10 +23,12 @@ import { comparison } from './blocks/comparison'
 import { contact } from './blocks/contact'
 import { newsletter } from './blocks/newsletter'
 import { cta } from './blocks/cta'
+import { QURAN_SECTIONS } from './blocks/quran'
 
 export const SECTIONS: SectionDef[] = [
   trust, logos, features, steps, split, cards, stats, gallery, quotes, faq,
   duo, pricing, menu, team, timeline, comparison, contact, newsletter, cta,
+  ...QURAN_SECTIONS,
 ]
 
 export const sectionByType = (type: string) => SECTIONS.find((s) => s.type === type)
@@ -52,3 +54,5 @@ export const SECTIONS_CSS = [
 ].join('\n')
 
 export { HEROES }
+// Quran sections style through QURAN_CSS, which only Quran sites carry
+export { QURAN_CSS } from './blocks/quran'

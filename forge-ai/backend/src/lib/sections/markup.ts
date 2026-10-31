@@ -3,6 +3,7 @@
 
 import { iconSvg } from './icons'
 import { StringKey, t } from './strings'
+import type { QuranText } from '../quran/pack'
 
 export type Flavour = 'html' | 'jsx'
 /** A variant's visual shape — two sections of the same shape never sit together */
@@ -25,6 +26,8 @@ export interface SectionDef {
   leaves?: (variant: string) => Backdrop
   /** Holds a form a React app must wire to its database — React pages write it by hand */
   dataForm?: boolean
+  /** Quran sections: offered only to sites about the Quran or Islam, styled by QURAN_CSS */
+  quran?: boolean
   render(c: Content, variant: string, x: Ctx, tone: string): string
   css: string
 }
@@ -52,6 +55,8 @@ export class Ctx {
   /** Set when the markup uses <Link> or <KitForm>, so the page gets the import */
   needsLink = false
   needsKitForm = false
+  /** The verified Quran text, opened on first use (sections that quote verses) */
+  quranText?: () => QuranText | null
   private next = 0
 
   constructor(readonly flavour: Flavour, private readonly photos: string[], private readonly skip: string[] = [], readonly lang = 'en') {}

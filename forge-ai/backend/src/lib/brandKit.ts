@@ -9,6 +9,7 @@
 import { BLOCKS_CSS, applyKitExtras, findWhatsApp, pickPlaybook, type Playbook } from './blocks'
 import { planSite, sectionsBrief, type SitePlan } from './sections/plan'
 import { pickSiteType, type SiteType } from './sections/siteTypes'
+import { QURAN_CSS } from './sections/registry'
 
 export type BrandMode = 'light' | 'dark'
 type Shape = 'sharp' | 'soft' | 'round'
@@ -393,14 +394,26 @@ export interface BrandKit {
   /** The language visitors read (BCP 47 code) and its direction */
   lang: string
   dir: 'ltr' | 'rtl'
+  /** A site about the Quran or Islamic learning: Quran sections, the Quran typeface, QURAN_CSS */
+  quran: boolean
 }
 
-function fontsUrlFor(p: FontPairing): string {
+function fontsUrlFor(p: FontPairing, quran = false): string {
   const fam = (f: { family: string; weights: number[] }) => `family=${f.family.replace(/ /g, '+')}:wght@${[...new Set(f.weights)].sort((a, b) => a - b).join(';')}`
   const parts = p.heading.family === p.body.family
     ? [fam({ family: p.heading.family, weights: [...p.heading.weights, ...p.body.weights] })]
     : [fam(p.heading), fam(p.body)]
+  // Verses are set in Amiri Quran, the Quran edition of Amiri (one weight)
+  if (quran) parts.push('family=Amiri+Quran')
   return `https://fonts.googleapis.com/css2?${parts.join('&')}&display=swap`
+}
+
+const QURAN_TOPIC = /\b(?:qur'?an|quranic|koran|tafs[ie]e?r|tajw[ie]e?d|hifz|hifdh|hafiz|surahs?|ayahs?|ayat|mosques?|masjids?|madrass?as?|islamic (?:centre|center|school|studies|learning|education|academy|institute|society))\b|قرآن|مسجد|تفسیر|تفسير|سورة|سورہ|مدرسہ|مدرسة/i
+
+/** Turns on the Quran sections for a site that turned out to quote the Quran after all */
+export function enableQuran(kit: BrandKit): void {
+  kit.quran = true
+  kit.fontsUrl = fontsUrlFor(kit.pairing, true)
 }
 
 const field = (brief: string, label: string) =>
@@ -448,10 +461,11 @@ export function buildBrandKit(opts: {
   const siteType = pickSiteType(field(brief, 'SITE TYPE'), playbook.id)
   const askedAction = field(brief, 'HERO ACTION')
   const heroPhoto = opts.heroPhoto || `https://picsum.photos/seed/${encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'))}-hero/1920/1080`
+  const quran = QURAN_TOPIC.test(text)
   return {
     name, descriptor, initial: logoInitial(name), mode, brandHex, pairing,
     palette: buildPalette(brandHex, mode),
-    fontsUrl: fontsUrlFor(pairing),
+    fontsUrl: fontsUrlFor(pairing, quran),
     heroPhoto,
     photos: opts.photos?.length ? opts.photos : [heroPhoto],
     playbook,
@@ -461,6 +475,7 @@ export function buildBrandKit(opts: {
     whatsapp: findWhatsApp(prompt),
     lang,
     dir: rtl ? 'rtl' : 'ltr',
+    quran,
   }
 }
 
@@ -730,6 +745,7 @@ ${OVER}.scrolled { background: color-mix(in srgb, var(--bg) 95%, transparent) !i
 .page-hero :is(.eyebrow, .hero-eyebrow) { color: var(--accent-on-dark) !important; }
 
 ${BLOCKS_CSS}
+${kit.quran ? QURAN_CSS : ''}
 ${siteStyleCss(kit)}
 ${LAYER_END}`
 }
