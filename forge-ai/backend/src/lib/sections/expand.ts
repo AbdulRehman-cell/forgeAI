@@ -80,7 +80,7 @@ function ensureImports(src: string, needsLink: boolean, needsKitForm: boolean): 
 /** Every tag in a page, rendered in order. Idempotent: a page with no tags comes back unchanged. */
 export function expandSections(src: string, kit: BrandKit, flavour: Flavour): ExpandResult {
   if (!/<forge-(section|hero)\b/i.test(src)) return { content: src, rendered: 0, failed: [] }
-  const x = new Ctx(flavour, kit.photos.length ? kit.photos : [kit.heroPhoto], [kit.heroPhoto])
+  const x = new Ctx(flavour, kit.photos.length ? kit.photos : [kit.heroPhoto], [kit.heroPhoto], kit.lang)
   const failed: string[] = []
   let rendered = 0
   let backdrop: Backdrop = 'dark'

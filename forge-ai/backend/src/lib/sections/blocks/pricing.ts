@@ -1,4 +1,5 @@
 import { SectionDef, list, plain } from '../markup'
+import { t } from '../strings'
 
 export const pricing: SectionDef = {
   type: 'pricing',
@@ -16,7 +17,7 @@ export const pricing: SectionDef = {
     const pick = plans.length === 3 && !plans.some((p) => p.featured) ? 1 : featured
     const cardsHtml = plans.map((p, n) => {
       const feats = list(p.features, 8).map(plain).filter(Boolean)
-      return `<article${x.cls('kit-plan', n === pick && 'kit-plan-featured')}>${n === pick ? `<span${x.cls('kit-badge')}>${x.text(p.badge || 'Most popular')}</span>` : ''}<h3>${x.text(p.name)}</h3><p${x.cls('kit-plan-price')}>${x.text(p.price)}${plain(p.period) ? `<small>${x.text(p.period)}</small>` : ''}</p>${plain(p.text) ? `<p>${x.text(p.text)}</p>` : ''}${feats.length ? `<ul${x.cls('kit-checks')}>${feats.map((f) => `<li>${x.text(f)}</li>`).join('')}</ul>` : ''}${x.link(p.button, n === pick ? 'btn btn-primary' : 'btn btn-secondary', 'Choose')}</article>`
+      return `<article${x.cls('kit-plan', n === pick && 'kit-plan-featured')}>${n === pick ? `<span${x.cls('kit-badge')}>${x.text(p.badge || t(x.lang, 'mostPopular'))}</span>` : ''}<h3>${x.text(p.name)}</h3><p${x.cls('kit-plan-price')}>${x.text(p.price)}${plain(p.period) ? `<small>${x.text(p.period)}</small>` : ''}</p>${plain(p.text) ? `<p>${x.text(p.text)}</p>` : ''}${feats.length ? `<ul${x.cls('kit-checks')}>${feats.map((f) => `<li>${x.text(f)}</li>`).join('')}</ul>` : ''}${x.link(p.button, n === pick ? 'btn btn-primary' : 'btn btn-secondary', t(x.lang, 'choose'))}</article>`
     }).join('')
     return x.section('pricing', v, tone, c, `<div${x.cls('kit-pricing')}>${cardsHtml}</div>`)
   },

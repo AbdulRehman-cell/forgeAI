@@ -32,6 +32,7 @@ import { selectPack, getPackCss, getPackPromptNote, PALETTE_PRESETS, type PackNa
 import { getReactPackFiles, getReactPackCss, getReactPackPromptNote } from '../../lib/reactPack'
 import {
   FONT_PAIRINGS, buildBrandKit, brandKitBrief, brandLayerCss, finalizeBrandCss, applyBrandToHtml, sizeInlineIcons, kitFavicon, faviconHref, logoInner,
+  mirrorForRtl, setHtmlLang, languageName,
   type BrandKit,
 } from '../../lib/brandKit'
 import { applyKitExtras, PLAYBOOKS } from '../../lib/blocks'
@@ -2836,6 +2837,9 @@ header nav .btn, .site-header nav .btn {
   header nav, .site-header nav, .navbar nav, header .nav-links {
     display: flex !important;
     flex-direction: column !important;
+    /* Page CSS often sets "nav { flex-wrap: wrap }" for phones: in a column that
+       turns every link into its own column, side by side off the screen */
+    flex-wrap: nowrap !important;
     align-items: stretch !important;
     gap: 0 !important;
     position: absolute !important; top: 100%; left: 0; right: 0;
@@ -2853,7 +2857,8 @@ header nav .btn, .site-header nav .btn {
   header nav.nav-open, .site-header nav.nav-open, .navbar nav.nav-open, header .nav-links.nav-open {
     max-height: 78vh; overflow-y: auto;
     padding: .5rem 0 1rem !important;
-    opacity: 1; pointer-events: auto;
+    /* Beats the page's own hidden-menu rules (visibility / slide-up transforms) */
+    opacity: 1 !important; pointer-events: auto !important; visibility: visible !important; transform: none !important;
   }
 
   /* Nav list items inside mobile drawer */
@@ -3695,7 +3700,7 @@ export async function buildDesignBrief(provider: AIProvider, prompt: string, sit
     : ''
   const res = await safeChat(
     provider,
-    `Art-direct the identity for this website:\n\n"${prompt}"\n\nSite name: ${siteName}${styleLine}\n\nReturn a DESIGN BRIEF as plain text (no markdown) with EXACTLY these labelled lines:\nBRAND NAME: the business name for the logo — from the request if it gives one (or the brand's real name when its existing site is included above); otherwise a credible 1–3 word name for this business.\nDESCRIPTOR: 2–3 words naming the business type, shown small under the logo (e.g. "Recruitment agency", "Artisan bakery", "Dental clinic").\nSITE TYPE: what the site DOES — exactly one id: ${SITE_TYPES.map((t) => `${t.id} (${t.fits})`).join('; ')}.\nINDUSTRY: what it is ABOUT — exactly one id: ${PLAYBOOKS.map((p) => `${p.id} (${p.label})`).join('; ')}; general (none of these).\nVIBE: 4–6 adjectives.\nBRAND COLOR: ONE hex colour that owns this industry and stands out (e.g. safety orange for logistics, oxblood for a steakhouse, forest green for landscaping, cobalt for a clinic). When the brand's real colours are given above, use their main brand colour. Avoid generic violet/indigo unless the brand genuinely is.\nMODE: light — or dark only for nightlife, gaming or luxury black-label brands, or when the request asks for it.\nFONT PAIRING: exactly one id from this list —\n${FONT_PAIRINGS.map((p) => `  ${p.id}: ${p.heading.family} + ${p.body.family}${p.headingCase === 'uppercase' ? ' (uppercase headlines)' : ''} — ${p.fits}`).join('\n')}\nPHOTO SUBJECTS: 3–4 comma-separated concrete photo searches. The FIRST is the hero: a wide, atmospheric shot of the real place or work (e.g. "warehouse interior shelves", "barber cutting hair", "restaurant dining room evening"). The others show people, products and details a visitor expects.\nHERO ACTION: the visitor's #1 task as a small form in the hero — a title plus 2–3 fields and the button label (e.g. "Find a job: keyword, location → Search jobs"; "Book a table: date, guests → Find a table"; "Get a quote: service, postcode → Get my quote"), or "none" if nothing form-like fits.\nHERO PROOF: 3–4 short stats believable for this business (e.g. "50+ active roles; 9 locations; 48hr average start").\nREFERENCE: this site's category, and how best-in-class REAL sites in it are built — their signature sections in order, imagery and tone (a hotel: rooms, amenities, gallery, dining, offers, reviews, location; a restaurant: menu, reservations, gallery, story, hours; a SaaS: logos, features, how it works, pricing, testimonials, FAQ).\n\nThe identity must obviously belong to this INDUSTRY (a sports brand = athletic and punchy; a law firm = refined; a bakery = warm). Premium comes from restraint: one colour, strong type, real photos — never gradient text, glows or decorative blobs.`,
+    `Art-direct the identity for this website:\n\n"${prompt}"\n\nSite name: ${siteName}${styleLine}\n\nReturn a DESIGN BRIEF as plain text (no markdown) with EXACTLY these labelled lines:\nLANGUAGE: the language visitors read, as "code — name" (e.g. "ur — Urdu", "ar — Arabic"): the one the request asks for ("website in Urdu") or is written in; otherwise "en — English".\nBRAND NAME: the business name for the logo — from the request if it gives one (or the brand's real name when its existing site is included above); otherwise a credible 1–3 word name for this business, written in the LANGUAGE's script (an Urdu site gets an Urdu name) unless the request spells the name in another script.\nDESCRIPTOR: 2–3 words in the LANGUAGE naming the business type, shown small under the logo (e.g. "Recruitment agency", "Artisan bakery", "Dental clinic").\nSITE TYPE: what the site DOES — exactly one id: ${SITE_TYPES.map((t) => `${t.id} (${t.fits})`).join('; ')}.\nINDUSTRY: what it is ABOUT — exactly one id: ${PLAYBOOKS.map((p) => `${p.id} (${p.label})`).join('; ')}; general (none of these).\nVIBE: 4–6 adjectives.\nBRAND COLOR: ONE hex colour that owns this industry and stands out (e.g. safety orange for logistics, oxblood for a steakhouse, forest green for landscaping, cobalt for a clinic). When the brand's real colours are given above, use their main brand colour. Avoid generic violet/indigo unless the brand genuinely is.\nMODE: light — or dark only for nightlife, gaming or luxury black-label brands, or when the request asks for it.\nFONT PAIRING: exactly one id from this list (Urdu sites: urdu-nastaliq; Arabic or Persian sites: an arabic-* id; every other language: one of the rest) —\n${FONT_PAIRINGS.map((p) => `  ${p.id}: ${p.heading.family} + ${p.body.family}${p.headingCase === 'uppercase' ? ' (uppercase headlines)' : ''} — ${p.fits}`).join('\n')}\nPHOTO SUBJECTS: 3–4 comma-separated concrete photo searches, in English whatever the site's language. The FIRST is the hero: a wide, atmospheric shot of the real place or work (e.g. "warehouse interior shelves", "barber cutting hair", "restaurant dining room evening"). The others show people, products and details a visitor expects.\nHERO ACTION: the visitor's #1 task as a small form in the hero — a title plus 2–3 fields and the button label (e.g. "Find a job: keyword, location → Search jobs"; "Book a table: date, guests → Find a table"; "Get a quote: service, postcode → Get my quote"), or "none" if nothing form-like fits.\nHERO PROOF: 3–4 short stats believable for this business (e.g. "50+ active roles; 9 locations; 48hr average start").\nREFERENCE: this site's category, and how best-in-class REAL sites in it are built — their signature sections in order, imagery and tone (a hotel: rooms, amenities, gallery, dining, offers, reviews, location; a restaurant: menu, reservations, gallery, story, hours; a SaaS: logos, features, how it works, pricing, testimonials, FAQ).\n\nThe identity must obviously belong to this INDUSTRY (a sports brand = athletic and punchy; a law firm = refined; a bakery = warm). Premium comes from restraint: one colour, strong type, real photos — never gradient text, glows or decorative blobs.`,
     DESIGN_DIRECTOR_PROMPT,
   )
   const brief = res?.content?.trim()
@@ -7836,6 +7841,7 @@ async function buildSite(job: Job) {
     })
     designBrief += `\n\n${brandKitBrief(brandKit, stack === 'mern' || stack === 'supabase' ? 'jsx' : 'html')}`
     await updateTask(task, {}, `🎨 Brand kit: ${brandKit.name} — ${brandKit.brandHex}, ${brandKit.pairing.heading.family} + ${brandKit.pairing.body.family}, ${brandKit.mode} mode`)
+    if (brandKit.lang !== 'en') await updateTask(task, {}, `🌐 Language: ${languageName(brandKit.lang)}${brandKit.dir === 'rtl' ? ' — right-to-left' : ''}`)
     await updateTask(task, {}, `🧩 Layout: ${brandKit.siteType.label}${brandKit.siteType.recipe ? '' : ` · ${brandKit.playbook.label}`} — ${brandKit.plan.hero} opener, ${brandKit.plan.sections.map((s) => `${s.type}/${s.variant}`).join(', ')}`)
 
     // ── PRD: Claude writes the content blueprint before any coding starts ──
@@ -8026,6 +8032,8 @@ async function buildSite(job: Job) {
           await updateTask(task, {}, `🧹 Removed ${checked.removed.length} unreadable line(s) from the stylesheet: ${checked.removed.slice(0, 3).join('; ')}`)
         }
       }
+      // A right-to-left site's whole sheet is mirrored, once, after every AI pass
+      if (css) css.content = mirrorForRtl(css.content, brandKit)
       if (stack !== 'mern' && stack !== 'supabase') {
         // Forms send their messages to the owner's Leads inbox (a static site has no server)
         const forms = siteFormsEndpoint(await siteToken(repo))
@@ -8034,7 +8042,7 @@ async function buildSite(job: Job) {
         for (const f of generated.filter((g) => g.path.endsWith('.jsx'))) f.content = sizeInlineIcons(f.content)
         // Count-ups, rotating word and the WhatsApp button live outside React
         const shell = generated.find((f) => f.path === (stack === 'mern' ? 'client/index.html' : 'index.html'))
-        if (shell) shell.content = applyKitExtras(shell.content, brandKit)
+        if (shell) shell.content = setHtmlLang(applyKitExtras(shell.content, brandKit), brandKit)
       }
     }
 

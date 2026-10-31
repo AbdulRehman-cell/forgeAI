@@ -38,15 +38,16 @@ export function leadFromRows(rows: Row[]): { name: string; email?: string; phone
     const i = left.findIndex(test)
     return i < 0 ? undefined : left.splice(i, 1)[0][1]
   }
-  const email = take((r) => ((r[2] === 'email' || has(r, /e-?mail/i)) && /@/.test(r[1])) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r[1]))
-  const phone = take((r) => r[2] === 'tel' || has(r, /phone|mobile|whats ?app|\btel\b|cell|contact number/i)
+  // Labels may be Urdu or Arabic: نام / الاسم, فون / هاتف, پیغام / رسالة
+  const email = take((r) => ((r[2] === 'email' || has(r, /e-?mail|ای میل|البريد/i)) && /@/.test(r[1])) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r[1]))
+  const phone = take((r) => r[2] === 'tel' || has(r, /phone|mobile|whats ?app|\btel\b|cell|contact number|فون|موبائل|نمبر|هاتف|جوال|واتس/i)
     // "Your number: 0300 1234567" — a phone by its value, unless the field is a date, count or amount
     || (/^\+?[\d\s().-]{7,}$/.test(r[1]) && (r[1].match(/\d/g) ?? []).length >= 7 && !/^date|time|number$/.test(r[2])
       && !/^\d{4}-\d{2}-\d{2}|^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/.test(r[1]) && !/date|day|when|time|budget|price|amount|guests?|people|age|size|postcode|zip/i.test(`${r[0]} ${r[3]}`)))
   const first = take((r) => has(r, /first.?name|given.?name/i))
   const last = take((r) => has(r, /last.?name|surname|family.?name/i))
-  const full = first || last ? undefined : take((r) => has(r, /name/i) && !has(r, /company|business|organi[sz]ation|pet|child|baby|event|user.?name/i))
-  const note = take((r) => r[2] === 'textarea' || has(r, /message|comment|enquiry|inquiry|question|details|notes?|anything|tell us/i))
+  const full = first || last ? undefined : take((r) => has(r, /name|نام|الاسم|اسمك/i) && !has(r, /company|business|organi[sz]ation|pet|child|baby|event|user.?name|کمپنی|الشركة/i))
+  const note = take((r) => r[2] === 'textarea' || has(r, /message|comment|enquiry|inquiry|question|details|notes?|anything|tell us|پیغام|تفصیل|رسالة|ملاحظات/i))
   const extra = left.map((r) => `${r[0]}: ${r[1]}`)
   const message = [...extra, ...(note ? [extra.length ? `Message: ${note}` : note] : [])].join('\n') || undefined
   // Nobody can answer a message without a way to reach its sender

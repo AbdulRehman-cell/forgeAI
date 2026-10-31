@@ -27,6 +27,10 @@ export interface FontPairing {
   match: RegExp
   /** Used when the art director gave no usable brand colour */
   defaultColor: string
+  /** Set for Arabic-script pairings (Urdu, Arabic, Persian sites) */
+  script?: 'urdu' | 'arabic'
+  /** Line height for running text — Nastaliq needs far more than Latin */
+  bodyLeading?: number
 }
 
 const SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
@@ -163,9 +167,62 @@ export const FONT_PAIRINGS: FontPairing[] = [
     match: /fintech|marketplace|mobile app|\bapp\b|wallet|payments|startup|platform/i,
     defaultColor: '#5b3df5',
   },
+  // Arabic-script pairings — chosen for Urdu, Arabic and Persian sites. These
+  // scripts join their letters, so no tracking or uppercase; Nastaliq stacks
+  // tall and needs generous line height.
+  {
+    id: 'urdu-nastaliq', script: 'urdu', heading: { family: 'Noto Nastaliq Urdu', weights: [600, 700], fallback: 'serif' },
+    body: { family: 'Noto Nastaliq Urdu', weights: [400, 500], fallback: 'serif' },
+    headingCase: 'none', headingWeight: 700, headingTracking: '0', headingLeading: 1.75, bodyLeading: 2.15, shape: 'soft',
+    fits: 'Urdu sites — classic Nastaliq, how Urdu readers expect Urdu to look',
+    match: /urdu|اردو/i,
+    defaultColor: '#0f6e56',
+  },
+  {
+    id: 'arabic-modern', script: 'arabic', heading: { family: 'Cairo', weights: [700, 800], fallback: SANS },
+    body: { family: 'IBM Plex Sans Arabic', weights: [400, 500, 600], fallback: SANS },
+    headingCase: 'none', headingWeight: 800, headingTracking: '0', headingLeading: 1.3, bodyLeading: 1.85, shape: 'soft',
+    fits: 'Arabic or Persian sites — modern, clean: businesses, apps, services',
+    match: /arabic|عربي|persian|farsi|فارسی/i,
+    defaultColor: '#0b6e99',
+  },
+  {
+    id: 'arabic-classic', script: 'arabic', heading: { family: 'Amiri', weights: [700], fallback: 'serif' },
+    body: { family: 'Noto Naskh Arabic', weights: [400, 500, 600], fallback: 'serif' },
+    headingCase: 'none', headingWeight: 700, headingTracking: '0', headingLeading: 1.45, bodyLeading: 1.95, shape: 'soft',
+    fits: 'Arabic sites with a traditional feel — mosques, Islamic learning, heritage, calligraphy',
+    match: /mosque|masjid|islamic|madrasa|quran|qur'an/i,
+    defaultColor: '#7a5c1e',
+  },
 ]
 
 const DEFAULT_PAIRING = 'clinical'
+
+// ─── Language and direction ─────────────────────────────────────────────────
+
+const RTL_LANGS = new Set(['ar', 'ur', 'fa', 'he', 'ps', 'sd', 'ug', 'yi', 'ckb'])
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English', ur: 'Urdu', ar: 'Arabic', fa: 'Persian', hi: 'Hindi', pa: 'Punjabi', bn: 'Bengali', tr: 'Turkish',
+  fr: 'French', es: 'Spanish', de: 'German', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', ru: 'Russian', ms: 'Malay', id: 'Indonesian',
+  he: 'Hebrew', ps: 'Pashto', sd: 'Sindhi',
+}
+
+/** A language code from the art director's line ("ur", "Urdu", "ur — Urdu"), else
+ *  from the script the request is written in, else English. */
+export function pickLanguage(asked: string, prompt: string): string {
+  const a = asked.trim().toLowerCase()
+  const code = /^([a-z]{2,3})\b/.exec(a)?.[1]
+  if (code && LANGUAGE_NAMES[code]) return code
+  const byName = Object.entries(LANGUAGE_NAMES).find(([, name]) => a.includes(name.toLowerCase()))
+  if (byName) return byName[0]
+  // A request written in Arabic script: Urdu has letters Arabic lacks
+  const arabicScript = (prompt.match(/[؀-ۿ]/g) ?? []).length
+  if (arabicScript > 12) return /[ٹڈڑںےھۓ]/.test(prompt) ? 'ur' : 'ar'
+  return 'en'
+}
+
+export const isRtl = (lang: string) => RTL_LANGS.has(lang)
+export const languageName = (lang: string) => LANGUAGE_NAMES[lang] ?? lang
 
 const RADII: Record<Shape, { sm: string; base: string; lg: string; xl: string; btn: string }> = {
   sharp: { sm: '6px', base: '10px', lg: '14px', xl: '20px', btn: '6px' },
@@ -333,6 +390,9 @@ export interface BrandKit {
   heroAction: string
   /** International digits for the floating WhatsApp button, '' for none */
   whatsapp: string
+  /** The language visitors read (BCP 47 code) and its direction */
+  lang: string
+  dir: 'ltr' | 'rtl'
 }
 
 function fontsUrlFor(p: FontPairing): string {
@@ -369,9 +429,15 @@ export function buildBrandKit(opts: {
 }): BrandKit {
   const { brief, prompt } = opts
   const text = `${prompt}\n${field(brief, 'DESCRIPTOR')}\n${field(brief, 'REFERENCE')}`
-  const askedId = field(brief, 'FONT PAIRING').toLowerCase().match(/[a-z]+/)?.[0] ?? ''
-  const pairing = FONT_PAIRINGS.find((p) => p.id === askedId)
-    ?? FONT_PAIRINGS.find((p) => p.match.test(text))
+  const lang = pickLanguage(field(brief, 'LANGUAGE'), prompt)
+  const rtl = isRtl(lang)
+  // Only pairings that can set this language: Latin faces have no Arabic script,
+  // and an English mosque site keeps a Latin pairing
+  const fit = FONT_PAIRINGS.filter((p) => (lang === 'ur' ? p.script === 'urdu' : rtl ? p.script === 'arabic' : !p.script))
+  const askedId = field(brief, 'FONT PAIRING').toLowerCase().match(/[a-z][a-z-]*/)?.[0] ?? ''
+  const pairing = fit.find((p) => p.id === askedId)
+    ?? fit.find((p) => p.match.test(text))
+    ?? fit[0]
     ?? FONT_PAIRINGS.find((p) => p.id === DEFAULT_PAIRING)!
   const briefColor = /#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/i.exec(field(brief, 'BRAND COLOU?R'))?.[0]
   const brandHex = opts.override?.brandHex ?? (briefColor && parseHex(briefColor) ? briefColor.toLowerCase() : pairing.defaultColor)
@@ -393,7 +459,32 @@ export function buildBrandKit(opts: {
     plan: planSite(name, playbook, siteType),
     heroAction: askedAction && !/^none\b/i.test(askedAction) ? askedAction : playbook.heroAction,
     whatsapp: findWhatsApp(prompt),
+    lang,
+    dir: rtl ? 'rtl' : 'ltr',
   }
+}
+
+/** The page's <html> tag gets the kit's language and direction. */
+export function setHtmlLang(html: string, kit: BrandKit): string {
+  const attrs = `lang="${kit.lang}"${kit.dir === 'rtl' ? ' dir="rtl"' : ''}`
+  if (!/<html\b/i.test(html)) return html
+  return html.replace(/<html\b([^>]*)>/i, (_m, rest: string) => `<html ${attrs}${rest.replace(/\s(lang|dir)=("[^"]*"|'[^']*'|\S+)/gi, '')}>`)
+}
+
+const RTL_MARK = '/* forgeai:rtl */'
+
+/**
+ * A right-to-left site gets its whole stylesheet mirrored — ForgeAI's layers and
+ * the AI's rules alike (left ↔ right, translateX, gradient angles) — so nobody has
+ * to write direction-aware CSS. Runs once per sheet (a marker stops a second flip).
+ */
+export function mirrorForRtl(css: string, kit: BrandKit): string {
+  if (kit.dir !== 'rtl' || css.includes(RTL_MARK)) return css
+  // Loaded on demand: nothing heavy at boot in the 120 MB heap
+  const rtlcss = require('rtlcss') as { process: (css: string) => string }
+  // Arrows written as CSS content point forward — in RTL forward is left
+  const patch = `.kit-story-link::after { content: ' \\2190'; }`
+  return `${RTL_MARK}\n${rtlcss.process(css)}\n${patch}\n`
 }
 
 const esc = (s: string) => s.replace(/[<>{}&"]/g, '')
@@ -426,6 +517,16 @@ const TASTE_RULES = `TASTE RULES — what separates a designed site from an AI-m
 8. Headline 8 words or fewer, subhead 30 words or fewer. Buttons name the action ("Browse jobs", "Book a table") — never "Learn more" or "Click here".
 9. Never write font-family, @import, or colour hex codes yourself — use var(--font-heading), var(--font-body) and the colour variables.`
 
+/** The site's language: every visible word in it; right-to-left handled by ForgeAI */
+function languageBrief(kit: BrandKit): string {
+  if (kit.lang === 'en') return ''
+  const name = languageName(kit.lang)
+  return `
+LANGUAGE: ${name} (lang="${kit.lang}"${kit.dir === 'rtl' ? ', right-to-left' : ''}). Write EVERY visible word in ${name}${kit.dir === 'rtl' ? ' script' : ''} — headings, buttons, navigation, form labels and placeholders, FAQ, reviews, footer, alt text, and every string inside <forge-section>/<forge-hero> JSON. Keep the brand name exactly as given, and numbers, prices and phone numbers in Western digits. JSON keys, class names, routes and file names stay in English.${kit.dir === 'rtl' ? `
+RIGHT-TO-LEFT: ForgeAI sets dir="rtl" on the page and mirrors the whole stylesheet automatically, so write HTML and CSS exactly as for a left-to-right page — never add dir attributes, never use direction: rtl, never swap left and right yourself. No letter-spacing and no uppercase (${name} letters join).` : ''}
+`
+}
+
 /** Appended to the design brief: the fixed identity + taste rules + hero recipe. */
 export function brandKitBrief(kit: BrandKit, flavour: 'jsx' | 'html'): string {
   const p = kit.palette
@@ -440,7 +541,7 @@ COLOUR VARIABLES (already defined — always use var(), never hex): --primary (t
 FONTS (already loaded): headings "${h}"${kit.pairing.headingCase === 'uppercase' ? ' — set in UPPERCASE with tight leading (the stylesheet does this)' : ''}; body "${kit.pairing.body.family}".
 LOGO — use exactly this in the header (and the same inner markup for the footer logo):
 ${logo}
-
+${languageBrief(kit)}
 ${TASTE_RULES}
 
 ${sectionsBrief(kit, flavour)}
@@ -497,6 +598,11 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text);
 :is(h1, h2) { text-transform: var(--heading-case) !important; letter-spacing: var(--heading-tracking) !important; font-weight: var(--heading-weight) !important; }
 h1 { line-height: var(--heading-leading); }
 h2 { line-height: calc(var(--heading-leading) + .06); }
+${f.script ? `/* Arabic script: the letters join, so no tracking anywhere; tall glyphs need room */
+html :is(*, *::before, *::after) { letter-spacing: normal !important; }
+body { line-height: ${f.bodyLeading ?? 1.9}; }
+:is(p, li, dd, blockquote, figcaption, label, small, td, th, summary, .brand-tag) { line-height: ${f.bodyLeading ?? 1.9} !important; }
+:is(h1, h2, h3, h4, h5, h6, .brand-name) { line-height: var(--heading-leading) !important; }` : ''}
 :is(.eyebrow, .section-label) { color: var(--primary-ink); }
 :where(p, li):not(header *, nav *, footer *) > a:not([class]) { color: var(--primary-ink); text-decoration: underline; text-underline-offset: 3px; }
 
@@ -550,7 +656,7 @@ ${TOP_HEADER} :is(.mobile-toggle, .menu-toggle, .mobile-menu-toggle, .mobile-men
   ${TOP_HEADER} > .nav-toggle { margin-left: auto !important; }
   ${TOP_HEADER} nav:has(.nav-brand, .brand-mark) { flex-direction: row !important; max-height: none !important; opacity: 1 !important; pointer-events: auto !important; overflow: visible !important; }
   ${TOP_HEADER} nav:has(.nav-brand, .brand-mark) > :is(.nav-links, .nav-menu, ul) { display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 0 !important; position: absolute !important; top: 100%; left: 0; right: 0; margin: 0 !important; padding: 0 !important; background: color-mix(in srgb, var(--bg) 97%, transparent) !important; border: 0 !important; box-shadow: 0 20px 40px -16px rgba(0,0,0,.35); max-height: 0; overflow: hidden; opacity: 0; pointer-events: none; z-index: 190; transition: max-height .35s ease, opacity .3s ease; }
-  ${TOP_HEADER} nav.nav-open:has(.nav-brand, .brand-mark) > :is(.nav-links, .nav-menu, ul) { max-height: 78vh; overflow-y: auto; opacity: 1; pointer-events: auto; padding: .5rem 0 1rem !important; border-top: 1px solid var(--border) !important; }
+  ${TOP_HEADER} nav.nav-open:has(.nav-brand, .brand-mark) > :is(.nav-links, .nav-menu, ul) { max-height: 78vh; overflow-y: auto; opacity: 1; pointer-events: auto; visibility: visible !important; transform: none !important; flex-wrap: nowrap !important; padding: .5rem 0 1rem !important; border-top: 1px solid var(--border) !important; }
   ${TOP_HEADER} nav:has(.nav-brand, .brand-mark) > :is(.nav-links, .nav-menu, ul) a:not(#_) { display: flex !important; align-items: center; min-height: 48px; padding: .8rem 1.5rem !important; border-bottom: 1px solid var(--border) !important; color: var(--text) !important; width: 100%; }
   ${TOP_HEADER} nav:has(.nav-brand, .brand-mark) > .nav-cta { display: none !important; }
   /* The menu-row styling for "header nav a" must not reach the logo */
@@ -718,7 +824,7 @@ export function sizeInlineIcons(markup: string): string {
 
 /** Static pages: the kit's fonts, the monogram favicon, and the logo in the header. */
 export function applyBrandToHtml(html: string, kit: BrandKit): string {
-  let out = html
+  let out = setHtmlLang(html, kit)
   if (!out.includes(kit.fontsUrl)) {
     out = out.replace(/[ \t]*<link[^>]+fonts\.googleapis\.com\/css2?\?[^>]*>\s*/gi, '')
     out = out.replace(/<\/head>/i, `  <link rel="preconnect" href="https://fonts.googleapis.com">\n  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n  <link rel="stylesheet" href="${kit.fontsUrl}">\n</head>`)

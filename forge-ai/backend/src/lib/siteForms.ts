@@ -7,16 +7,18 @@
 // alone, and pages they lead to get their fields pre-filled from the URL.
 
 import { publicApiBase } from './publicUrl'
+import { t } from './sections/strings'
 
 export const siteFormsEndpoint = (shareToken: string) => `${publicApiBase()}/site-forms/${encodeURIComponent(shareToken)}`
 
-function siteFormsJs(endpoint: string): string {
+function siteFormsJs(endpoint: string, lang: string): string {
   return `(function(){
   if (window.__kitForms) return; window.__kitForms = 1;
   var URL_ = ${JSON.stringify(endpoint)};
-  var THANKS = 'Thank you \\u2014 your message has been sent. We will be in touch soon.';
-  var FAIL = 'Sorry \\u2014 your message could not be sent. Please try again or contact us directly.';
-  var ASK = 'Please add your phone number or email so we can reply.';
+  var THANKS = ${JSON.stringify(t(lang, 'thanks'))};
+  var FAIL = ${JSON.stringify(t(lang, 'fail'))};
+  var ASK = ${JSON.stringify(t(lang, 'ask'))};
+  var SENDING = ${JSON.stringify(t(lang, 'sending'))};
   var SKIP = /^(submit|button|reset|image|file|password|hidden)$/i;
   var snap = typeof WeakMap === 'function' ? new WeakMap() : null;
   function clean(s){ return String(s || '').replace(/\\s+/g, ' ').replace(/[*:]+\\s*$/, '').trim(); }
@@ -66,7 +68,7 @@ function siteFormsJs(endpoint: string): string {
     var hp = form.querySelector('[name=_gotcha]');
     var body = JSON.stringify({ fields: fields, page: location.pathname, form: titleOf(form), hp: hp ? hp.value : '', ref: location.search.slice(0, 300) });
     var btn = form.querySelector('[type=submit], button:not([type])'), label = btn ? btn.textContent : '';
-    if (!own && btn) { btn.disabled = true; btn.textContent = 'Sending\\u2026'; }
+    if (!own && btn) { btn.disabled = true; btn.textContent = SENDING; }
     fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: body, keepalive: true })
       .then(function(r){ if (!r.ok) throw new Error(String(r.status)); if (!own) note(form, THANKS, true); })
       .catch(function(err){ form.__kitSent = 0; if (!own) { if (btn) { btn.disabled = false; btn.textContent = label; } note(form, /^400$/.test(err && err.message) ? ASK : FAIL, false); } });
@@ -89,7 +91,8 @@ function siteFormsJs(endpoint: string): string {
     for (var i = 0; i < forms.length; i++) { var form = forms[i]; if (!isMessage(form)) continue;
       // Bots fill every field; people never see this one
       if (!form.querySelector('[name=_gotcha]')) { var t = document.createElement('input'); t.type = 'text'; t.name = '_gotcha'; t.tabIndex = -1; t.autocomplete = 'off'; t.setAttribute('aria-hidden', 'true');
-        t.style.cssText = 'position:absolute!important;left:-9999px!important;width:1px;height:1px;opacity:0'; form.appendChild(t); } }
+        // Hidden in place, not pushed off-screen: a right-to-left page scrolls towards the left
+        t.style.cssText = 'position:absolute!important;width:1px!important;height:1px!important;padding:0!important;border:0!important;opacity:0!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;clip-path:inset(50%)!important;pointer-events:none!important'; form.appendChild(t); } }
     prefill();
     // Again once the page's own scripts have run: one that sets a raw URL value on a <select> blanks it
     setTimeout(prefill, 80);
@@ -101,7 +104,9 @@ function siteFormsJs(endpoint: string): string {
 /** Adds the forms script to a static page (once; a new endpoint replaces the old). */
 export function applySiteForms(html: string, endpoint: string): string {
   if (!/<form\b/i.test(html) && !/<\/body>/i.test(html)) return html
-  const script = `<script data-kit-forms>${siteFormsJs(endpoint)}</script>`
+  // Messages in the page's own language (<html lang="ur"> → Urdu)
+  const lang = /<html\b[^>]*\blang=["']?([a-z]{2,3})/i.exec(html)?.[1]?.toLowerCase() ?? 'en'
+  const script = `<script data-kit-forms>${siteFormsJs(endpoint, lang)}</script>`
   if (/<script data-kit-forms>[\s\S]*?<\/script>/.test(html)) return html.replace(/<script data-kit-forms>[\s\S]*?<\/script>/, () => script)
   return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, () => `${script}\n</body>`) : `${html}\n${script}`
 }

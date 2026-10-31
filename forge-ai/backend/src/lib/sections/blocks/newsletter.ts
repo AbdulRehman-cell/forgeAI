@@ -1,4 +1,5 @@
 import { SectionDef, plain } from '../markup'
+import { t } from '../strings'
 
 export const newsletter: SectionDef = {
   type: 'newsletter',
@@ -10,7 +11,7 @@ export const newsletter: SectionDef = {
   dataForm: true,
   render(c, v, x, tone) {
     const id = x.uid('kn')
-    const form = x.jsx ? '' : x.ownForm('kit-newsletter-form', `<label${x.cls('kit-sr')} for="${id}">Email address</label><input id="${id}" type="email" name="email" required placeholder="${x.text(c.placeholder || 'you@example.com')}"><button type="submit"${x.cls('btn btn-primary')}>${x.text(c.button || 'Subscribe')}</button>`)
+    const form = x.jsx ? '' : x.ownForm('kit-newsletter-form', `<label${x.cls('kit-sr')} for="${id}">${x.say('emailAddress')}</label><input id="${id}" type="email" name="email" required placeholder="${x.text(c.placeholder || 'you@example.com')}"><button type="submit"${x.cls('btn btn-primary')}>${x.text(c.button || t(x.lang, 'subscribe'))}</button>`)
     const words = `<div>${plain(c.title) ? `<h2>${x.text(c.title)}</h2>` : ''}${plain(c.text) ? `<p>${x.text(c.text)}</p>` : ''}</div>`
     const side = `<div>${form}${plain(c.note) ? `<p${x.cls('kit-newsletter-note')}>${x.text(c.note)}</p>` : ''}</div>`
     if (v === 'band') {

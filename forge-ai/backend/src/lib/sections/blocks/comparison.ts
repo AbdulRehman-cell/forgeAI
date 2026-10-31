@@ -9,8 +9,8 @@ export const comparison: SectionDef = {
     const cols = list(c.columns, 3).map(plain).filter(Boolean)
     const rows = list(c.rows, 10).filter((r) => plain(r?.label))
     const cell = (val: unknown) => {
-      if (val === true || /^(yes|true|✓)$/i.test(plain(val))) return `<span${x.cls('kit-yes')} aria-label="Yes">✓</span>`
-      if (val === false || /^(no|false|✗|—|-)$/i.test(plain(val))) return `<span${x.cls('kit-no')} aria-label="No">—</span>`
+      if (val === true || /^(yes|true|✓)$/i.test(plain(val))) return `<span${x.cls('kit-yes')} aria-label="${x.say('yes')}">✓</span>`
+      if (val === false || /^(no|false|✗|—|-)$/i.test(plain(val))) return `<span${x.cls('kit-no')} aria-label="${x.say('no')}">—</span>`
       return x.text(val)
     }
     const head = `<thead><tr><th></th>${cols.map((col, n) => `<th${x.cls(n === 0 && 'kit-compare-us')} scope="col">${x.text(col)}</th>`).join('')}</tr></thead>`

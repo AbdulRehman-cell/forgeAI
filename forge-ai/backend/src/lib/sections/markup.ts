@@ -2,6 +2,7 @@
 // Ctx, so the same section file produces both static HTML and React JSX.
 
 import { iconSvg } from './icons'
+import { StringKey, t } from './strings'
 
 export type Flavour = 'html' | 'jsx'
 /** A variant's visual shape — two sections of the same shape never sit together */
@@ -53,7 +54,10 @@ export class Ctx {
   needsKitForm = false
   private next = 0
 
-  constructor(readonly flavour: Flavour, private readonly photos: string[], private readonly skip: string[] = []) {}
+  constructor(readonly flavour: Flavour, private readonly photos: string[], private readonly skip: string[] = [], readonly lang = 'en') {}
+
+  /** One of ForgeAI's own strings in the site's language, escaped */
+  say(key: StringKey, vars?: Record<string, string | number>): string { return esc(t(this.lang, key, vars)) }
 
   get jsx(): boolean { return this.flavour === 'jsx' }
 
@@ -168,7 +172,7 @@ export class Ctx {
   /** Stars for a rating 1–5 (default 5) */
   stars(v: unknown): string {
     const n = Math.max(1, Math.min(5, Math.round(Number(v) || 5)))
-    return `<div${this.cls('kit-stars')} aria-label="${n} out of 5 stars">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</div>`
+    return `<div${this.cls('kit-stars')} aria-label="${this.say('stars', { n })}">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</div>`
   }
 
   initials(name: unknown): string {

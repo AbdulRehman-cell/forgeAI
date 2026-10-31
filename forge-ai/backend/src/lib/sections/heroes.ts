@@ -4,6 +4,7 @@
 // hero contrast safety net paints all text inside any *hero* section white.
 
 import { Content, Ctx, list, plain } from './markup'
+import { t } from './strings'
 
 export interface HeroDef {
   layout: string
@@ -82,7 +83,7 @@ export const HEROES: HeroDef[] = [
       const act = c.action && typeof c.action === 'object' ? c.action : null
       const cards = list(c.cards, 2).filter((k) => plain(k?.value))
       const glass = cards.map((k) => `<div${x.cls('hero-glass')}>${x.icon(k.icon, 'hero-glass-icon')}<div><span${x.cls('hero-glass-label')}>${x.text(k.label)}</span><span${x.cls('hero-glass-value')}>${x.text(k.value)}</span></div></div>`).join('')
-      const card = act ? `<div${x.cls('hero-card')}>${plain(act.title) ? `<h3>${x.text(act.title)}</h3>` : ''}${x.goForm('hero-form', act.href, `${fields(c, x, [{ label: 'What do you need?' }])}<button type="submit"${x.cls('btn btn-primary')}>${x.text(act.button || 'Continue')}</button>`)}</div>` : ''
+      const card = act ? `<div${x.cls('hero-card')}>${plain(act.title) ? `<h3>${x.text(act.title)}</h3>` : ''}${x.goForm('hero-form', act.href, `${fields(c, x, [{ label: t(x.lang, 'whatNeed') }])}<button type="submit"${x.cls('btn btn-primary')}>${x.text(act.button || t(x.lang, 'continue'))}</button>`)}</div>` : ''
       const aside = glass || card ? `<aside${x.cls('hero-aside')}>${act ? '' : glass}${card}</aside>` : ''
       return photoHero('kit-hero-action', c, x, `<div${x.cls('hero-copy')}>${eyebrow(c, x, 'hero-eyebrow')}${h1(c, x)}${lead(c, x, 'hero-lead')}${actions(c, x, 'hero-actions')}</div>${aside}${heroStats(c, x)}`)
     },
@@ -101,10 +102,10 @@ export const HEROES: HeroDef[] = [
     doc: `centred headline and one wide search bar over a photo (jobs, property, listings, rooms) — {"eyebrow","title","accent","lead","photo","action":{"fields":[{"label","name","type","options"}] ×1–3,"button","href":"the results page"},"chips":["popular search"] ×3–5}`,
     render(c, x) {
       const href = c.action?.href
-      const bar = x.goForm('kit-search', href, `${fields(c, x, [{ label: 'What are you looking for?', name: 'q' }])}<button type="submit"${x.cls('btn btn-primary')}>${x.text(c.action?.button || 'Search')}</button>`)
+      const bar = x.goForm('kit-search', href, `${fields(c, x, [{ label: t(x.lang, 'lookingFor'), name: 'q' }])}<button type="submit"${x.cls('btn btn-primary')}>${x.text(c.action?.button || t(x.lang, 'search'))}</button>`)
       const chips = list(c.chips, 5).map(plain).filter(Boolean)
       const base = x.href(href || (x.jsx ? '/' : 'index.html')).split('?')[0]
-      const chipRow = chips.length ? `<div${x.cls('kit-chips')}><span>Popular:</span>${chips.map((ch) => x.link({ label: ch, href: `${base}?q=${encodeURIComponent(ch)}` }, '')).join('')}</div>` : ''
+      const chipRow = chips.length ? `<div${x.cls('kit-chips')}><span>${x.say('popular')}</span>${chips.map((ch) => x.link({ label: ch, href: `${base}?q=${encodeURIComponent(ch)}` }, '')).join('')}</div>` : ''
       return photoHero('kit-hero-centered kit-hero-search', c, x, `<div${x.cls('hero-copy')}>${eyebrow(c, x, 'hero-eyebrow')}${h1(c, x)}${lead(c, x, 'hero-lead')}<div${x.cls('kit-search-wrap')}>${bar}${chipRow}</div></div>`)
     },
   },
@@ -116,7 +117,7 @@ export const HEROES: HeroDef[] = [
       const when = [plain(c.when), plain(c.venue)].filter(Boolean).join(' · ')
       const date = plain(c.date)
       const unit = (k: string, label: string) => `<div><span${x.cls('kit-cd-num')} data-unit="${k}">00</span><span${x.cls('kit-cd-label')}>${label}</span></div>`
-      const timer = /^\d{4}-\d{2}-\d{2}/.test(date) ? `<div${x.cls('kit-countdown')} data-kit-countdown="${x.text(date)}">${unit('d', 'Days')}${unit('h', 'Hours')}${unit('m', 'Minutes')}${unit('s', 'Seconds')}</div>` : ''
+      const timer = /^\d{4}-\d{2}-\d{2}/.test(date) ? `<div${x.cls('kit-countdown')} data-kit-countdown="${x.text(date)}">${unit('d', x.say('days'))}${unit('h', x.say('hours'))}${unit('m', x.say('minutes'))}${unit('s', x.say('seconds'))}</div>` : ''
       const top = when || plain(c.eyebrow) ? `<span${x.cls('hero-eyebrow')}>${x.text(when || c.eyebrow)}</span>` : ''
       return photoHero('kit-hero-centered kit-hero-countdown', c, x, `<div${x.cls('hero-copy')}>${top}${h1(c, x)}${lead(c, x, 'hero-lead')}${timer}${actions(c, x, 'hero-actions')}</div>`)
     },
@@ -148,7 +149,7 @@ export const HEROES: HeroDef[] = [
     doc: `light opener: one huge centred statement, then a wide photo — {"eyebrow","title","accent","lead","primary":{label,href},"secondary":{label,href},"photo"} — for a waitlist or newsletter give "action":{"fields":[{"label":"Email","name":"email","type":"email"}],"button","href"} instead of the buttons`,
     render(c, x) {
       const act = c.action && typeof c.action === 'object' ? c.action : null
-      const capture = act ? x.goForm('kit-intro-capture', act.href, `${fields(c, x, [{ label: 'Email', name: 'email', type: 'email' }]).replace(/<label/, `<label${x.cls('kit-sr')}`)}<button type="submit"${x.cls('btn btn-primary')}>${x.text(act.button || 'Join')}</button>`) : ''
+      const capture = act ? x.goForm('kit-intro-capture', act.href, `${fields(c, x, [{ label: t(x.lang, 'email'), name: 'email', type: 'email' }]).replace(/<label/, `<label${x.cls('kit-sr')}`)}<button type="submit"${x.cls('btn btn-primary')}>${x.text(act.button || t(x.lang, 'join'))}</button>`) : ''
       const photo = x.photo(c.photo)
       return intro('kit-intro-statement', x, `${introCopy(c, x, capture || actions(c, x, 'kit-actions'))}${photo ? `<figure${x.cls('kit-intro-wide')}>${x.img(photo, c.title, '', true)}</figure>` : ''}`)
     },
@@ -173,7 +174,7 @@ export const HEROES: HeroDef[] = [
     render(c, x) {
       const stories = list(c.stories, 4).filter((s) => plain(s?.title))
       const leadStory = `<article${x.cls('kit-story-lead')}><figure${x.cls('kit-story-media')}>${x.img(x.photo(c.photo), c.title, '', true)}</figure>${plain(c.tag) ? `<span${x.cls('kit-badge')}>${x.text(c.tag)}</span>` : ''}${h1(c, x)}${lead(c, x, 'kit-intro-lead')}${x.link(c.primary, 'kit-story-link')}</article>`
-      const side = stories.length ? `<div${x.cls('kit-story-list')}><p${x.cls('kit-story-list-title')}>${x.text(c.eyebrow || 'Latest')}</p>${stories.map((s) => `<article${x.cls('kit-story')}><figure>${x.img(x.photo(s.photo), s.title)}</figure><div>${plain(s.tag) ? `<span${x.cls('kit-story-tag')}>${x.text(s.tag)}</span>` : ''}<h3${x.cls('kit-story-title')}>${x.link({ label: s.title, href: s.href }, '')}</h3></div></article>`).join('')}</div>` : ''
+      const side = stories.length ? `<div${x.cls('kit-story-list')}><p${x.cls('kit-story-list-title')}>${x.text(c.eyebrow || t(x.lang, 'latest'))}</p>${stories.map((s) => `<article${x.cls('kit-story')}><figure>${x.img(x.photo(s.photo), s.title)}</figure><div>${plain(s.tag) ? `<span${x.cls('kit-story-tag')}>${x.text(s.tag)}</span>` : ''}<h3${x.cls('kit-story-title')}>${x.link({ label: s.title, href: s.href }, '')}</h3></div></article>`).join('')}</div>` : ''
       return intro('kit-intro-editorial', x, `${leadStory}${side}`)
     },
   },

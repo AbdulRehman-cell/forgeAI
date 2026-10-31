@@ -1,4 +1,5 @@
 import { SectionDef, list, plain } from '../markup'
+import { t } from '../strings'
 
 export const contact: SectionDef = {
   type: 'contact',
@@ -15,13 +16,13 @@ export const contact: SectionDef = {
     }).join('')}</ul>` : ''
     const fields = list(c.form?.fields ?? c.fields, 6)
     const pairs: string[] = []
-    const rendered = (fields.length ? fields : [{ label: 'Name' }, { label: 'Email', type: 'email' }, { label: 'Message', type: 'textarea' }]).map((f, i) => x.field(f, i))
+    const rendered = (fields.length ? fields : [{ label: t(x.lang, 'name') }, { label: t(x.lang, 'email'), type: 'email' }, { label: t(x.lang, 'message'), type: 'textarea' }]).map((f, i) => x.field(f, i))
     // Short fields pair up in rows; a textarea always gets its own row
     for (let i = 0; i < rendered.length; i++) {
       if (!/<textarea/.test(rendered[i]) && rendered[i + 1] && !/<textarea/.test(rendered[i + 1])) { pairs.push(`<div${x.cls('kit-form-row')}>${rendered[i]}${rendered[i + 1]}</div>`); i++ } else pairs.push(rendered[i])
     }
     // React apps save enquiries to their database — that form is written by hand
-    const form = x.jsx ? '' : x.ownForm('kit-form', `${pairs.join('')}<button type="submit"${x.cls('btn btn-primary')}>${x.text(c.form?.button || c.button || 'Send')}</button>`)
+    const form = x.jsx ? '' : x.ownForm('kit-form', `${pairs.join('')}<button type="submit"${x.cls('btn btn-primary')}>${x.text(c.form?.button || c.button || t(x.lang, 'send'))}</button>`)
     const address = plain(c.address)
     const map = v === 'map' && address
       ? `<div${x.cls('kit-map')}><iframe src="https://maps.google.com/maps?q=${encodeURIComponent(address)}&amp;output=embed" title="${x.text(`Map of ${address}`)}" loading="lazy"></iframe></div>`
