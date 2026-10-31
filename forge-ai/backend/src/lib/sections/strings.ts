@@ -5,7 +5,7 @@ export type StringKey =
   | 'popular' | 'days' | 'hours' | 'minutes' | 'seconds' | 'mostPopular' | 'choose'
   | 'name' | 'email' | 'message' | 'send' | 'subscribe' | 'emailAddress' | 'latest'
   | 'lookingFor' | 'search' | 'whatNeed' | 'continue' | 'join' | 'yes' | 'no' | 'stars'
-  | 'thanks' | 'fail' | 'ask' | 'sending'
+  | 'thanks' | 'fail' | 'ask' | 'sending' | 'quranText' | 'translation' | 'recitation'
 
 const EN: Record<StringKey, string> = {
   popular: 'Popular:', days: 'Days', hours: 'Hours', minutes: 'Minutes', seconds: 'Seconds',
@@ -17,6 +17,7 @@ const EN: Record<StringKey, string> = {
   fail: 'Sorry — your message could not be sent. Please try again or contact us directly.',
   ask: 'Please add your phone number or email so we can reply.',
   sending: 'Sending…',
+  quranText: 'Quran text', translation: 'Translation', recitation: 'Recitation',
 }
 
 const STRINGS: Record<string, Record<StringKey, string>> = {
@@ -31,6 +32,7 @@ const STRINGS: Record<string, Record<StringKey, string>> = {
     fail: 'معذرت — آپ کا پیغام نہیں بھیجا جا سکا۔ براہ کرم دوبارہ کوشش کریں یا ہم سے براہ راست رابطہ کریں۔',
     ask: 'براہ کرم اپنا فون نمبر یا ای میل درج کریں تاکہ ہم جواب دے سکیں۔',
     sending: 'بھیجا جا رہا ہے…',
+    quranText: 'قرآنی متن', translation: 'ترجمہ', recitation: 'تلاوت',
   },
   ar: {
     popular: 'الأكثر بحثًا:', days: 'أيام', hours: 'ساعات', minutes: 'دقائق', seconds: 'ثوانٍ',
@@ -42,6 +44,7 @@ const STRINGS: Record<string, Record<StringKey, string>> = {
     fail: 'عذرًا — تعذّر إرسال رسالتك. يُرجى المحاولة مرة أخرى أو التواصل معنا مباشرة.',
     ask: 'يُرجى إضافة رقم هاتفك أو بريدك الإلكتروني حتى نتمكن من الرد.',
     sending: 'جارٍ الإرسال…',
+    quranText: 'نص القرآن', translation: 'الترجمة', recitation: 'التلاوة',
   },
 }
 

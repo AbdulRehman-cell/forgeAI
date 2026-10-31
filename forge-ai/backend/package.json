@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nodemon --exec \"node --max-old-space-size=8192 -r ts-node/register src/index.ts\"",
     "build": "npx tsc",
+    "quran:pack": "ts-node src/lib/quran/download.ts",
     "start": "node --max-old-space-size=400 -r ts-node/register src/index.ts"
   },
   "dependencies": {

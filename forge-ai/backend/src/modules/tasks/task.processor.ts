@@ -41,6 +41,7 @@ import { expandSections, KIT_FORM_JSX } from '../../lib/sections/expand'
 import { applySiteForms, siteFormsEndpoint } from '../../lib/siteForms'
 import { publicApiBase } from '../../lib/publicUrl'
 import { repairCss, cssErrorFile } from '../../lib/cssRepair'
+import { applyQuranCredits, usesQuran, usesQuranAudio, writeSitePack } from '../../lib/quran/pack'
 import { randomUUID } from 'crypto'
 import { runVisualQa, servedStylesheets, visualQaEngine, photoUrlsIn, brokenImages } from '../../lib/visualQa'
 
@@ -8016,6 +8017,8 @@ async function buildSite(job: Job) {
     }
     if (supabaseProvisioning) await supabaseProvisioning
 
+    // Pages that show verses from the Quran data pack (data-quran)
+    let quranSite = false
     // ── Post-QA hardening ── runs after ALL AI passes so nothing can reintroduce
     // the two most common deploy-breaking bugs: @import mid-file and a broken ui.jsx
     // The brand layer goes back to the very end — QA polish was appended after
@@ -8034,15 +8037,20 @@ async function buildSite(job: Job) {
       }
       // A right-to-left site's whole sheet is mirrored, once, after every AI pass
       if (css) css.content = mirrorForRtl(css.content, brandKit)
+      // Quran text comes from the verified pack, and Tanzil's licence wants a credit on every page
+      const pageCode = generated.filter((g) => /\.(html|jsx)$/.test(g.path))
+      quranSite = pageCode.some((g) => usesQuran(g.content))
+      const quranAudio = pageCode.some((g) => usesQuranAudio(g.content))
+      const credit = (html: string) => (quranSite ? applyQuranCredits(html, brandKit.lang, quranAudio) : html)
       if (stack !== 'mern' && stack !== 'supabase') {
         // Forms send their messages to the owner's Leads inbox (a static site has no server)
         const forms = siteFormsEndpoint(await siteToken(repo))
-        for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applySiteForms(applyBrandToHtml(f.content, brandKit), forms)
+        for (const f of generated.filter((g) => g.path.endsWith('.html'))) f.content = applySiteForms(credit(applyBrandToHtml(f.content, brandKit)), forms)
       } else {
         for (const f of generated.filter((g) => g.path.endsWith('.jsx'))) f.content = sizeInlineIcons(f.content)
         // Count-ups, rotating word and the WhatsApp button live outside React
         const shell = generated.find((f) => f.path === (stack === 'mern' ? 'client/index.html' : 'index.html'))
-        if (shell) shell.content = setHtmlLang(applyKitExtras(shell.content, brandKit), brandKit)
+        if (shell) shell.content = credit(setHtmlLang(applyKitExtras(shell.content, brandKit), brandKit))
       }
     }
 
@@ -8090,6 +8098,14 @@ async function buildSite(job: Job) {
       task.logs.push({ level: 'info', message: `✨ Created ${file.path} (${file.content.length} chars)`, timestamp: new Date() })
     }
     await updateTask(task, {}, `💾 Wrote ${allChanges.length} file(s) to the workspace`)
+    if (quranSite) {
+      // Written straight to disk, not into `generated` — 230 files of scripture
+      // have no place in the task's before/after record
+      const pack = writeSitePack(path.join(sitePath, stack === 'mern' ? 'client/public' : stack === 'supabase' ? 'public' : ''), brandKit.lang)
+      if (!pack) await updateTask(task, {}, '⚠️ This site shows Quran text, but the Quran data pack is missing on the server — its reader pages will be empty', 'warn')
+      else await updateTask(task, {}, `📖 Quran data pack: ${pack.editions.join(' + ')} (${pack.files} files, verified)`
+        + (pack.skipped.length ? ` — left out because they failed the check: ${pack.skipped.join(', ')}` : ''), pack.skipped.length ? 'warn' : 'info')
+    }
 
     // ── SEO injection (static sites only) ──
     if (stack !== 'mern' && stack !== 'supabase') {

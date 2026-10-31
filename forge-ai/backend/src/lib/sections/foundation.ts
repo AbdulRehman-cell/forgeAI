@@ -42,5 +42,10 @@ export const FOUNDATION_CSS = `/* ── Sections: foundation ── */
 .kit-dark .kit-stars { color: var(--accent-on-dark); }
 .kit-avatar { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--ink); color: #fff; font-weight: 700; font-size: .9rem; flex-shrink: 0; }
 .kit-dark .kit-avatar { background: var(--primary); color: var(--on-primary); }
+/* Source credits (Quran text, translator, reciter) — a quiet strip under the footer */
+.kit-credits { margin: 0; padding: 14px clamp(20px, 5vw, 40px); text-align: center; font-size: .8125rem; line-height: 1.7; color: var(--muted); background: var(--bg); }
+.kit-credits a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* The floating WhatsApp button must not sit on top of the credit at the end of the page */
+body:has(.kit-wa) .kit-credits { padding-bottom: 92px; }
 .kit-thanks { margin: 0; padding: 1rem 1.2rem; border-radius: var(--radius); background: color-mix(in srgb, var(--primary) 12%, var(--bg)); color: var(--text); font-weight: 600; }
 `

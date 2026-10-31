@@ -1,0 +1,1755 @@
+{
+ "generated": "2026-10-31T10:54:14.242Z",
+ "editions": [
+  {
+   "id": "quran-uthmani",
+   "kind": "quran",
+   "lang": "ar",
+   "file": "quran-uthmani.txt",
+   "version": "Tanzil Quran Text (Uthmani, Version 1.1)",
+   "verses": 6236,
+   "sha256": "c51376a229a2ba10bdb017ae190b209312dab051674762a63e512b24899947c0",
+   "surahs": [
+    "d94f39fcd0ae17a2b1add6ad18460673867803743050acdae48113d050ec95f4",
+    "54df9082faeb879992c0bf2516a86d5194e700d057c57e0f685bb3b47f786ff6",
+    "064b03497abcc5a56c618572ac11c583aefe7c821a42aff04e52f348f0e250f1",
+    "a14d3b4cf11030149a85c5bb2fba9b4eb998dde35f5dcf7ce9b2369670e57488",
+    "417f3dc802b600f63aba4fdff2ea9a1d7edd7a5c0b28965ad32f4a2c3e780aaf",
+    "5f750b64e43e7d7cadd9eac0f25b67f6d43ddb3697f3ac6a5d1344f7202c9d37",
+    "15507f155fe643cc5dd3f5fd4888c3c362de424efeb97b3f9c3be507c47f0cf8",
+    "f7cfa22a446153397d634dfd4455c68974c6167d07280f7ca3a42c0223980be0",
+    "2a5acaa28e9bf5bb0a67f60e1c3709b91105d8d73c87668cd2fcf45ff46ce2d4",
+    "4d60914fa171b46d72d0658efec07cb5f46e325a8b94d920a7a9269960229082",
+    "e9321b4a26bc66ca43380475375151560e66f7abac233c662bd09e739110956e",
+    "0f390cfab98b1697c880206a4ef2c9331a032dc813feea4e192e0c73e1bf475e",
+    "f3b6c7e0965934874c981102f69ca34ac51114ee610ccc90afa1c3f68d80e164",
+    "6148d47303f81a4ef91c7f35faf57fe41d5061101162532d4a46cb0200dd56a7",
+    "ee94cabfcff231c2658fef0184aa6942eff97b22535ba7fbd099d3fee89abfe5",
+    "45f6c4c032fc91f286e290d6d1c20ede3bfe5f01610e2bb9b6f095001eb9dc9a",
+    "bc68c26719d751a597629ce9d603eeaa825b26fc7156f7d59ca4aedd147b0fda",
+    "d99a5eb6c9aaecec45cf74d69184b10c4b564a9c392c2a87493ae482c904baa6",
+    "ade8965ebc2e19c371f599f65ce22506db77d2a3e04f21e8389426c87b74bf1e",
+    "253452c0b7528edf8f009f87765a127c193724277a7c65a5d3b67e274bb2187f",
+    "3a84a45a3ef4cb1537907636f9649e7826e9f3b51e960e81b5e9eecfcdef4d7d",
+    "c8264ee5ee2626abfa0900a01f1cab569ec04abd84a81bd7511bf0b6e1da021e",
+    "3bef85d1468a036f79d9aa206c7e4d3fa81640f3ac092fc3b7f5cd852e04bc62",
+    "e870c26122a3fad6c785021e35c9ed4e2a9012d53091d075dd1f1e14b4ae5698",
+    "453529fe327c78ee81b98ff372c0f53ea4606c0bbde5d266c2a59c30ee91767a",
+    "fc90e1e33c55e10a2055032cf575e2fd2dc81185af52c15972252819b8958720",
+    "3771a4cccb7041a2c38ded66a4d46fd3b1e85e35f84c0139a8b6fccf18c10033",
+    "4b2aec1de0249ebbb93270fc70ddbae3937141749d871247fa0f297a757d8c3f",
+    "480a49a361434da1e5f9e913c37c240b531cd9c46c990930bb82e8c6b79977e0",
+    "357b9ce8e0778f3263fdfd82be3ed77ae1947ef349a61e2b626f51c459ec1fd8",
+    "887c6e4f76929e9f87732980ad2a895248f73edb0c8b29ff91548e65629b59a3",
+    "ceb9972225ad12fbab184a7fefa8dfa86a2ebb8d4a8ea92d61aa39246503c09d",
+    "79de4bef8e2a7293b4a58f95258e4d11ef6d8728bcb6c6ec8961dcf71ef26b89",
+    "42a26faa21ec489be0bbc6bb36f85bb87323e086583e933fb0743dec2e27687c",
+    "cd54d207b9e604c49c5d082451d9993c256b0cf0b9b4a8bc844f5c39b21d9e4e",
+    "41338c44ec9f9ac4c356fd51ad9fa3aca5f598980505ef1b9ee068a5d9aa7dd0",
+    "4cc776e607d85b365e05962609472fbb15a27ca0a1f9a12590413dae28cb386f",
+    "16965afcecbc4648edbffab0be08c8031ce675184a768f6ed8c8379dc4026330",
+    "3869084cc492b7d5b392dc12e2ac8598e2539da0ea80fba9a36523eb95ce2085",
+    "19182645109409c1a7eeef2678ebbd112e1577e8e1e50f0a03d31c0bdc6083b9",
+    "2492adc0c5e2c202ae4edbfb6e90285b99576313f2f7814ac8125d0107472da1",
+    "07e62b1e966927a8771d2505d5742610d802c6468ec61fb573e06ad1a8e9b840",
+    "bf9e363e0b940c4b81acede0d17d3f6d42e08f74ed01df065fb5d694aad27450",
+    "1b42eb64b4615d5beecd4bd6a0d39217d80dafd1c31b6275c7c7d6315430e791",
+    "fb25af2d3ae19db76a9ee047e03d01d3da335ab95a0756cc04c5c4a4572ecf5f",
+    "af87ba5fac6f09833fe4b626a3f0879245cde4a7cdd19de214cd1f5804bd2765",
+    "e7c4c1ba49951e09218339583f63fbc75d151417ca0df3a267316fef64c81a9b",
+    "70585c369c6b38c03fab7007381dc91ace296a3ca1c90ee6ea27ca49f11239d7",
+    "0fef6ae30b746dc979cfd72f2781a908887edd41efbb54916256db2f61a805f6",
+    "a87531d9ebe1f8a84a5f8261910f1b293a000ee9bf4b38792239ae1035fe3feb",
+    "ca1cb1cc6f5e0ee435ce4350b2516c7269149ba5fde5ae5690f8aa652e9b9cf0",
+    "09add1de0e17083b040c75a10c34ee3aebd852074898dc0bd2f4889a68e616a5",
+    "7a58f06165aa0db095bc6a22cf7b28a8eb83c2d5279826fa8fa2e86cb74449d1",
+    "cc4ef31f2e5bd4dc89238dec9814f3d25bedb0772d26e8848cb8a5cb5c02e1c2",
+    "652aa46a2dc435357363f58ed5111efae788b6c6128c19cc326c2526dd5de33a",
+    "0a31976087f23ac40431ebb9a669dcb11c4b31a546beebd1e3429507a4e7ef57",
+    "1044611ece444489f6da854998cbc76ac479ebd53e9fb66bb95cba5ee203e13b",
+    "b0974d0484684209feabe6ab77bd600f8bae5a28094c06b904313f8dfb6d214c",
+    "126b942564e8730c74329e4e42ad5eae49af7805fe29e4a19f359515f5f89012",
+    "78097c4cc63febc411c2f99f86af4e1f84fced692fc4f0c8cbb8e48ed06633cf",
+    "bb8d98d83e0926a6567e37de545c345dc97fa06c111a153b23b8cb4987a150bd",
+    "97db051e4bf88651a7ea069d7ee78a7943780afd016fac2a08f8d73a13d33e8c",
+    "2e535b4c05184d8651124240149fc99c45689b0b78367fc2fe017824b9ed6d05",
+    "073ab0ec3cf4797e770298925ce5ac1f2549ea57f1a9636fb02688fc265731c4",
+    "573e14ac8de41d9aa7f56c4a15aa559e6c1dfa2fb7288e2532eeb691e0573352",
+    "9c7dc4320bace0ff6164c2b1d88703abbe155131d67a558a9242e23a8a7abac7",
+    "6ba17afe557b6d0e60a2e13767646e9b429c1abe318379a66c56924cf9c28fce",
+    "5a58763a26f5d50918e9ff2285c54c11ca69cd9e044e924794a980ca723d35e1",
+    "1157f37a9c73d4c7f476a1c5ea8f6bd3d8f2f0247c6e0b3261b575787f1427fa",
+    "41fd4cd401b7a5b0a7dbcdd545b46962009d85f1c1f1ac02fc5f15cff0c696fb",
+    "c6fd2ca88bd7b2b9f891b53e385eff48b3bcdbf2f39f7bf820049f84c4edaded",
+    "d31f744dfac9f2f0380cca59cfe7d62cbc2aaebc6ef45067d94a20838464ff75",
+    "e6a1e9e16e2fb36c9eedc43e7a273502a4b7f4346f079a46441630402688b53f",
+    "0e6352a32a63cab86a3f522df127039c3505629cd32750888858d773d8350963",
+    "10eb8bf47471c24bdc0ff1393b04a4ee4f45038c7eb5e63996333fa720f337b8",
+    "dea9ae220ef1c79ca91dadb14efb3aaa4c678a4cec4ff8848f01021608b3c496",
+    "96c0bfd40519966bb5db574f4f9f0c3462370d19c8bb4a3855d56b3870b06606",
+    "b3f55005bf9a5e06a5831f3ade37b728b1dea2c83d4c037710406e162a0c362e",
+    "433039b9574b55a2251a4a81d7d44e19c7dfa7f2755013bbb71e5251a7311248",
+    "00b4e977f8ffcb596b47b4f69d01a16cc04a8e0f5ab1e143ae656c869616a0ff",
+    "7eb7102be5fcc76a119338bb0c5ec42691bee848941b096c512cd0228de0b7e0",
+    "96faba235d180cca8c43f22100a6c50f2a78f0d3ee3ee45ecc95d4b1e73bee9d",
+    "d39e5fa18be247785320e38bb3d0d1382428dfde5a75a8647cbdba673e8930d1",
+    "18f1e1a324e58d4608534933579470be43da9037560a0b0ad2392cbafc0eddfd",
+    "07707ff1ae41dffd6d49f17987db48dd5366e6536a126a66f01110c460937167",
+    "7e1cb71e09542e405b87da9721dbaac094f6294d554c880a08a1033451c18d87",
+    "1e20465f51c033a2a70c39887c3959b70ab3c8ad27a4496d682e5a5948ecb6e3",
+    "0fe59fc2dc4351c0d3f00077b4c9242d96c1d4323f1c09884451fbaa3a7cfd21",
+    "ef48fd0b9d31a8cc88008de006ab96bfd14abf0f39bb3fa092f3a8b7ff8ea407",
+    "b11b61d412151a4e986c4155fdef84112beeee84b3cf2fc2ab96944c8da710f9",
+    "78ec81c89c87b588fa24d9fcb16e9e374e834017f0b2001f3c9adc39eff92e4f",
+    "e756222468cdb2d3fc0a126e43375613185ca72e5a9a3ba6f55d728cff9486e4",
+    "b273736b715a0e9776708a2d2e74ba514f364ca30db553947f40a5dc4fb4cde1",
+    "d26b5b8b07070e9defde5a74483ba0aad9fb20f9097b3765cae413cf8ef36bb8",
+    "6e6f907dc8124cb7ae4de1df9e26a705af5e41aec8b8370aab0b36e339d4c6af",
+    "024c90f162743b24443aaca38261c6d2d8ee0338ce978c551f4c62d35e7d917d",
+    "55e0309de67af9373c380f720589ecc20dcac13ffc31bde2b4885ee97c70de4c",
+    "9f5818852ca5c2faf469d644c75cfa55c6d3e35a46469401a5c389d980cad7e8",
+    "0b4f6279e28467a60fa2ddc4da4b16016718e0ef734da411655e6893251931cc",
+    "722e1347c6e96644984bc68ca671df9a2ee0144ea4ef4f651da673ec65eaeca3",
+    "99d164079d45a79dbf306cb06221de5a9f656cc0894ac6b9174a1df94cd7331c",
+    "d5038260821d2847033c764fba01a05cf5f75ac7508a5f7af9c2fd218963c275",
+    "8865ae4b7911be301122d36ccba4838b261ce10e0d7b2f94ba1f642bd0db2c2e",
+    "d1131588f499a637c5b37380d716877d56fc4459095c92218569be994de24bbc",
+    "29bbde1d612fa276f831e3f28128deea87663c27f44c195d81b1dd82465e39f8",
+    "d1d3341a99bf79bc730a10763d7080cf7339dc2b544d1ca37f6d397325fdbe51",
+    "ec661ac4c1790c5ef38fec4a91ce52d413f437ef2876896e2ee38bb0c0daeaef",
+    "91af21fdf37d31093d5cb3a61410acc9be2a84005c174ce7901612634f3f70d5",
+    "f77e76efff16c5941e26e35374dbc0aab3f350a2fba7954e6b5cefc0f88a25c4",
+    "e799ae24be6b3d6f7f187b2767c74dbd5f90b8da99a59ff76b12739a1db63816",
+    "30041faef5eb3dd4a94b025c5387bb9bbf153b7066a9659d5346c0913424f24e",
+    "64fa0106f0310f346dd8207847d6713da71724cc542ced9521914f6a4e2fa527",
+    "aba2dd4e8b9a5695f6e70fed082a6730592b111dec63aabd9a020f1d30ada333",
+    "941b3251d4af30576e981d083bf48aa5743dee0b06550ba20bbe61f864a8510c"
+   ],
+   "source": "https://tanzil.net/pub/download/index.php?marks=true&sajdah=true&rub=true&alef=true&quranType=uthmani&outType=txt-2&agree=true",
+   "downloaded": "2026-10-31T10:54:13.541Z",
+   "crossCheck": {
+    "source": "https://api.alquran.cloud/v1/quran/quran-uthmani",
+    "identical": 2619,
+    "marksDiffer": 3612,
+    "spellingUpdates": [
+     "2:181",
+     "8:6",
+     "12:39",
+     "12:41",
+     "13:37"
+    ]
+   }
+  },
+  {
+   "id": "en.pickthall",
+   "kind": "translation",
+   "lang": "en",
+   "file": "en.pickthall.txt",
+   "version": "Tanzil translation en.pickthall, last updated September 4, 2010",
+   "verses": 6236,
+   "sha256": "311be7b940eb87a1b33ba2f1ee156e6b23babc8ec9363b4222ae21d10a785b55",
+   "surahs": [
+    "b818fc4a7680c47bd49c19c3a5d4f7c64b28fe664253f01c93293f36f307e430",
+    "95199ad4070f3ca325e27cc5b1cb684758280e8d91640766518074491476007d",
+    "151783f7a9699792ad3478c7a6d5465938c69f480afebb4015dbc96b8b06d257",
+    "07f1297f753a9e176ce9a1a55b00cd66569b8b79dbf0c691a8cf11942f0cb54c",
+    "13549d09b7b67c99499cce73a4a20e9f9bdb0e3d44653c19196063369a5e3602",
+    "f45dcdd64f7d6631903e1a0e69f236740ae16232b065dae0d0299d35f17ca03b",
+    "37662f25e86bfcb71fa53d56f3f4e77a5db193244f0e111dfa970487753c64f0",
+    "a19b87cc873e980fd1a6dc4adc1d3fdb5675a3623334a23cb0e8cd365a681960",
+    "1151db4346922de970caead2c737d0de4f0c6da8659d4a6bc71ac8d9d1500292",
+    "2ec7ae068bbcfc80319b0d77c616f6d8ffd02c86727a20a9afc3a5b2f94a39fb",
+    "95372befcc11b290a431bdb0dd17d6a638d2f040ae404a262ac201b8840840ca",
+    "df07a4790aa7f3f5e4e2629440887a64b777bf93e484e734bc66e1420ff9f223",
+    "8434a96733ecd6dba7a927ee7627c8775c50cd967f040a0531a1dcfe122c5744",
+    "18c7108c63b24785449763dc1a5003b288159893286dd4f59a473d6b1988485f",
+    "0f60e4f67aa0b25e4cfecd5919062bae59c79650c68daa0f6dc0205945118897",
+    "e55a0a96e586db4d1adc38da2fd6a2996e3c7ac76e79fd92a5feb15552c1a65a",
+    "aaf51d4a205d863638b8c677e2d605c7cd3e2ad9b07f844626383da11a409d0e",
+    "2da1f388a6722f3622ddfba0986cf2e48fe8716e92580d908f0e677bb4b86d0e",
+    "3ba324b169d162c1a2bd06b8a9a7f357e066117df517911cceee6ae5512d4b01",
+    "3750341f818b444545281063227e24562de2294f52b973f7945f506c9f94eb83",
+    "63e8f0d57232e9e7a702ac0290582a110ef372d18961fc0e3537f0ef8a1ac8fd",
+    "420142b243dcd31cf614e472c2d864887ab0a7484ef96bafc60416490ee5a40c",
+    "e3d23f1ad55c1f2dd53c1931f7f6aaa3efc567ec33a6da9c0a83ba98c663217e",
+    "17ad93879585a8c5b4c55293167335e702edbae052d81e1db04dd84f9ff7430f",
+    "2f330d9b0414050eea76fe4cf0c058c2e4046834954cbb575c284bf6d3bb6509",
+    "3b1ad5b5aae5db38616bfb33ae057732a3736c03a078025223428f1d1448992c",
+    "6af47856facaf2156162d126657cf3abb7a5bcb549acb31fa917166b10ffc8de",
+    "823f040f2ceb53a7a97319f1f78aecd94110d48172185ede2a6c551aa64dd894",
+    "9b7ff88bd57056d9954eba3c8e6bc545cd37b642bcf7a5b061def73a20236e75",
+    "417c23c82c0a7655d0186f0ae689c2ad7f8b1e043012968c1e2f9c7e4f1b9307",
+    "b01cd4f62f9802e0e9bea307faeb2c9a9d7fc08f61a4c1a5fad17802cd5c88d4",
+    "78df98d85ef698b813dc2abe8ecfb426ce283b026d2c38989ba618d992a39eaa",
+    "90038abf8d74bec00d4e6ee680ad13800995135f6f1d2ae010a10b229eed6aaa",
+    "a95ce0283dbdd41b4d2c9bda0afe8606d9db3c82d87fa0a61dcb4e5cd9f502a6",
+    "0e381716aab3b19d23b63f2ddb98f46f7bf655bf33dbe6a9575a553fadce84e7",
+    "61deb43d1501148b39739021bd954d4162c107d194078ca2ed9933fa62cf4aa7",
+    "544471c51f81347f50b3c6ade6685b4d0bec5ddc937efe1a5aabc1e9af4af8d6",
+    "d014441737e6f3161dabee1eba69eb5c483944367a383aa6452e518acd2ebcae",
+    "eaf9ccd09848bab437ff0903bce4bb2ece3a295a62b806dac1d286d7f15a4a2b",
+    "ec824c38c4d712ac5f00d2a10ed453ffa8e4378182ae49d5fcd6f853c3774e74",
+    "a92fc34ffa35184ac569e872c533e88e1343ad584eefb0c4ab05ea415400e061",
+    "917771ccda0a53a4158ef3b2bd55eb623b1e46f49f3ef7d9987cede5f29056ce",
+    "0c9de1ed0301c39c24568d4dc4ce4fc24c479f57649ce0867db1b022ec5b2b99",
+    "b58e24fde4502d1d981eb105ed4a2a6fc3184bac302dca2f2f80b2d7e5a20454",
+    "19b9062cc9a1771b033af02dea7486349c051324263f69ecc95f4d497ad08996",
+    "579ed3bcc1aa0c414f6a4d2fdf00d50646ac74623e9ca886db066838093d6a37",
+    "0e062a12a933e67bc40ca43d63e57d4d72cad490b359a096e71092c6286919d1",
+    "055d9ace9b81862e686215c0ce748c9112ba3f7e9a7a07c3a1a3867dbdef0114",
+    "b9c62ce7a6b59aa0bf4a56624028803bebfceabcad3c4d11c7feeab651286a16",
+    "8a0dbd212c6e487606dcd749fbc1b7d9ee015954ae02fd48ba96bd21d900f8b2",
+    "c07a06ea577156b060b5847e617b8fd28f7d313b41e1b9c47bd4486f67009f1b",
+    "1653970b6d33ee860a522167746366ddf381c2f3c7c7e5fecb6ae20dbb990a46",
+    "4ac1587451c80dfbf7a98d3cb205d9caf599b84793e51a7c4d8deae094244b40",
+    "81314b684d3d5f2c354e8e9bd44c568251c5e596609edff7baaa370db6b65840",
+    "4bf9acece92f3bd27fc91a16570440de410657a0a006c77d874c00395949a4e5",
+    "14892ffb145e3f314abf1ace69e9ef45bbe2eb3807ef4f4d37379940326a01e3",
+    "2fc81bf316e10c86304733c696ace34c8114f7d5b49e0e5a13f1168fdfe37818",
+    "a6600aa1fbcdbd33d156bf6e369154fc1043156caeba3fae7d33ab770ae985d7",
+    "42b4657dd7680e19bbdce8ec3d4cee800f2eec50efa934838b2a47ce8f7114dd",
+    "ec423a7585a872acc5f3ec974aa2a9a493ddfcf53b3340f69fd2690244ecc7bc",
+    "efcf46cc60e0afcce59d864d2d4e2b829bbdb40c5bd6a5a0433795b789f10a43",
+    "1d14ed7a851aaaad3e7fc60eeab485bd080cbbe5b445f07900cfa26f242bd11d",
+    "d97fde723490a4687e4f1206652e8f9dbd02e9faf68494d353d5ee01d27ee173",
+    "52d290e005a0202426266952699f13a0bf5b972b78e77d0a9b57ccf302e1d29b",
+    "f55a5e13d35a999f66777f8aae25430a458fed4fb45db0c3798d12f2b7d33b60",
+    "79d5aeddaef7066fbf34ac6c5330af38dcf4bfad6ac11a258b6f7ebb32bd9baa",
+    "1fdba618229d700e3faa51b848ed2b351ec02de2567686a2f66246adce431501",
+    "f59221bbf17f70e056112ca5ced11053c137e2a25dd3eaf2649bd7ab03abd05c",
+    "320534ee1a39e028da874cbb4c5aaddd125081eddff8dd645f276f73a1d2227e",
+    "3fc02095bd5c1e3818be1bcc9364570be1b496feeadd7406a8561c8934a02ea7",
+    "456c680cdfc8ac26a1b69e8ba3f2ace8eb8fd400168c65768bcc73ccc5464e57",
+    "ac651c2f6ba3abe447fb7e7b228e10b1b121e1b8245ec5a39cdd73124797556d",
+    "6fa9480da1fbdaa98d058e8c0a35efde35ffd754385db30d80a32f3b3e139efb",
+    "6c067afbc13434b29e85a4d36eebf3f781681f3aa05b3902403da9784814ba14",
+    "53414ed0a91d1131518ec33a9e93650a9d182f739666fc27b6b225c46b6379d4",
+    "0c208fe8d70e85f453a1ebb676bd984a70b797912e3fcf711a0b1ebcb3cabe3c",
+    "8e9808f3c0ef5a3f15b748f8777203e51e6466125d11fdbfa65dfd523793c3f8",
+    "24249dc8f7819d60d32ee724661b63ad9c409c4b4593fac28e5e41cd3ba08073",
+    "ff2174859501a544a4173166f95f9a52a9a3fb1ef0c2fd4376d9b29e245a564a",
+    "a12c4730a9d2d94b4eea771eabf652b499369c41fb047a00ed51bab987e6fddd",
+    "b064ea1c5e9ccbbd8691841c8dedca1c85c7d27d747b6442d4d5fd72a42c884f",
+    "5d4015f70f2d254f4bfd61eb6ad23fdbf32e23791b511b1edc48f9395e22175c",
+    "7e9c03a89fdf492483980abe88850d7d8ad297c7db0c20cfa5196e536f25be6e",
+    "ff1ba5eab45016fc5a48af5decc5243e05368a720b36346b96c4b5e2734724ba",
+    "1e61919f5e318b2ad5e8ceb8b577ac9636520b2ff6a70f49c18995f169fdaec0",
+    "7bca863c7a101f66849e55fb9fe5a19ada3167c265ad75664369fc7da6e0afb1",
+    "624b8decd7e99eace3aafa3e467db0d29091e714974c27acf4a640d9e687a591",
+    "eaed31ab48ebb0ed8f7d8d7c5fc2ebde8c28bd2728cd547be08fab2fcb520a82",
+    "203dbb3e53b9511beb577991d931fa6b8fe669fd4a9b34c501be8c7dd39d4779",
+    "3161567dc7415062ad4fbe0864f0857024f73f293726bbd07377eef3bfe25063",
+    "cfb031e6d4ef6b367e3d996195d7be4473a81acb4bf31346fd28b8194094d286",
+    "cb6bf98f92069878e26b6fc96ec66731d086463cd7ddb0b81f227e94f839ac6e",
+    "80d08a5647c199c31077f99c68c5483881f484ac717a2abd4e126ead81b69984",
+    "234af9ab17be9e17a2d8868c208a84f03a9109fe2deadd4cd67d5597c9ae5aea",
+    "2a50ed13215b10198c6b553f12307ce97171a049be5a85f6ee9939610effc18b",
+    "68be041a0267f08305be9dbcf26604b494c277ff81f48e03c088a585928bb3fa",
+    "4b90fcaa875b862c35b76d67c1bf1c992162d4cc120e2ac3dc7c39abbffc2725",
+    "53b4953873c9cdc84557aa0400f6aaa9b9cd02a07ea8a4e1eace114e62027546",
+    "c9a4477810cd00b79dbdd605d242921b6d4ace6d65afd6d9d380c91e95ded17a",
+    "0cc1789ab05b6d005f247429b3ddaa58a66563e73e2ee027ab7c9ac76bbd70a1",
+    "d3fe7e97e363644ad9cb1882038af5cdadde6804ea438ea8653712f93ee9c875",
+    "b035c0d1a8c595ac05f659856a87059de39c38251f5c1917fdae5af9d79e3b15",
+    "fd43e5f6e29e7d24ef51e57be8a8ec509eb8612ddf29220b1f4f1478d0200c6a",
+    "71e2f58ce3dd422499ede8005ee84c984d38e7960a797b4ab454bd32c0252975",
+    "a3e84281b187de83123d16d5941aa010f5dc4078d193c103bb2e58990e0a387e",
+    "9193226ecd3054c8fe161d31b401b8fb709184a3198b256bb8bdb5b2607e175a",
+    "218e00c3fbb7e5afb5cad8733e106c3459114748bbd878154b9d835259ac1938",
+    "65017ef0d1841e858ad671dbaee3fee8c11f904061337d4b598d60415c7bf514",
+    "f972fcc3b803aec6a63a6db36906f210aa8f662f057f9df80437e11b210c7ab3",
+    "73e643af98e7a229f8ee535d76abfb7c64648bc74383962c8ad0673672e42c20",
+    "f2a4c447017ff338a07cd81fda9bf34e57187019a63628381d8de25e6e31421e",
+    "904e9d47c97ac870e1b855b30f4e3ddf9eb2cb83e9c3fe8555dccb13b560ba46",
+    "3be1f10af4b651793fb945fe4a0f69fd7f5bd4745829494fc7cce8f204d0f7aa",
+    "be3090df82906a686217813b656aea0b419e208e8620aa00a275d99ce0522679"
+   ],
+   "source": "https://tanzil.net/trans/?transID=en.pickthall&type=txt-2",
+   "downloaded": "2026-10-31T10:54:13.848Z",
+   "crossCheck": {
+    "source": "https://api.alquran.cloud/v1/quran/en.pickthall",
+    "identical": 6236,
+    "marksDiffer": 0,
+    "spellingUpdates": []
+   }
+  },
+  {
+   "id": "ur.jalandhry",
+   "kind": "translation",
+   "lang": "ur",
+   "file": "ur.jalandhry.txt",
+   "version": "Tanzil translation ur.jalandhry, last updated December 24, 2010",
+   "verses": 6236,
+   "sha256": "23ba6c3120a782de230d6be8807222e70ca62ce5ff8a7cb360a22e8201bda481",
+   "surahs": [
+    "c50ff01c7ff2a8ffe217b30d4461a33910b79f2450e920dd42b421e879624c4c",
+    "df9f8471f954a0f08483d4735591013cb40997a2892ac35466f2a8ef0862aa3c",
+    "c86e4980622adaf18e47e26dff20c02082f02d4bd22d953650f94e7e326fe5d7",
+    "a5d6de424bf16e8220ba2a4569a9078208bdae7420c522e8aab196598880766c",
+    "6f43f58ce5505d8d9911e9b84508ba6928374527ca6309fb01479bd7e3c4e9a9",
+    "4097975046f64441e635f78d2de43057d5593be44ada9ca890cc93ea08d773d3",
+    "57dd84e2c280d6231c96a9fc68c12afb732893d9cb04998e7fb973a173997793",
+    "cf4c21d23d7621b54def7966330bd28d7db85c5fce6e5530a8caffcd773a4a61",
+    "3acf5e23a42dda155de7f390d7efdadecbf7cdcb70816badc85463f33be70fd4",
+    "1d9345c96accaec1cbaa51edca1d6b306655f8865f5d8cc938812bcf69f5ce20",
+    "4f266f47b0d55a0a606943fc6d264929dc221aa43556d53c6e15563d14a81678",
+    "ae5dadda0963a9776d0da3f1fb57ccedda091498748d3505cb86cd7370a72170",
+    "0e95e14b8a6e97d4914d3e35cb9630d5466b0fff3909fc72378906d0e08958df",
+    "d21685b802806be0b378b368e8cdc06fb5cf77ffa05a5dd8e850b73498a25334",
+    "77322ecc061e867d31dd7d9fa1d6e0be131822bc2e9b941b810db1f2f3948eae",
+    "0cce31b966cb54408bf58ec2390c622bfa9a46d46db86614e217b5b6778cf521",
+    "956f32e33815c4413885409fe1835b962c1baf53d243e149b6950b19a257752c",
+    "c82746a4091d55cce3a5056a247e540a0891848974745f351127fe733c0f5aa6",
+    "1efc3fcb59084ca89c9baf7f1ac9a15d012e17b9da0149f99a3c6ef1be1ad9fe",
+    "461da47d5c36b5cf3577085e4c74e1e832ceb44550898a0f03ba35554b5954fa",
+    "343a2d7cb2a22f6a3db1c8eabdac20521eb5e8596b7c7f119a2d107b6fb524ac",
+    "e18a2cc519f3d28ad94e2b56498f70be2b94f2ea5b3700e4d3ce22d60d88a6bd",
+    "328513770d6e931de36276e78a6c0fcc982854dd4de9c4346e96e2ce7855dc34",
+    "1baa5a52dfd71bd40737fa2f7935048c9a42e51a2c66bdae8bf2264a9533b754",
+    "ab2db4ccc96243e4f4cda09e28dc6cf4801396e4b5dda89e8a0a00fb3b1d703b",
+    "cad4b118e9c5f52b593e9960e51f43d7a2d842e10f4434f16bfc8db79cf054b2",
+    "b5b77bc80d7d7e72fb6ef4d4739af480671ea03ba5ba5c208b5288ffc7663630",
+    "7a1f4e211b6137f121e8808404176e586216850e9ba7c7614e23640ccd633ac0",
+    "23280185a7ddda69960b6ac04dec0582dd0e7a40dbd677f18a402389748d02cb",
+    "0eb4d004f1567879d1a8ed03125dd632d4bcdd64af8b308dc0cb1397c7b908cb",
+    "5c3b1f370b822826c49bdd5e11c6157f4c849c1549bbb3bc8292357f08ac121f",
+    "6db6233b34dd3bf68f0b08ce8ec5576d96112a3c75e2f5a408cf3a726c759cdb",
+    "10281a6f643e0d8437ea6fe108824844c4de6b74a3f1d746219468cc3a868984",
+    "ef6efc4831a5154c94911c601bb7f683df2cdc646c167aaf3ad5aa27dff112dd",
+    "c1be4aea65909d85241980bb1c8304df69d5e75a16c01025290c39fdf0360b0b",
+    "222530889fa8fc0e8e91006f78f84c9b3c7c61b7b895c1fd79c4bbc36f190a6b",
+    "661a95b58ab45ae98c9f2011ca3aa756ec1e18adffdc56fa05b75a722d0f3071",
+    "765f73b69c8956b77f33f4ea21b75f351bf4bfb320aa08db61d4189f2297c0be",
+    "9ff040315e65d776bef045a3c291a764f3b4a902656237bdef1b05e773bc8944",
+    "c5a700a12efac186305c44af3877ae50477142918aea98c741249e0bd8264cf3",
+    "b5f250851f6c587da7fcc59b916ba37d20b63698c2fe983dbdba6c0ef8712f83",
+    "98c54b2aab050fe018a8d0d7e332493552b94d657ab90fd4236e2acc7cd9f67c",
+    "0ff4319caa2d2a313859710655f18c3bf3fcdd082e662ad0e707fef927c2eb46",
+    "8949f186430a37ceb040fea4ad85c303e3588bd53cbcb3c8c83b6d1468b0a9ca",
+    "00df7200d3ee1d1e600d04e5431b935c43c13e1d4d5b9c9aadb15124625fbef5",
+    "6caef740da759a100b45797db8558fb03eb83abc2e5b301d071ae822e4b7fe27",
+    "11e7c52518c696cee917607c67622e63a262061cd18428ee7b813be84a36c353",
+    "7565a8c39711052dc75a5e2cb7c4dfd066ddcefbda5c54614a390c27bc515ff9",
+    "d5053dc2b2cd26c21acdc81e68245346f57141aec93b301403f1da0e2eb04f5e",
+    "6e2d473a68985310c5562b0112df722bfea9e7898b5d46fa06ef9c67fba9c9b5",
+    "dffca91b9acc6ec6d5a8fcd5a5741f4340851ebda86f6c25eabf47032513b724",
+    "23e157116a560044e8d68bae804d08570a7ee5ef90815f31aa2c5b2eff8bf1e6",
+    "d2a33931d0f20c169e17f283a8d876526f4cc51eaa63fc62556e2a1f0b3457ba",
+    "f3cec1219d5655c7a769c531ab9a5d58238e9863ff4180c3c62274c4c952c821",
+    "b223f4d16df66bb9082682b29ae029efc7b1247499fb7f556146afb9db488bd5",
+    "a771d3e238340db91bde461577675f3249b9f055cb3d74d48ad4334c08671f73",
+    "ab485b4f68bc0086ea37f4feafd86f8c69ed8cea0fb2317ac68b030de3894b9b",
+    "0c818f806b47f24b7fe168d02ca27891149fc15bf474518de4e9235206834909",
+    "d00b8bab5c5332a0468f42de0111f6666aabb55659b1cd3c1be072f34b54475c",
+    "dfe2de4bae09afc1a92f141ae82d094e7972eaf5b3322fbd31d8347e2ddceecb",
+    "bea99afe71f664e7e2741d779f1761d2096e4951f49381bfa9078c96fd2fbed8",
+    "3f765a00600bdb9e9ae789a595048ba145771c3876460d46583ae1b22d55825c",
+    "54b3d44d86ca4d8ccaf5be933a91cf09836c6ac9d3be866f4f42c63dea1245fd",
+    "324a6ef821f471edcc3af8e7c97400a0fc9923c582926afb069b1810a40b5ea4",
+    "5b7dc0bab632924ee48f47c2ace1dca23fce32675b4112dd5ac1316784f7326f",
+    "17ebeb57354896b29579f3a0dcf8feb990ec7de7abe9cd708edfeec0ed0d1e6e",
+    "38721f26b5a08391635ac53766e3d57f8213438aa74129fa5abbb495b25e3c44",
+    "03f77cc7c7704bbeddf3099f4406de02f6c56f5e974e9b4f40eaeffbeb0e6a06",
+    "1b4d533ed36d288377e390fe7d939bf96b25697e48cc04f8feee9b733406dc2d",
+    "977db96925deb6922908e534348dfed8ce1d766d99969f63208058b5c13f8b80",
+    "114030118bf4d1bf42e09fce89a333ffbd1b90a95f7ba7689066bfd9babedb56",
+    "cb579f0b5887002761cf21ce0d8f540815840aa6df1aa66641254336ada3dc01",
+    "698db05193acb54728b23790a00b1e0ba90e354c08ffb4ae41a1969b77d725bd",
+    "caeba92e0577c3c2b7be5d8461257a50b1c79ab51c5c47bf8594846389ae5ab5",
+    "74de97d28d85c1cf9a8fae49046c3737ee17897c09e63204f4d1f752b217ded9",
+    "5b7fbce7c00cbf2893c269ee08774a221abfe6e36313fa565c12a637988c1135",
+    "9232bcf85864081446579c5fb21580743ed41264b7c5e8c04cf4c98f50042b9e",
+    "8aec621bb1752777285443dc22606048cceefe5d644643c391253e4fbca70155",
+    "f29ebd52456b466834a03685fe9ae3c6f92a3107472035e1697f75f441473ebe",
+    "509400d24953e372fd18356e9b36d972d6441a15bc365bb5679f1283c483b467",
+    "ee9f776954d5f339db631162d96bb2e1d6666eb868613886b2787aa9cbaade3f",
+    "dd87bad6af2f030d89864770cfb4bd932347454399a353fcdb16ec32a6ef4a35",
+    "c2da374e88c205613380e1b17b84448539cb24d41bee6b1b0f9cb557cff3afb6",
+    "61b1020a97bd6a8f6cbe584806c08c8426dfb9314cdb88c76906351263339156",
+    "5911892c4f8e92e7f988bae8abafb0166a09eb889822b218850c1ce374dcd6e0",
+    "c77fe70aa082c5233f644ee4f37ad0582f0e3e2ad4deb76359c69dcef3b91229",
+    "3e1568b91c48e543d2294358b3f82ca92ae26fcf67940ebf0e868cb91f1f1c4f",
+    "8ae0c16d951e638b96a528c64a7b4952c5bc8c0e014388cb359d2f2fa2a1f426",
+    "c24d73c345ca64a5f348607e07259f21b8a588ae2e19d9f42aed3455d0df97b4",
+    "513018208ef7e9b4b0a4c40f7a9b56886d21ed34e89537201a1ff4f6cb8b0023",
+    "b4cef6bcd48befeb8e14c0f3cbda5dacf7743622f83466c8207f0b2d00d312a8",
+    "2fde843c29eb1c54e06ad83ebd2d6e9ea41f7f24e9fcf518c11d1c6becee0bc3",
+    "c2790662fc9da7491df1d7004352946fdce1293c698c7ecd4dff71606fe5f59f",
+    "52e42015f80d83bedcf92565f1ed3d28a2f4c4cbff6debe221598f0a9ad0bd48",
+    "c41ee72e77e2223dee3457a29109b1d476885169a008229744f0f5682e011849",
+    "410d205057904b8f55ed60376b27d42124f3eae3eac4b69ca42140017642238a",
+    "229d576acdceaf1a985d92a42d1d7c816e6027d5815e90f5d8e981d592efe573",
+    "b144e652ceea9b8cfcc6f6a94b1fedce5d8651027f0c1a35c174a826a6f3bb44",
+    "9929d7f05d8ff066b886b4e9ec772422b723e756c3c0d352bfd0bbc17dd3cce3",
+    "349dcbc7d63ca09e1e71f91848753b63af377c97f7f08e34c007d9a2d72a68db",
+    "59479f9eb5c1a7322f23f66ae578de64b5a289d7c078ad95de88e3d9c0ab4ff9",
+    "cf5772754ad01ccdbd889f09288dbb449d89b40d133f5ba602e4f0b8493bf1cb",
+    "6158d0df6ef27309bfa0e4fd7c4071abfc238272fbb0caaa615871b01c9b7ad3",
+    "2104db9aa4db7a99c8f12ed5ed21372e1628b5eb75879db12d451f0779a46278",
+    "b0d4b0bcee1f05c317d64ed23c61700bbc2a7f9007d97969644caf4a4c0b8a7e",
+    "3928f41f245ddcd79d353ff817fead7bf4a55a42847c6548ee0498a35a67f88e",
+    "e3cf3d0a9b85f945b835659c6c4145a7795e758200fda099e6dbe1a218c6e88b",
+    "d501ffd321bcc5484812ed495b0e5981e2138cf9c02875db3d6e118109191f4e",
+    "6b8a7aa4c6b4998217fb6f5c3bd355323feaa702931b523270dbee14c2ba71e7",
+    "aa0591e6180c62264da9ae54ffa0cacef2965fc501c7a8faa559c5d7bf0fc4de",
+    "2ff2e02cc9056991f67b8732ab15834ea5b66c8005161a058a50bb144be79998",
+    "6282631359836e31c36266ae8ea9962fbc0481ccce68fa145438c0540b0fd641",
+    "23fe024863e4b79cc2375cf7b77ac5488f54766a7d0258b8f16cef95ea1acdeb",
+    "d7a2a369df0e3e49ff47be565a5c4fc8ff91d26b7716edbc9b0128b55155aee5"
+   ],
+   "source": "https://tanzil.net/trans/?transID=ur.jalandhry&type=txt-2",
+   "downloaded": "2026-10-31T10:54:14.239Z",
+   "crossCheck": {
+    "source": "https://api.alquran.cloud/v1/quran/ur.jalandhry",
+    "identical": 6236,
+    "marksDiffer": 0,
+    "spellingUpdates": []
+   }
+  }
+ ],
+ "metadata": {
+  "source": "https://tanzil.net/res/text/metadata/quran-data.js",
+  "notice": "Quran Metadata (ver 1.0)\nCopyright (C) 2008-2009 Tanzil.info\nLicense: Creative Commons Attribution 3.0",
+  "surahs": [
+   {
+    "n": 1,
+    "start": 0,
+    "ayahs": 7,
+    "order": 5,
+    "ar": "الفاتحة",
+    "name": "Al-Faatiha",
+    "meaning": "The Opening",
+    "type": "Meccan"
+   },
+   {
+    "n": 2,
+    "start": 7,
+    "ayahs": 286,
+    "order": 87,
+    "ar": "البقرة",
+    "name": "Al-Baqara",
+    "meaning": "The Cow",
+    "type": "Medinan"
+   },
+   {
+    "n": 3,
+    "start": 293,
+    "ayahs": 200,
+    "order": 89,
+    "ar": "آل عمران",
+    "name": "Aal-i-Imraan",
+    "meaning": "The Family of Imraan",
+    "type": "Medinan"
+   },
+   {
+    "n": 4,
+    "start": 493,
+    "ayahs": 176,
+    "order": 92,
+    "ar": "النساء",
+    "name": "An-Nisaa",
+    "meaning": "The Women",
+    "type": "Medinan"
+   },
+   {
+    "n": 5,
+    "start": 669,
+    "ayahs": 120,
+    "order": 112,
+    "ar": "المائدة",
+    "name": "Al-Maaida",
+    "meaning": "The Table",
+    "type": "Medinan"
+   },
+   {
+    "n": 6,
+    "start": 789,
+    "ayahs": 165,
+    "order": 55,
+    "ar": "الأنعام",
+    "name": "Al-An'aam",
+    "meaning": "The Cattle",
+    "type": "Meccan"
+   },
+   {
+    "n": 7,
+    "start": 954,
+    "ayahs": 206,
+    "order": 39,
+    "ar": "الأعراف",
+    "name": "Al-A'raaf",
+    "meaning": "The Heights",
+    "type": "Meccan"
+   },
+   {
+    "n": 8,
+    "start": 1160,
+    "ayahs": 75,
+    "order": 88,
+    "ar": "الأنفال",
+    "name": "Al-Anfaal",
+    "meaning": "The Spoils of War",
+    "type": "Medinan"
+   },
+   {
+    "n": 9,
+    "start": 1235,
+    "ayahs": 129,
+    "order": 113,
+    "ar": "التوبة",
+    "name": "At-Tawba",
+    "meaning": "The Repentance",
+    "type": "Medinan"
+   },
+   {
+    "n": 10,
+    "start": 1364,
+    "ayahs": 109,
+    "order": 51,
+    "ar": "يونس",
+    "name": "Yunus",
+    "meaning": "Jonas",
+    "type": "Meccan"
+   },
+   {
+    "n": 11,
+    "start": 1473,
+    "ayahs": 123,
+    "order": 52,
+    "ar": "هود",
+    "name": "Hud",
+    "meaning": "Hud",
+    "type": "Meccan"
+   },
+   {
+    "n": 12,
+    "start": 1596,
+    "ayahs": 111,
+    "order": 53,
+    "ar": "يوسف",
+    "name": "Yusuf",
+    "meaning": "Joseph",
+    "type": "Meccan"
+   },
+   {
+    "n": 13,
+    "start": 1707,
+    "ayahs": 43,
+    "order": 96,
+    "ar": "الرعد",
+    "name": "Ar-Ra'd",
+    "meaning": "The Thunder",
+    "type": "Medinan"
+   },
+   {
+    "n": 14,
+    "start": 1750,
+    "ayahs": 52,
+    "order": 72,
+    "ar": "ابراهيم",
+    "name": "Ibrahim",
+    "meaning": "Abraham",
+    "type": "Meccan"
+   },
+   {
+    "n": 15,
+    "start": 1802,
+    "ayahs": 99,
+    "order": 54,
+    "ar": "الحجر",
+    "name": "Al-Hijr",
+    "meaning": "The Rock",
+    "type": "Meccan"
+   },
+   {
+    "n": 16,
+    "start": 1901,
+    "ayahs": 128,
+    "order": 70,
+    "ar": "النحل",
+    "name": "An-Nahl",
+    "meaning": "The Bee",
+    "type": "Meccan"
+   },
+   {
+    "n": 17,
+    "start": 2029,
+    "ayahs": 111,
+    "order": 50,
+    "ar": "الإسراء",
+    "name": "Al-Israa",
+    "meaning": "The Night Journey",
+    "type": "Meccan"
+   },
+   {
+    "n": 18,
+    "start": 2140,
+    "ayahs": 110,
+    "order": 69,
+    "ar": "الكهف",
+    "name": "Al-Kahf",
+    "meaning": "The Cave",
+    "type": "Meccan"
+   },
+   {
+    "n": 19,
+    "start": 2250,
+    "ayahs": 98,
+    "order": 44,
+    "ar": "مريم",
+    "name": "Maryam",
+    "meaning": "Mary",
+    "type": "Meccan"
+   },
+   {
+    "n": 20,
+    "start": 2348,
+    "ayahs": 135,
+    "order": 45,
+    "ar": "طه",
+    "name": "Taa-Haa",
+    "meaning": "Taa-Haa",
+    "type": "Meccan"
+   },
+   {
+    "n": 21,
+    "start": 2483,
+    "ayahs": 112,
+    "order": 73,
+    "ar": "الأنبياء",
+    "name": "Al-Anbiyaa",
+    "meaning": "The Prophets",
+    "type": "Meccan"
+   },
+   {
+    "n": 22,
+    "start": 2595,
+    "ayahs": 78,
+    "order": 103,
+    "ar": "الحج",
+    "name": "Al-Hajj",
+    "meaning": "The Pilgrimage",
+    "type": "Medinan"
+   },
+   {
+    "n": 23,
+    "start": 2673,
+    "ayahs": 118,
+    "order": 74,
+    "ar": "المؤمنون",
+    "name": "Al-Muminoon",
+    "meaning": "The Believers",
+    "type": "Meccan"
+   },
+   {
+    "n": 24,
+    "start": 2791,
+    "ayahs": 64,
+    "order": 102,
+    "ar": "النور",
+    "name": "An-Noor",
+    "meaning": "The Light",
+    "type": "Medinan"
+   },
+   {
+    "n": 25,
+    "start": 2855,
+    "ayahs": 77,
+    "order": 42,
+    "ar": "الفرقان",
+    "name": "Al-Furqaan",
+    "meaning": "The Criterion",
+    "type": "Meccan"
+   },
+   {
+    "n": 26,
+    "start": 2932,
+    "ayahs": 227,
+    "order": 47,
+    "ar": "الشعراء",
+    "name": "Ash-Shu'araa",
+    "meaning": "The Poets",
+    "type": "Meccan"
+   },
+   {
+    "n": 27,
+    "start": 3159,
+    "ayahs": 93,
+    "order": 48,
+    "ar": "النمل",
+    "name": "An-Naml",
+    "meaning": "The Ant",
+    "type": "Meccan"
+   },
+   {
+    "n": 28,
+    "start": 3252,
+    "ayahs": 88,
+    "order": 49,
+    "ar": "القصص",
+    "name": "Al-Qasas",
+    "meaning": "The Stories",
+    "type": "Meccan"
+   },
+   {
+    "n": 29,
+    "start": 3340,
+    "ayahs": 69,
+    "order": 85,
+    "ar": "العنكبوت",
+    "name": "Al-Ankaboot",
+    "meaning": "The Spider",
+    "type": "Meccan"
+   },
+   {
+    "n": 30,
+    "start": 3409,
+    "ayahs": 60,
+    "order": 84,
+    "ar": "الروم",
+    "name": "Ar-Room",
+    "meaning": "The Romans",
+    "type": "Meccan"
+   },
+   {
+    "n": 31,
+    "start": 3469,
+    "ayahs": 34,
+    "order": 57,
+    "ar": "لقمان",
+    "name": "Luqman",
+    "meaning": "Luqman",
+    "type": "Meccan"
+   },
+   {
+    "n": 32,
+    "start": 3503,
+    "ayahs": 30,
+    "order": 75,
+    "ar": "السجدة",
+    "name": "As-Sajda",
+    "meaning": "The Prostration",
+    "type": "Meccan"
+   },
+   {
+    "n": 33,
+    "start": 3533,
+    "ayahs": 73,
+    "order": 90,
+    "ar": "الأحزاب",
+    "name": "Al-Ahzaab",
+    "meaning": "The Clans",
+    "type": "Medinan"
+   },
+   {
+    "n": 34,
+    "start": 3606,
+    "ayahs": 54,
+    "order": 58,
+    "ar": "سبإ",
+    "name": "Saba",
+    "meaning": "Sheba",
+    "type": "Meccan"
+   },
+   {
+    "n": 35,
+    "start": 3660,
+    "ayahs": 45,
+    "order": 43,
+    "ar": "فاطر",
+    "name": "Faatir",
+    "meaning": "The Originator",
+    "type": "Meccan"
+   },
+   {
+    "n": 36,
+    "start": 3705,
+    "ayahs": 83,
+    "order": 41,
+    "ar": "يس",
+    "name": "Yaseen",
+    "meaning": "Yaseen",
+    "type": "Meccan"
+   },
+   {
+    "n": 37,
+    "start": 3788,
+    "ayahs": 182,
+    "order": 56,
+    "ar": "الصافات",
+    "name": "As-Saaffaat",
+    "meaning": "Those drawn up in Ranks",
+    "type": "Meccan"
+   },
+   {
+    "n": 38,
+    "start": 3970,
+    "ayahs": 88,
+    "order": 38,
+    "ar": "ص",
+    "name": "Saad",
+    "meaning": "The letter Saad",
+    "type": "Meccan"
+   },
+   {
+    "n": 39,
+    "start": 4058,
+    "ayahs": 75,
+    "order": 59,
+    "ar": "الزمر",
+    "name": "Az-Zumar",
+    "meaning": "The Groups",
+    "type": "Meccan"
+   },
+   {
+    "n": 40,
+    "start": 4133,
+    "ayahs": 85,
+    "order": 60,
+    "ar": "غافر",
+    "name": "Al-Ghaafir",
+    "meaning": "The Forgiver",
+    "type": "Meccan"
+   },
+   {
+    "n": 41,
+    "start": 4218,
+    "ayahs": 54,
+    "order": 61,
+    "ar": "فصلت",
+    "name": "Fussilat",
+    "meaning": "Explained in detail",
+    "type": "Meccan"
+   },
+   {
+    "n": 42,
+    "start": 4272,
+    "ayahs": 53,
+    "order": 62,
+    "ar": "الشورى",
+    "name": "Ash-Shura",
+    "meaning": "Consultation",
+    "type": "Meccan"
+   },
+   {
+    "n": 43,
+    "start": 4325,
+    "ayahs": 89,
+    "order": 63,
+    "ar": "الزخرف",
+    "name": "Az-Zukhruf",
+    "meaning": "Ornaments of gold",
+    "type": "Meccan"
+   },
+   {
+    "n": 44,
+    "start": 4414,
+    "ayahs": 59,
+    "order": 64,
+    "ar": "الدخان",
+    "name": "Ad-Dukhaan",
+    "meaning": "The Smoke",
+    "type": "Meccan"
+   },
+   {
+    "n": 45,
+    "start": 4473,
+    "ayahs": 37,
+    "order": 65,
+    "ar": "الجاثية",
+    "name": "Al-Jaathiya",
+    "meaning": "Crouching",
+    "type": "Meccan"
+   },
+   {
+    "n": 46,
+    "start": 4510,
+    "ayahs": 35,
+    "order": 66,
+    "ar": "الأحقاف",
+    "name": "Al-Ahqaf",
+    "meaning": "The Dunes",
+    "type": "Meccan"
+   },
+   {
+    "n": 47,
+    "start": 4545,
+    "ayahs": 38,
+    "order": 95,
+    "ar": "محمد",
+    "name": "Muhammad",
+    "meaning": "Muhammad",
+    "type": "Medinan"
+   },
+   {
+    "n": 48,
+    "start": 4583,
+    "ayahs": 29,
+    "order": 111,
+    "ar": "الفتح",
+    "name": "Al-Fath",
+    "meaning": "The Victory",
+    "type": "Medinan"
+   },
+   {
+    "n": 49,
+    "start": 4612,
+    "ayahs": 18,
+    "order": 106,
+    "ar": "الحجرات",
+    "name": "Al-Hujuraat",
+    "meaning": "The Inner Apartments",
+    "type": "Medinan"
+   },
+   {
+    "n": 50,
+    "start": 4630,
+    "ayahs": 45,
+    "order": 34,
+    "ar": "ق",
+    "name": "Qaaf",
+    "meaning": "The letter Qaaf",
+    "type": "Meccan"
+   },
+   {
+    "n": 51,
+    "start": 4675,
+    "ayahs": 60,
+    "order": 67,
+    "ar": "الذاريات",
+    "name": "Adh-Dhaariyat",
+    "meaning": "The Winnowing Winds",
+    "type": "Meccan"
+   },
+   {
+    "n": 52,
+    "start": 4735,
+    "ayahs": 49,
+    "order": 76,
+    "ar": "الطور",
+    "name": "At-Tur",
+    "meaning": "The Mount",
+    "type": "Meccan"
+   },
+   {
+    "n": 53,
+    "start": 4784,
+    "ayahs": 62,
+    "order": 23,
+    "ar": "النجم",
+    "name": "An-Najm",
+    "meaning": "The Star",
+    "type": "Meccan"
+   },
+   {
+    "n": 54,
+    "start": 4846,
+    "ayahs": 55,
+    "order": 37,
+    "ar": "القمر",
+    "name": "Al-Qamar",
+    "meaning": "The Moon",
+    "type": "Meccan"
+   },
+   {
+    "n": 55,
+    "start": 4901,
+    "ayahs": 78,
+    "order": 97,
+    "ar": "الرحمن",
+    "name": "Ar-Rahmaan",
+    "meaning": "The Beneficent",
+    "type": "Medinan"
+   },
+   {
+    "n": 56,
+    "start": 4979,
+    "ayahs": 96,
+    "order": 46,
+    "ar": "الواقعة",
+    "name": "Al-Waaqia",
+    "meaning": "The Inevitable",
+    "type": "Meccan"
+   },
+   {
+    "n": 57,
+    "start": 5075,
+    "ayahs": 29,
+    "order": 94,
+    "ar": "الحديد",
+    "name": "Al-Hadid",
+    "meaning": "The Iron",
+    "type": "Medinan"
+   },
+   {
+    "n": 58,
+    "start": 5104,
+    "ayahs": 22,
+    "order": 105,
+    "ar": "المجادلة",
+    "name": "Al-Mujaadila",
+    "meaning": "The Pleading Woman",
+    "type": "Medinan"
+   },
+   {
+    "n": 59,
+    "start": 5126,
+    "ayahs": 24,
+    "order": 101,
+    "ar": "الحشر",
+    "name": "Al-Hashr",
+    "meaning": "The Exile",
+    "type": "Medinan"
+   },
+   {
+    "n": 60,
+    "start": 5150,
+    "ayahs": 13,
+    "order": 91,
+    "ar": "الممتحنة",
+    "name": "Al-Mumtahana",
+    "meaning": "She that is to be examined",
+    "type": "Medinan"
+   },
+   {
+    "n": 61,
+    "start": 5163,
+    "ayahs": 14,
+    "order": 109,
+    "ar": "الصف",
+    "name": "As-Saff",
+    "meaning": "The Ranks",
+    "type": "Medinan"
+   },
+   {
+    "n": 62,
+    "start": 5177,
+    "ayahs": 11,
+    "order": 110,
+    "ar": "الجمعة",
+    "name": "Al-Jumu'a",
+    "meaning": "Friday",
+    "type": "Medinan"
+   },
+   {
+    "n": 63,
+    "start": 5188,
+    "ayahs": 11,
+    "order": 104,
+    "ar": "المنافقون",
+    "name": "Al-Munaafiqoon",
+    "meaning": "The Hypocrites",
+    "type": "Medinan"
+   },
+   {
+    "n": 64,
+    "start": 5199,
+    "ayahs": 18,
+    "order": 108,
+    "ar": "التغابن",
+    "name": "At-Taghaabun",
+    "meaning": "Mutual Disillusion",
+    "type": "Medinan"
+   },
+   {
+    "n": 65,
+    "start": 5217,
+    "ayahs": 12,
+    "order": 99,
+    "ar": "الطلاق",
+    "name": "At-Talaaq",
+    "meaning": "Divorce",
+    "type": "Medinan"
+   },
+   {
+    "n": 66,
+    "start": 5229,
+    "ayahs": 12,
+    "order": 107,
+    "ar": "التحريم",
+    "name": "At-Tahrim",
+    "meaning": "The Prohibition",
+    "type": "Medinan"
+   },
+   {
+    "n": 67,
+    "start": 5241,
+    "ayahs": 30,
+    "order": 77,
+    "ar": "الملك",
+    "name": "Al-Mulk",
+    "meaning": "The Sovereignty",
+    "type": "Meccan"
+   },
+   {
+    "n": 68,
+    "start": 5271,
+    "ayahs": 52,
+    "order": 2,
+    "ar": "القلم",
+    "name": "Al-Qalam",
+    "meaning": "The Pen",
+    "type": "Meccan"
+   },
+   {
+    "n": 69,
+    "start": 5323,
+    "ayahs": 52,
+    "order": 78,
+    "ar": "الحاقة",
+    "name": "Al-Haaqqa",
+    "meaning": "The Reality",
+    "type": "Meccan"
+   },
+   {
+    "n": 70,
+    "start": 5375,
+    "ayahs": 44,
+    "order": 79,
+    "ar": "المعارج",
+    "name": "Al-Ma'aarij",
+    "meaning": "The Ascending Stairways",
+    "type": "Meccan"
+   },
+   {
+    "n": 71,
+    "start": 5419,
+    "ayahs": 28,
+    "order": 71,
+    "ar": "نوح",
+    "name": "Nooh",
+    "meaning": "Noah",
+    "type": "Meccan"
+   },
+   {
+    "n": 72,
+    "start": 5447,
+    "ayahs": 28,
+    "order": 40,
+    "ar": "الجن",
+    "name": "Al-Jinn",
+    "meaning": "The Jinn",
+    "type": "Meccan"
+   },
+   {
+    "n": 73,
+    "start": 5475,
+    "ayahs": 20,
+    "order": 3,
+    "ar": "المزمل",
+    "name": "Al-Muzzammil",
+    "meaning": "The Enshrouded One",
+    "type": "Meccan"
+   },
+   {
+    "n": 74,
+    "start": 5495,
+    "ayahs": 56,
+    "order": 4,
+    "ar": "المدثر",
+    "name": "Al-Muddaththir",
+    "meaning": "The Cloaked One",
+    "type": "Meccan"
+   },
+   {
+    "n": 75,
+    "start": 5551,
+    "ayahs": 40,
+    "order": 31,
+    "ar": "القيامة",
+    "name": "Al-Qiyaama",
+    "meaning": "The Resurrection",
+    "type": "Meccan"
+   },
+   {
+    "n": 76,
+    "start": 5591,
+    "ayahs": 31,
+    "order": 98,
+    "ar": "الانسان",
+    "name": "Al-Insaan",
+    "meaning": "Man",
+    "type": "Medinan"
+   },
+   {
+    "n": 77,
+    "start": 5622,
+    "ayahs": 50,
+    "order": 33,
+    "ar": "المرسلات",
+    "name": "Al-Mursalaat",
+    "meaning": "The Emissaries",
+    "type": "Meccan"
+   },
+   {
+    "n": 78,
+    "start": 5672,
+    "ayahs": 40,
+    "order": 80,
+    "ar": "النبإ",
+    "name": "An-Naba",
+    "meaning": "The Announcement",
+    "type": "Meccan"
+   },
+   {
+    "n": 79,
+    "start": 5712,
+    "ayahs": 46,
+    "order": 81,
+    "ar": "النازعات",
+    "name": "An-Naazi'aat",
+    "meaning": "Those who drag forth",
+    "type": "Meccan"
+   },
+   {
+    "n": 80,
+    "start": 5758,
+    "ayahs": 42,
+    "order": 24,
+    "ar": "عبس",
+    "name": "Abasa",
+    "meaning": "He frowned",
+    "type": "Meccan"
+   },
+   {
+    "n": 81,
+    "start": 5800,
+    "ayahs": 29,
+    "order": 7,
+    "ar": "التكوير",
+    "name": "At-Takwir",
+    "meaning": "The Overthrowing",
+    "type": "Meccan"
+   },
+   {
+    "n": 82,
+    "start": 5829,
+    "ayahs": 19,
+    "order": 82,
+    "ar": "الإنفطار",
+    "name": "Al-Infitaar",
+    "meaning": "The Cleaving",
+    "type": "Meccan"
+   },
+   {
+    "n": 83,
+    "start": 5848,
+    "ayahs": 36,
+    "order": 86,
+    "ar": "المطففين",
+    "name": "Al-Mutaffifin",
+    "meaning": "Defrauding",
+    "type": "Meccan"
+   },
+   {
+    "n": 84,
+    "start": 5884,
+    "ayahs": 25,
+    "order": 83,
+    "ar": "الإنشقاق",
+    "name": "Al-Inshiqaaq",
+    "meaning": "The Splitting Open",
+    "type": "Meccan"
+   },
+   {
+    "n": 85,
+    "start": 5909,
+    "ayahs": 22,
+    "order": 27,
+    "ar": "البروج",
+    "name": "Al-Burooj",
+    "meaning": "The Constellations",
+    "type": "Meccan"
+   },
+   {
+    "n": 86,
+    "start": 5931,
+    "ayahs": 17,
+    "order": 36,
+    "ar": "الطارق",
+    "name": "At-Taariq",
+    "meaning": "The Morning Star",
+    "type": "Meccan"
+   },
+   {
+    "n": 87,
+    "start": 5948,
+    "ayahs": 19,
+    "order": 8,
+    "ar": "الأعلى",
+    "name": "Al-A'laa",
+    "meaning": "The Most High",
+    "type": "Meccan"
+   },
+   {
+    "n": 88,
+    "start": 5967,
+    "ayahs": 26,
+    "order": 68,
+    "ar": "الغاشية",
+    "name": "Al-Ghaashiya",
+    "meaning": "The Overwhelming",
+    "type": "Meccan"
+   },
+   {
+    "n": 89,
+    "start": 5993,
+    "ayahs": 30,
+    "order": 10,
+    "ar": "الفجر",
+    "name": "Al-Fajr",
+    "meaning": "The Dawn",
+    "type": "Meccan"
+   },
+   {
+    "n": 90,
+    "start": 6023,
+    "ayahs": 20,
+    "order": 35,
+    "ar": "البلد",
+    "name": "Al-Balad",
+    "meaning": "The City",
+    "type": "Meccan"
+   },
+   {
+    "n": 91,
+    "start": 6043,
+    "ayahs": 15,
+    "order": 26,
+    "ar": "الشمس",
+    "name": "Ash-Shams",
+    "meaning": "The Sun",
+    "type": "Meccan"
+   },
+   {
+    "n": 92,
+    "start": 6058,
+    "ayahs": 21,
+    "order": 9,
+    "ar": "الليل",
+    "name": "Al-Lail",
+    "meaning": "The Night",
+    "type": "Meccan"
+   },
+   {
+    "n": 93,
+    "start": 6079,
+    "ayahs": 11,
+    "order": 11,
+    "ar": "الضحى",
+    "name": "Ad-Dhuhaa",
+    "meaning": "The Morning Hours",
+    "type": "Meccan"
+   },
+   {
+    "n": 94,
+    "start": 6090,
+    "ayahs": 8,
+    "order": 12,
+    "ar": "الشرح",
+    "name": "Ash-Sharh",
+    "meaning": "The Consolation",
+    "type": "Meccan"
+   },
+   {
+    "n": 95,
+    "start": 6098,
+    "ayahs": 8,
+    "order": 28,
+    "ar": "التين",
+    "name": "At-Tin",
+    "meaning": "The Fig",
+    "type": "Meccan"
+   },
+   {
+    "n": 96,
+    "start": 6106,
+    "ayahs": 19,
+    "order": 1,
+    "ar": "العلق",
+    "name": "Al-Alaq",
+    "meaning": "The Clot",
+    "type": "Meccan"
+   },
+   {
+    "n": 97,
+    "start": 6125,
+    "ayahs": 5,
+    "order": 25,
+    "ar": "القدر",
+    "name": "Al-Qadr",
+    "meaning": "The Power, Fate",
+    "type": "Meccan"
+   },
+   {
+    "n": 98,
+    "start": 6130,
+    "ayahs": 8,
+    "order": 100,
+    "ar": "البينة",
+    "name": "Al-Bayyina",
+    "meaning": "The Evidence",
+    "type": "Medinan"
+   },
+   {
+    "n": 99,
+    "start": 6138,
+    "ayahs": 8,
+    "order": 93,
+    "ar": "الزلزلة",
+    "name": "Az-Zalzala",
+    "meaning": "The Earthquake",
+    "type": "Medinan"
+   },
+   {
+    "n": 100,
+    "start": 6146,
+    "ayahs": 11,
+    "order": 14,
+    "ar": "العاديات",
+    "name": "Al-Aadiyaat",
+    "meaning": "The Chargers",
+    "type": "Meccan"
+   },
+   {
+    "n": 101,
+    "start": 6157,
+    "ayahs": 11,
+    "order": 30,
+    "ar": "القارعة",
+    "name": "Al-Qaari'a",
+    "meaning": "The Calamity",
+    "type": "Meccan"
+   },
+   {
+    "n": 102,
+    "start": 6168,
+    "ayahs": 8,
+    "order": 16,
+    "ar": "التكاثر",
+    "name": "At-Takaathur",
+    "meaning": "Competition",
+    "type": "Meccan"
+   },
+   {
+    "n": 103,
+    "start": 6176,
+    "ayahs": 3,
+    "order": 13,
+    "ar": "العصر",
+    "name": "Al-Asr",
+    "meaning": "The Declining Day, Epoch",
+    "type": "Meccan"
+   },
+   {
+    "n": 104,
+    "start": 6179,
+    "ayahs": 9,
+    "order": 32,
+    "ar": "الهمزة",
+    "name": "Al-Humaza",
+    "meaning": "The Traducer",
+    "type": "Meccan"
+   },
+   {
+    "n": 105,
+    "start": 6188,
+    "ayahs": 5,
+    "order": 19,
+    "ar": "الفيل",
+    "name": "Al-Fil",
+    "meaning": "The Elephant",
+    "type": "Meccan"
+   },
+   {
+    "n": 106,
+    "start": 6193,
+    "ayahs": 4,
+    "order": 29,
+    "ar": "قريش",
+    "name": "Quraish",
+    "meaning": "Quraysh",
+    "type": "Meccan"
+   },
+   {
+    "n": 107,
+    "start": 6197,
+    "ayahs": 7,
+    "order": 17,
+    "ar": "الماعون",
+    "name": "Al-Maa'un",
+    "meaning": "Almsgiving",
+    "type": "Meccan"
+   },
+   {
+    "n": 108,
+    "start": 6204,
+    "ayahs": 3,
+    "order": 15,
+    "ar": "الكوثر",
+    "name": "Al-Kawthar",
+    "meaning": "Abundance",
+    "type": "Meccan"
+   },
+   {
+    "n": 109,
+    "start": 6207,
+    "ayahs": 6,
+    "order": 18,
+    "ar": "الكافرون",
+    "name": "Al-Kaafiroon",
+    "meaning": "The Disbelievers",
+    "type": "Meccan"
+   },
+   {
+    "n": 110,
+    "start": 6213,
+    "ayahs": 3,
+    "order": 114,
+    "ar": "النصر",
+    "name": "An-Nasr",
+    "meaning": "Divine Support",
+    "type": "Medinan"
+   },
+   {
+    "n": 111,
+    "start": 6216,
+    "ayahs": 5,
+    "order": 6,
+    "ar": "المسد",
+    "name": "Al-Masad",
+    "meaning": "The Palm Fibre",
+    "type": "Meccan"
+   },
+   {
+    "n": 112,
+    "start": 6221,
+    "ayahs": 4,
+    "order": 22,
+    "ar": "الإخلاص",
+    "name": "Al-Ikhlaas",
+    "meaning": "Sincerity",
+    "type": "Meccan"
+   },
+   {
+    "n": 113,
+    "start": 6225,
+    "ayahs": 5,
+    "order": 20,
+    "ar": "الفلق",
+    "name": "Al-Falaq",
+    "meaning": "The Dawn",
+    "type": "Meccan"
+   },
+   {
+    "n": 114,
+    "start": 6230,
+    "ayahs": 6,
+    "order": 21,
+    "ar": "الناس",
+    "name": "An-Naas",
+    "meaning": "Mankind",
+    "type": "Meccan"
+   }
+  ],
+  "juz": [
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    142
+   ],
+   [
+    2,
+    253
+   ],
+   [
+    3,
+    93
+   ],
+   [
+    4,
+    24
+   ],
+   [
+    4,
+    148
+   ],
+   [
+    5,
+    82
+   ],
+   [
+    6,
+    111
+   ],
+   [
+    7,
+    88
+   ],
+   [
+    8,
+    41
+   ],
+   [
+    9,
+    93
+   ],
+   [
+    11,
+    6
+   ],
+   [
+    12,
+    53
+   ],
+   [
+    15,
+    1
+   ],
+   [
+    17,
+    1
+   ],
+   [
+    18,
+    75
+   ],
+   [
+    21,
+    1
+   ],
+   [
+    23,
+    1
+   ],
+   [
+    25,
+    21
+   ],
+   [
+    27,
+    56
+   ],
+   [
+    29,
+    46
+   ],
+   [
+    33,
+    31
+   ],
+   [
+    36,
+    28
+   ],
+   [
+    39,
+    32
+   ],
+   [
+    41,
+    47
+   ],
+   [
+    46,
+    1
+   ],
+   [
+    51,
+    31
+   ],
+   [
+    58,
+    1
+   ],
+   [
+    67,
+    1
+   ],
+   [
+    78,
+    1
+   ]
+  ],
+  "sajda": [
+   [
+    7,
+    206,
+    "recommended"
+   ],
+   [
+    13,
+    15,
+    "recommended"
+   ],
+   [
+    16,
+    50,
+    "recommended"
+   ],
+   [
+    17,
+    109,
+    "recommended"
+   ],
+   [
+    19,
+    58,
+    "recommended"
+   ],
+   [
+    22,
+    18,
+    "recommended"
+   ],
+   [
+    22,
+    77,
+    "recommended"
+   ],
+   [
+    25,
+    60,
+    "recommended"
+   ],
+   [
+    27,
+    26,
+    "recommended"
+   ],
+   [
+    32,
+    15,
+    "obligatory"
+   ],
+   [
+    38,
+    24,
+    "recommended"
+   ],
+   [
+    41,
+    38,
+    "obligatory"
+   ],
+   [
+    53,
+    62,
+    "obligatory"
+   ],
+   [
+    84,
+    21,
+    "recommended"
+   ],
+   [
+    96,
+    19,
+    "obligatory"
+   ]
+  ]
+ }
+}
